@@ -1,0 +1,65 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.buildlog/
+.history
+.project
+.settings/
+.vscode/
+
+# Archives & Output files (User Global Rules)
+*.zip
+*.tar
+*.gz
+*.rar
+*.7z
+*.gpx
+*.kml
+*.kmz
+*.db
+*.isar
+
+# Flutter/Dart specific
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+/build/
+
+# Android specific
+.gradle/
+local.properties
+*.apk
+*.ap_
+*.aab
+*.dex
+
+# iOS specific
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+xcuserdata/
+DerivedData/
+Helper/
+Podfile.lock
+Pods/
+.symlinks/
+profile
+*.ipa
+*.bundle
+*.xcworkspace
+
+# Python Specific (User Global Rules)
+.venv/
+venv/
+ENV/
+__pycache__/
+uv.lock
+docs/*
