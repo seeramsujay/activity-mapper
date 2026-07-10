@@ -1,0 +1,29 @@
+name: activity_mapper
+description: An ultra-lightweight, offline-first GPS activity tracking application designed to solve fatigue asymmetry on out-and-back routes.
+version: 1.0.0+1
+
+publish_to: 'none' # Prevent accidental publishing to pub.dev
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Local shared SQLite Database
+  sqflite: ^2.3.0
+  path: ^1.8.3
+  path_provider: ^2.1.1
+  archive: ^3.3.0
+
+  # Cupertion & Material Icons
+  cupertino_icons: ^1.0.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true

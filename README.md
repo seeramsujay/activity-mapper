@@ -5,7 +5,7 @@ An ultra-lightweight, offline-first GPS activity tracking mobile application des
 ## 🚀 Core Features
 
 - **The 54% Turn-Back Engine:** Monitors elapsed time against your target limit and alerts you when exactly 54% of the time remains (meaning you have spent 46% of the target time), leaving a 4% safety margin (an 8% absolute time allocation buffer for the return leg) to account for muscular fatigue, headwinds, or uphill climbs on the way back.
-- **Sunlight-Optimized UI:** High-contrast AMOLED-black interface designed to prevent thermal throttling and maximize battery runtime in direct sunlight. Uses local vector tiles (`.mbtiles`) mapped to bitmap canvases for zero-bloat map rendering.
+- **Sunlight-Optimized UI:** Designed to combat screen reflections and glare. The app features a primary **Ultra-High-Contrast Light Theme** (pure white background with heavy black typography) for superior legibility under direct sunlight, alongside a **Monochrome AMOLED Black Theme** for battery preservation. Uses local vector tiles (`.mbtiles`) mapped to bitmap canvases for zero-bloat map rendering.
 - **Dynamic Velocity Metrics:** Automatically switches metric display formats at **18 km/h** (~3:20 min/km):
   - *Pedestrian speed (< 18 km/h):* Runner-centric pace format (`min/km`).
   - *Transit speed (≥ 18 km/h):* Cyclist-centric speed format (`km/h`).
