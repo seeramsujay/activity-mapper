@@ -17,6 +17,22 @@ class _SetupScreenState extends State<SetupScreen> {
   int _gpsIntervalMs = 5000;
 
   bool _isLaunching = false;
+  List<Map<String, dynamic>> _completedSessions = [];
+  int? _selectedReferenceSessionId;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCompletedSessions();
+  }
+
+  Future<void> _loadCompletedSessions() async {
+    final dbHelper = DbService.instance;
+    final sessions = await dbHelper.getSessions();
+    setState(() {
+      _completedSessions = sessions.where((s) => s['status'] == 'completed').toList();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -146,6 +162,35 @@ class _SetupScreenState extends State<SetupScreen> {
                             if (val != null) setState(() => _gpsIntervalMs = val);
                           },
                         ),
+                        const SizedBox(height: 24),
+
+                        // Reference Route Guidance
+                        _buildLabel('Reference Route Guidance', _selectedReferenceSessionId != null ? 'Active' : 'None'),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<int?>(
+                          value: _selectedReferenceSessionId,
+                          dropdownColor: brightness == Brightness.light ? Colors.white : Colors.black,
+                          decoration: InputDecoration(
+                            enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: textColor, width: 1.5)),
+                            focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: textColor, width: 2.0)),
+                          ),
+                          hint: const Text('SELECT A PAST RUN TO FOLLOW (OPTIONAL)'),
+                          items: [
+                            const DropdownMenuItem<int?>(value: null, child: Text('NONE - FREE TRACKING')),
+                            ..._completedSessions.map((s) {
+                              final date = DateTime.fromMillisecondsSinceEpoch(s['start_time'] as int);
+                              final type = (s['activity_type'] as String).toUpperCase();
+                              final duration = (s['target_duration'] as int) ~/ 60;
+                              return DropdownMenuItem<int?>(
+                                value: s['id'] as int,
+                                child: Text('$type - ${date.month}/${date.day} (${duration}m)'),
+                              );
+                            }),
+                          ],
+                          onChanged: (val) {
+                            setState(() => _selectedReferenceSessionId = val);
+                          },
+                        ),
                       ],
                     ),
                   ),
@@ -180,7 +225,7 @@ class _SetupScreenState extends State<SetupScreen> {
   Widget _buildLabel(String title, String value) {
     final Color textColor = Theme.of(context).brightness == Brightness.light ? Colors.black : Colors.white;
     return Row(
-      mainAxisAlignment: MainAxisAlignment.between,
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
         Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: textColor)),
@@ -220,6 +265,7 @@ class _SetupScreenState extends State<SetupScreen> {
               targetDuration: Duration(minutes: _targetDurationMinutes),
               safetyBufferPct: _safetyBufferPct,
               activityType: _activityType,
+              referenceSessionId: _selectedReferenceSessionId,
             ),
           ),
         );

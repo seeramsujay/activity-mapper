@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter_test/flutter_test.dart';
+import '../lib/services/rally_service.dart';
 
 // -----------------------------------------------------------------------------
 // Core Algorithms extracted from UI/Services for isolated mathematical testing
@@ -330,6 +331,43 @@ void main() {
       processLocationEvent(1.2, 5.8);
       expect(isPowerSaveModeActive, isFalse);
       expect(consecutiveStopsCount, 0);
+    });
+  });
+
+  group('9. Rally Navigation Engine tests', () {
+    test('Correctly identifies right and left turns from bearing changes', () {
+      final mockReferenceRoute = [
+        {'lat': 0.0, 'lng': 0.0, 'timestamp': 1000},
+        {'lat': 0.001, 'lng': 0.0, 'timestamp': 2000}, // Moving North
+        {'lat': 0.002, 'lng': 0.0, 'timestamp': 3000},
+        {'lat': 0.002, 'lng': 0.001, 'timestamp': 4000}, // Turned East (Right Turn)
+        {'lat': 0.002, 'lng': 0.002, 'timestamp': 5000},
+        {'lat': 0.003, 'lng': 0.002, 'timestamp': 6000}, // Turned North again (Left Turn)
+      ];
+
+      final engine = RallyNavigationEngine(referencePoints: mockReferenceRoute);
+
+      // Verify cues list: should contain START, RIGHT TURN, LEFT TURN, and ARRIVAL
+      expect(engine.cues.length, greaterThanOrEqualTo(3));
+      
+      // Right turn bearing check
+      final rightCue = engine.cues.firstWhere((c) => c.type == TurnType.right || c.type == TurnType.sharpRight);
+      expect(rightCue.description, contains('RIGHT'));
+
+      // Left turn bearing check
+      final leftCue = engine.cues.firstWhere((c) => c.type == TurnType.left || c.type == TurnType.sharpLeft);
+      expect(leftCue.description, contains('LEFT'));
+
+      // Test user status updates (on-route vs off-route)
+      // 1. User is on route (very close to coordinate points)
+      final onRouteState = engine.updateNavigation(0.001, 0.0);
+      expect(onRouteState.isOffRoute, isFalse);
+      expect(onRouteState.distanceToNextCueMeters, greaterThan(0));
+
+      // 2. User drifts off course (more than 50 meters)
+      // 0.001 degrees lat ≈ 111 meters, so moving off-route by 0.001 should trigger off-route state
+      final offRouteState = engine.updateNavigation(0.001, 0.001);
+      expect(offRouteState.isOffRoute, isTrue);
     });
   });
 }

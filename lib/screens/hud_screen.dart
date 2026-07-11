@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../services/db_service.dart';
 import '../services/platform_service.dart';
 import '../services/gpx_service.dart';
+import '../services/rally_service.dart';
 import '../widgets/breadcrumb_painter.dart';
 
 class HudScreen extends StatefulWidget {
@@ -11,6 +13,7 @@ class HudScreen extends StatefulWidget {
   final Duration targetDuration;
   final double safetyBufferPct;
   final String activityType;
+  final int? referenceSessionId;
 
   const HudScreen({
     super.key,
@@ -18,6 +21,7 @@ class HudScreen extends StatefulWidget {
     required this.targetDuration,
     required this.safetyBufferPct,
     required this.activityType,
+    this.referenceSessionId,
   });
 
   @override
@@ -50,7 +54,12 @@ class _HudScreenState extends State<HudScreen> {
   // Tracking control state
   bool _isPaused = false;
   bool _turnBackTriggered = false;
+  bool _confirmSaveState = false;
   int? _lastTimestamp;
+
+  // Rally navigation state variables
+  RallyNavigationEngine? _rallyEngine;
+  RallyNavigationState? _rallyState;
 
   // Animation for flashing warning bar
   bool _flashToggle = false;
@@ -63,8 +72,24 @@ class _HudScreenState extends State<HudScreen> {
     _isSpeedMode = widget.activityType == 'ride'; // Start in Speed for cycling, Pace for runs
 
     _loadExistingData();
+    _loadReferenceRoute();
     _startTimer();
     _startTelemetryStream();
+  }
+
+  Future<void> _loadReferenceRoute() async {
+    if (widget.referenceSessionId == null) return;
+    try {
+      final dbHelper = DbService.instance;
+      final refPoints = await dbHelper.getPoints(widget.referenceSessionId!);
+      if (refPoints.isNotEmpty) {
+        setState(() {
+          _rallyEngine = RallyNavigationEngine(referencePoints: refPoints);
+        });
+      }
+    } catch (e) {
+      print("Failed to load reference route: $e");
+    }
   }
 
   // Recover session coordinates from SQLite (WAL mode)
@@ -196,6 +221,15 @@ class _HudScreenState extends State<HudScreen> {
         }
         _lastTimestamp = timestamp;
 
+        // Update rally engine navigation state
+        if (_rallyEngine != null) {
+          final newState = _rallyEngine!.updateNavigation(lat, lng);
+          if (newState.isOffRoute && !(_rallyState?.isOffRoute ?? false)) {
+            HapticFeedback.vibrate();
+          }
+          _rallyState = newState;
+        }
+
         // Cumulative stats update
         if (_points.length > 1) {
           final lastPoint = _points[_points.length - 2];
@@ -266,11 +300,77 @@ class _HudScreenState extends State<HudScreen> {
     }
   }
 
+  IconData _getTurnIcon(TurnType? type) {
+    if (type == null) return Icons.navigation_outlined;
+    switch (type) {
+      case TurnType.left:
+        return Icons.arrow_back;
+      case TurnType.sharpLeft:
+        return Icons.keyboard_double_arrow_left;
+      case TurnType.right:
+        return Icons.arrow_forward;
+      case TurnType.sharpRight:
+        return Icons.keyboard_double_arrow_right;
+      case TurnType.uTurn:
+        return Icons.settings_backup_restore;
+      case TurnType.arrival:
+        return Icons.flag;
+      case TurnType.offRoute:
+        return Icons.warning_amber_rounded;
+      default:
+        return Icons.navigation_outlined;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final Brightness brightness = Theme.of(context).brightness;
     final Color primaryColor = brightness == Brightness.light ? Colors.black : Colors.white;
     final Color scaffoldBg = brightness == Brightness.light ? Colors.white : Colors.black;
+
+    // Full-screen Swipe Right confirmation overlay
+    if (_confirmSaveState) {
+      return Scaffold(
+        backgroundColor: Colors.red,
+        body: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onHorizontalDragEnd: (details) {
+            if (details.primaryVelocity == null) return;
+            if (details.primaryVelocity! > 0) {
+              // Swiped right again -> Save & Finish!
+              _finishSession();
+            } else if (details.primaryVelocity! < 0) {
+              // Swiped left -> Cancel!
+              setState(() {
+                _confirmSaveState = false;
+              });
+            }
+          },
+          child: const SafeArea(
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.save_alt, size: 100, color: Colors.white),
+                  SizedBox(height: 24),
+                  Text(
+                    'SWIPE RIGHT AGAIN TO SAVE',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 1.5),
+                  ),
+                  SizedBox(height: 12),
+                  Text(
+                    '◀ SWIPE LEFT TO CANCEL & RESUME',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white70),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
 
     // Turnback threshold markers
     final double outboundRatio = (100.0 - widget.safetyBufferPct) / 200.0;
@@ -279,168 +379,219 @@ class _HudScreenState extends State<HudScreen> {
 
     return Scaffold(
       backgroundColor: scaffoldBg,
-      body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Flashing turn-back alarm header
-            if (_turnBackTriggered)
-              Container(
-                color: _flashToggle ? primaryColor : Colors.red,
-                padding: const EdgeInsets.symmetric(vertical: 12.0),
-                child: Text(
-                  '// TURN BACK NOW //',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 2.0,
-                    color: _flashToggle ? scaffoldBg : Colors.white,
-                  ),
-                ),
-              ),
-
-            // Top Status Bar (Target & Timer details)
-            Padding(
-              padding: const EdgeInsets.only(left: 20, right: 20, top: 12),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.between,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('ELAPSED', style: TextStyle(fontSize: 12, color: primaryColor.withOpacity(0.6))),
-                      Text(
-                        _formatDuration(_elapsed),
-                        style: TextStyle(fontSize: 36, fontWeight: FontWeight.w900, color: primaryColor),
-                      ),
-                    ],
-                  ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        _turnBackTriggered ? 'RETURN TIMER' : 'OUTBOUND LIMIT',
-                        style: TextStyle(fontSize: 12, color: primaryColor.withOpacity(0.6)),
-                      ),
-                      Text(
-                        _turnBackTriggered
-                            ? _formatDuration(Duration(seconds: max(0, widget.targetDuration.inSeconds - _elapsed.inSeconds)))
-                            : _formatDuration(Duration(seconds: remainingSeconds)),
-                        style: TextStyle(
-                          fontSize: 36,
-                          fontWeight: FontWeight.w900,
-                          color: _turnBackTriggered ? Colors.red : primaryColor,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-            // Outbound ratio progress bar (Garmin style)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
-              child: LinearProgressIndicator(
-                value: min(1.0, _elapsed.inSeconds / outboundLimitSeconds),
-                backgroundColor: primaryColor.withOpacity(0.1),
-                color: _turnBackTriggered ? Colors.red : primaryColor,
-                minHeight: 8.0,
-              ),
-            ),
-
-            // Center: Canvas Vector Map View
-            Expanded(
-              flex: 3,
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 6.0),
-                decoration: Border.all(color: primaryColor, width: 2.5),
-                child: ClipRect(
-                  child: CustomPaint(
-                    painter: BreadcrumbPainter(points: _points, brightness: brightness),
-                    child: Align(
-                      alignment: Alignment.topLeft,
-                      child: Container(
-                        color: scaffoldBg,
-                        padding: const EdgeInsets.all(8.0),
-                        child: Text(
-                          'MAP: OFFLINE VECTOR (BREADCRUMB)',
-                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: primaryColor.withOpacity(0.5)),
-                        ),
-                      ),
+      body: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragEnd: (details) {
+          if (details.primaryVelocity == null) return;
+          if (details.primaryVelocity! < 0) {
+            // Swipe Left -> Pause or Resume!
+            _togglePause();
+          } else if (details.primaryVelocity! > 0) {
+            // Swipe Right -> Show Save confirmation screen!
+            HapticFeedback.heavyImpact();
+            setState(() {
+              _confirmSaveState = true;
+            });
+          }
+        },
+        onLongPress: () {
+          // Long press -> Acknowledge and dismiss Turn-Back alert
+          if (_turnBackTriggered) {
+            HapticFeedback.mediumImpact();
+            setState(() {
+              _turnBackTriggered = false;
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('ALERT ACKNOWLEDGED')),
+            );
+          }
+        },
+        child: SafeArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Flashing turn-back alarm header
+              if (_turnBackTriggered)
+                Container(
+                  color: _flashToggle ? primaryColor : Colors.red,
+                  padding: const EdgeInsets.symmetric(vertical: 12.0),
+                  child: Text(
+                    '// TURN BACK NOW //',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 2.0,
+                      color: _flashToggle ? scaffoldBg : Colors.white,
                     ),
                   ),
                 ),
-              ),
-            ),
 
-            // Bottom: Sunlight-Readable Dashboard Grid
-            Expanded(
-              flex: 2,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20.0),
-                child: GridView.count(
-                  crossAxisCount: 2,
-                  childAspectRatio: 2.2,
-                  mainAxisSpacing: 8,
-                  crossAxisSpacing: 8,
-                  physics: const NeverScrollableScrollPhysics(),
+              // Rally Turn Navigation Panel
+              if (_rallyState != null)
+                Container(
+                  color: _rallyState!.isOffRoute ? Colors.red : primaryColor.withOpacity(0.08),
+                  padding: const EdgeInsets.symmetric(vertical: 14.0, horizontal: 16.0),
+                  decoration: BoxDecoration(
+                    border: Border(bottom: BorderSide(color: primaryColor, width: 2.0)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _getTurnIcon(_rallyState!.nextCue?.type),
+                        size: 40,
+                        color: _rallyState!.isOffRoute ? Colors.white : primaryColor,
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _rallyState!.isOffRoute ? 'OFF ROUTE!' : _rallyState!.nextCue?.description.toUpperCase() ?? 'FOLLOW ROUTE',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w900,
+                                color: _rallyState!.isOffRoute ? Colors.white : primaryColor,
+                              ),
+                            ),
+                            Text(
+                              _rallyState!.isOffRoute ? 'DRIFTED FROM PAST TRACK' : 'IN ${_rallyState!.distanceToNextCueMeters} METERS',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: _rallyState!.isOffRoute ? Colors.white.withOpacity(0.8) : primaryColor.withOpacity(0.6),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              // Top Status Bar (Target & Timer details)
+              Padding(
+                padding: const EdgeInsets.only(left: 20, right: 20, top: 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.between,
                   children: [
-                    _buildMetricBox(
-                      _isSpeedMode ? 'SPEED (KM/H)' : 'PACE (MIN/KM)',
-                      _formatSpeedOrPace(_currentSpeed),
-                      primaryColor,
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('ELAPSED', style: TextStyle(fontSize: 12, color: primaryColor.withOpacity(0.6))),
+                        Text(
+                          _formatDuration(_elapsed),
+                          style: TextStyle(fontSize: 36, fontWeight: FontWeight.w900, color: primaryColor),
+                        ),
+                      ],
                     ),
-                    _buildMetricBox('DISTANCE (KM)', _distanceKm.toStringAsFixed(2), primaryColor),
-                    _buildMetricBox('AVG SPEED (KM/H)', (_avgSpeed * 3.6).toStringAsFixed(1), primaryColor),
-                    _buildMetricBox('ALTITUDE (M)', _altitude.toStringAsFixed(0), primaryColor),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          _turnBackTriggered ? 'RETURN TIMER' : 'OUTBOUND LIMIT',
+                          style: TextStyle(fontSize: 12, color: primaryColor.withOpacity(0.6)),
+                        ),
+                        Text(
+                          _turnBackTriggered
+                              ? _formatDuration(Duration(seconds: max(0, widget.targetDuration.inSeconds - _elapsed.inSeconds)))
+                              : _formatDuration(Duration(seconds: remainingSeconds)),
+                          style: TextStyle(
+                            fontSize: 36,
+                            fontWeight: FontWeight.w900,
+                            color: _turnBackTriggered ? Colors.red : primaryColor,
+                          ),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
               ),
-            ),
 
-            // Control Buttons
-            Padding(
-              padding: const EdgeInsets.only(left: 20.0, right: 20.0, bottom: 20.0, top: 8.0),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: primaryColor,
-                        side: BorderSide(color: primaryColor, width: 2.5),
-                        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-                        padding: const EdgeInsets.symmetric(vertical: 18.0),
-                      ),
-                      onPressed: _togglePause,
-                      child: Text(
-                        _isPaused ? 'RESUME RUN' : 'PAUSE RUN',
-                        style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.0),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: primaryColor,
-                        foregroundColor: scaffoldBg,
-                        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-                        padding: const EdgeInsets.symmetric(vertical: 18.0),
-                        elevation: 0,
-                      ),
-                      onPressed: _confirmStopSession,
-                      child: const Text(
-                        'STOP & EXPORT',
-                        style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.0),
-                      ),
-                    ),
-                  ),
-                ],
+              // Outbound ratio progress bar (Garmin style)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
+                child: LinearProgressIndicator(
+                  value: min(1.0, _elapsed.inSeconds / outboundLimitSeconds),
+                  backgroundColor: primaryColor.withOpacity(0.1),
+                  color: _turnBackTriggered ? Colors.red : primaryColor,
+                  minHeight: 8.0,
+                ),
               ),
-            ),
-          ],
+
+              // Center: Canvas Vector Map View
+              Expanded(
+                flex: 3,
+                child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 6.0),
+                  decoration: Border.all(color: primaryColor, width: 2.5),
+                  child: ClipRect(
+                    child: CustomPaint(
+                      painter: BreadcrumbPainter(points: _points, brightness: brightness),
+                      child: Align(
+                        alignment: Alignment.topLeft,
+                        child: Container(
+                          color: scaffoldBg,
+                          padding: const EdgeInsets.all(8.0),
+                          child: Text(
+                            'MAP: OFFLINE VECTOR (BREADCRUMB)',
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: primaryColor.withOpacity(0.5)),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+              // Bottom: Sunlight-Readable Dashboard Grid
+              Expanded(
+                flex: 2,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                  child: GridView.count(
+                    crossAxisCount: 2,
+                    childAspectRatio: 2.2,
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 8,
+                    physics: const NeverScrollableScrollPhysics(),
+                    children: [
+                      _buildMetricBox(
+                        _isSpeedMode ? 'SPEED (KM/H)' : 'PACE (MIN/KM)',
+                        _formatSpeedOrPace(_currentSpeed),
+                        primaryColor,
+                      ),
+                      _buildMetricBox('DISTANCE (KM)', _distanceKm.toStringAsFixed(2), primaryColor),
+                      _buildMetricBox('AVG SPEED (KM/H)', (_avgSpeed * 3.6).toStringAsFixed(1), primaryColor),
+                      _buildMetricBox('ALTITUDE (M)', _altitude.toStringAsFixed(0), primaryColor),
+                    ],
+                  ),
+                ),
+              ),
+
+              // Glanceable Gesture Instructions Bar
+              Container(
+                color: _isPaused ? Colors.orange.withOpacity(0.2) : primaryColor.withOpacity(0.05),
+                padding: const EdgeInsets.symmetric(vertical: 14.0),
+                decoration: BoxDecoration(
+                  border: Border(top: BorderSide(color: primaryColor, width: 1.5)),
+                ),
+                child: Text(
+                  _isPaused
+                      ? '◀ SWIPE LEFT TO RESUME RUN'
+                      : '◀ SWIPE LEFT: PAUSE  |  SWIPE RIGHT: SAVE ▶',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.0,
+                    color: _isPaused ? Colors.orange[800] : primaryColor.withOpacity(0.7),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
