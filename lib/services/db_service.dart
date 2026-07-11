@@ -3,18 +3,26 @@ import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
+/// Local database helper class using SQLite.
+///
+/// Configures tables, controls transaction WAL journal modes, and runs all
+/// session and coordinate telemetry database operations.
 class DbService {
+  /// The singleton instance of [DbService].
   static final DbService instance = DbService._init();
+
   static Database? _database;
 
   DbService._init();
 
+  /// Returns the active SQLite [Database] connection, initializing it if necessary.
   Future<Database> get database async {
     if (_database != null) return _database!;
     _database = await _initDB('turnback.db');
     return _database!;
   }
 
+  /// Resolves the filesystem database path and opens the SQLite database.
   Future<Database> _initDB(String filePath) async {
     String path;
     if (Platform.isAndroid) {
@@ -37,6 +45,7 @@ class DbService {
     );
   }
 
+  /// Creates database tables for sessions and coordinate points.
   Future<void> _createDB(Database db, int version) async {
     await db.execute('''
       CREATE TABLE sessions (
@@ -66,7 +75,9 @@ class DbService {
     ''');
   }
 
-  // Session operations
+  /// Inserts a new session configuration row.
+  ///
+  /// Returns the newly created session auto-increment integer ID.
   Future<int> createSession({
     required String activityType,
     required int targetDurationSeconds,
@@ -82,6 +93,9 @@ class DbService {
     });
   }
 
+  /// Queries the database for any active or paused tracking session.
+  ///
+  /// Used during startup crash recovery. Returns the session map or null.
   Future<Map<String, dynamic>?> getActiveSession() async {
     final db = await database;
     final results = await db.query(
@@ -93,6 +107,7 @@ class DbService {
     return results.isNotEmpty ? results.first : null;
   }
 
+  /// Updates the tracking status flag of a session (e.g. active, paused, completed).
   Future<void> updateSessionStatus(int sessionId, String status) async {
     final db = await database;
     await db.update(
@@ -103,6 +118,7 @@ class DbService {
     );
   }
 
+  /// Sets the timestamp flag indicating that the turnback threshold has been triggered.
   Future<void> markTurnBackTriggered(int sessionId) async {
     final db = await database;
     await db.update(
@@ -113,6 +129,13 @@ class DbService {
     );
   }
 
+  /// Returns a list of all tracking sessions ordered by start time descending.
+  Future<List<Map<String, dynamic>>> getSessions() async {
+    final db = await database;
+    return await db.query('sessions', orderBy: 'start_time DESC');
+  }
+
+  /// Returns a list of all completed tracking sessions.
   Future<List<Map<String, dynamic>>> getCompletedSessions() async {
     final db = await database;
     return await db.query(
@@ -123,6 +146,7 @@ class DbService {
     );
   }
 
+  /// Deletes a tracking session and cascadingly deletes all its points.
   Future<void> deleteSession(int sessionId) async {
     final db = await database;
     await db.delete(
@@ -132,7 +156,7 @@ class DbService {
     );
   }
 
-  // Points operations
+  /// Retrieves all logged coordinate points for a specific session ordered by timestamp.
   Future<List<Map<String, dynamic>>> getPoints(int sessionId) async {
     final db = await database;
     return await db.query(
@@ -143,6 +167,7 @@ class DbService {
     );
   }
 
+  /// Inserts a batch of coordinate points within a single SQL transaction.
   Future<void> insertPointsBatch(int sessionId, List<Map<String, dynamic>> points) async {
     final db = await database;
     await db.transaction((txn) async {
@@ -162,6 +187,9 @@ class DbService {
     });
   }
 
+  /// Clones a tracking session configuration and inserts its coordinate points batch.
+  ///
+  /// Used by visual cropping, splits, and chopping utilities.
   Future<int> cloneSessionWithPoints({
     required String activityType,
     required int targetDuration,
@@ -185,6 +213,7 @@ class DbService {
     return newSessionId;
   }
 
+  /// Closes the database connection.
   Future<void> close() async {
     final db = _database;
     if (db != null) {
@@ -192,3 +221,4 @@ class DbService {
     }
   }
 }
+

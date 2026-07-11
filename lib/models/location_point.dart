@@ -1,13 +1,32 @@
+/// Represents a single GPS coordinate telemetry point recorded during a session.
+///
+/// Contains position, altitude, speed, and accuracy metadata captured at a specific timestamp.
 class LocationPoint {
+  /// The unique identifier of this point in the database.
   final int? id;
+
+  /// The parent session ID this point belongs to.
   final int sessionId;
+
+  /// The timestamp of when this GPS location was captured.
   final DateTime timestamp;
+
+  /// The latitude coordinate in degrees.
   final double lat;
+
+  /// The longitude coordinate in degrees.
   final double lng;
+
+  /// The elevation height above sea level in meters.
   final double altitude;
+
+  /// The horizontal accuracy radius of this coordinate fix in meters.
   final double accuracy;
+
+  /// The instant speed recorded at this coordinate point in meters per second.
   final double speed; // in m/s
 
+  /// Creates a new [LocationPoint] instance.
   LocationPoint({
     this.id,
     required this.sessionId,
@@ -19,6 +38,7 @@ class LocationPoint {
     required this.speed,
   });
 
+  /// Converts this [LocationPoint] instance into an SQLite-compatible map.
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -32,6 +52,7 @@ class LocationPoint {
     };
   }
 
+  /// Reconstructs a [LocationPoint] from an SQLite query database row map.
   factory LocationPoint.fromMap(Map<String, dynamic> map) {
     return LocationPoint(
       id: map['id'] as int?,
@@ -45,3 +66,4 @@ class LocationPoint {
     );
   }
 }
+

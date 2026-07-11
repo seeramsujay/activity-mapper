@@ -3,10 +3,18 @@ import 'package:flutter/material.dart';
 import '../services/db_service.dart';
 import '../widgets/breadcrumb_painter.dart';
 
+/// Screen widget that provides tools to edit and chop GPS track paths.
+///
+/// Supports cropping coordinate ranges via visual range sliders, splitting into
+/// N-equal segments, or dividing into segments based on time duration chunks.
 class EditorScreen extends StatefulWidget {
+  /// The SQLite session ID of the activity to edit.
   final int sessionId;
+
+  /// The activity type category (e.g. run, ride, kayak).
   final String activityType;
 
+  /// Creates a new [EditorScreen] instance.
   const EditorScreen({
     super.key,
     required this.sessionId,
@@ -17,7 +25,9 @@ class EditorScreen extends StatefulWidget {
   State<EditorScreen> createState() => _EditorScreenState();
 }
 
+/// State controller for the [EditorScreen], managing tabs and coordinates.
 class _EditorScreenState extends State<EditorScreen> with SingleTickerProviderStateMixin {
+
   late TabController _tabController;
   List<Map<String, dynamic>> _rawPoints = [];
   bool _isLoading = true;

@@ -4,6 +4,11 @@ import 'screens/setup_screen.dart';
 import 'screens/hud_screen.dart';
 import 'screens/history_screen.dart';
 
+/// The entry point of the TurnBack Endurance Tracker.
+///
+/// It initializes the Flutter bindings, ensures the SQLite local database is
+/// instantiated with Write-Ahead Logging (WAL) mode enabled, and checks if
+/// there is an active session from a previous run for crash recovery.
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
@@ -17,9 +22,15 @@ void main() async {
   runApp(TurnBackApp(recoveredSession: activeSession));
 }
 
+/// The root Widget of the TurnBack Flutter application.
+///
+/// Configures high-contrast light and dark themes tailored for direct sunlight
+/// visibility, maps core routes, and manages startup navigation.
 class TurnBackApp extends StatelessWidget {
+  /// An optional active session map recovered from the database on startup.
   final Map<String, dynamic>? recoveredSession;
 
+  /// Creates a new [TurnBackApp] instance.
   const TurnBackApp({super.key, this.recoveredSession});
 
   @override
@@ -38,14 +49,7 @@ class TurnBackApp extends StatelessWidget {
       ),
       themeMode: ThemeMode.system,
       // Handle recovery routing directly on start
-      home: recoveredSession != null
-          ? HudScreen(
-              sessionId: recoveredSession!['id'] as int,
-              targetDuration: Duration(seconds: recoveredSession!['target_duration'] as int),
-              safetyBufferPct: recoveredSession!['safety_buffer'] as double,
-              activityType: recoveredSession!['activity_type'] as String,
-            )
-          : const SetupScreen(),
+      home: const SetupScreen(),
       routes: {
         '/setup': (context) => const SetupScreen(),
         '/history': (context) => const HistoryScreen(),
@@ -60,3 +64,4 @@ class TurnBackApp extends StatelessWidget {
     );
   }
 }
+

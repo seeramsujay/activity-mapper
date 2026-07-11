@@ -1,10 +1,18 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 
+/// A custom painter that draws an offline relative vector track trail on a canvas.
+///
+/// Auto-scales coordinates to fit the container bounds and displays starting markers
+/// alongside a heading direction arrow indicator at the active position.
 class BreadcrumbPainter extends CustomPainter {
+  /// The list of coordinates in degrees representing the trail.
   final List<Point<double>> points; // Relative or projection coordinates (e.g. simple lat/lng)
+
+  /// The active app theme brightness to adjust line colors for maximum contrast.
   final Brightness brightness;
 
+  /// Creates a new [BreadcrumbPainter] instance.
   BreadcrumbPainter({required this.points, required this.brightness});
 
   @override
@@ -124,3 +132,4 @@ class BreadcrumbPainter extends CustomPainter {
     return oldDelegate.points.length != points.length || oldDelegate.brightness != brightness;
   }
 }
+

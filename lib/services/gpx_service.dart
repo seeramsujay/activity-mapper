@@ -4,10 +4,16 @@ import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'db_service.dart';
 
+/// Service responsible for serializing active session data into GPX XML formatted files.
 class GpxService {
+  /// The singleton instance of [GpxService].
   static final GpxService instance = GpxService._init();
+
   GpxService._init();
 
+  /// Queries the database and compiles a GPX 1.1 compliant XML string for a session.
+  ///
+  /// Maps each location point coordinates, timestamps, and optional speed extensions.
   Future<String> generateGpxString(int sessionId, String activityName) async {
     final dbHelper = DbService.instance;
     final points = await dbHelper.getPoints(sessionId);
@@ -49,14 +55,38 @@ class GpxService {
     return buffer.toString();
   }
 
+  /// Writes a GPX XML string to a file in the system's public Documents directory.
+  ///
+  /// On Android, resolves the external `/Documents/TurnBack` directory using path logic.
+  /// Falls back to the sandboxed App Documents folder on failure or non-Android OS platforms.
   Future<File> saveGpxFile(int sessionId, String activityName) async {
     final gpxContent = await generateGpxString(sessionId, activityName);
     
-    // Save to device Documents directory for local user access
-    final directory = await getApplicationDocumentsDirectory();
-    final fileName = 'turnback_session_${sessionId}_${DateTime.now().millisecondsSinceEpoch}.gpx';
+    Directory? directory;
+    if (Platform.isAndroid) {
+      try {
+        final extDir = await getExternalStorageDirectory();
+        if (extDir != null) {
+          final rootPath = extDir.path.split('/Android/data/')[0];
+          directory = Directory(join(rootPath, 'Documents', 'TurnBack'));
+        }
+      } catch (e) {
+        print("Failed to resolve external Documents directory: $e");
+      }
+    }
+    
+    // Fallback if not Android or path lookup failed
+    directory ??= await getApplicationDocumentsDirectory();
+
+    if (!await directory.exists()) {
+      await directory.create(recursive: true);
+    }
+    
+    final formattedName = activityName.replaceAll(RegExp(r'[^\w\s\-]'), '').replaceAll(' ', '_').toLowerCase();
+    final fileName = 'turnback_${formattedName}_$sessionId.gpx';
     final file = File(join(directory.path, fileName));
     
     return await file.writeAsString(gpxContent, flush: true);
   }
 }
+

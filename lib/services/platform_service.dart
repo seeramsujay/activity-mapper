@@ -1,6 +1,11 @@
 import 'package:flutter/services.dart';
 
+/// Platform channel coordinator that links Flutter with native code.
+///
+/// Communicates with Android Foreground Service or iOS Background Telemetry using
+/// platform-specific MethodChannels and EventChannels.
 class PlatformService {
+  /// The singleton instance of [PlatformService].
   static final PlatformService instance = PlatformService._init();
 
   static const MethodChannel _controlChannel = MethodChannel('org.opensource.tracker/control');
@@ -10,7 +15,10 @@ class PlatformService {
 
   Stream<dynamic>? _telemetryStream;
 
-  // Control tracking service
+  /// Signals the native background tracking service to start polling GPS coordinates.
+  ///
+  /// Passes down session configurations like target durations, buffers, and gps polling intervals.
+  /// Returns a boolean indicating if the service was spawned successfully.
   Future<bool> startTracking({
     required int sessionId,
     required String activityType,
@@ -33,6 +41,9 @@ class PlatformService {
     }
   }
 
+  /// Signals the native background tracking service to pause or stop polling.
+  ///
+  /// Returns a boolean indicating if the command was successfully processed by the platform service.
   Future<bool> stopTracking() async {
     try {
       final bool? success = await _controlChannel.invokeMethod<bool>('stopTracking');
@@ -43,9 +54,10 @@ class PlatformService {
     }
   }
 
-  // Telemetry stream from native service
+  /// Exposes a broadcast stream to receive real-time location coordinate updates from the native GPS service.
   Stream<dynamic> get telemetryStream {
     _telemetryStream ??= _telemetryChannel.receiveBroadcastStream();
     return _telemetryStream!;
   }
 }
+

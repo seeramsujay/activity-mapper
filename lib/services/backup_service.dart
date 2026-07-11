@@ -4,10 +4,20 @@ import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
+/// Service responsible for compiling local application backups.
+///
+/// Compresses the active SQLite database files (including WAL transaction logs)
+/// and exported GPX logs into a unified, versioned ZIP archive.
 class BackupService {
+  /// The singleton instance of [BackupService].
   static final BackupService instance = BackupService._init();
+
   BackupService._init();
 
+  /// Compiles a ZIP backup of all local application files.
+  ///
+  /// Gathers `turnback.db`, `turnback.db-wal`, `turnback.db-shm` and all `.gpx` files from
+  /// the documents directory. Returns the completed [File] pointing to the compressed archive.
   Future<File> createZipBackup() async {
     final archive = Archive();
 
@@ -66,3 +76,4 @@ class BackupService {
     return await backupFile.writeAsBytes(zipData, flush: true);
   }
 }
+

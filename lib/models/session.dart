@@ -1,13 +1,39 @@
-enum SessionStatus { active, paused, completed }
+/// The lifecycle status of a tracking session.
+enum SessionStatus {
+  /// The session is currently actively logging coordinate points.
+  active,
 
+  /// The session is paused; coordinates are not being appended.
+  paused,
+
+  /// The session is finalized and saved.
+  completed
+}
+
+/// Represents an activity tracking run (session) configured by the user.
+///
+/// Holds the duration targets, buffers, active state, start/end timestamps,
+/// and current status of the workout.
 class Session {
+  /// Unique auto-increment identifier in the database.
   final int? id;
+
+  /// The total time allocated for the entire workout.
   final Duration targetDuration;
+
+  /// The safety buffer percentage used to calculate the turnaround outbound limit.
   final double safetyBufferPct;
+
+  /// The time the session was started.
   final DateTime startTime;
+
+  /// The time the session was finished.
   final DateTime? endTime;
+
+  /// The current tracking status of this session.
   final SessionStatus status;
 
+  /// Creates a new [Session] instance.
   Session({
     this.id,
     required this.targetDuration,
@@ -17,6 +43,7 @@ class Session {
     required this.status,
   });
 
+  /// Converts this [Session] instance into an SQLite database-friendly map.
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -28,6 +55,7 @@ class Session {
     };
   }
 
+  /// Reconstructs a [Session] from an SQLite query database row map.
   factory Session.fromMap(Map<String, dynamic> map) {
     return Session(
       id: map['id'] as int?,
@@ -41,3 +69,4 @@ class Session {
     );
   }
 }
+

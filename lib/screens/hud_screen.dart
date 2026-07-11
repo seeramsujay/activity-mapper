@@ -7,14 +7,33 @@ import '../services/platform_service.dart';
 import '../services/gpx_service.dart';
 import '../services/rally_service.dart';
 import '../widgets/breadcrumb_painter.dart';
+import '../widgets/osm_map_view.dart';
 
+/// The active workout tracking screen displaying real-time metrics and HUD indicators.
+///
+/// Features:
+/// - Real-time statistics tracking (speed, avg speed, max speed, distance, elevation, ascent/descent).
+/// - 54% out-and-back turnaround alert notifications.
+/// - Speed-to-pace hysteresis units switching.
+/// - Interactive breadcrumb trail maps.
+/// - Rally navigation roadbook overlays when guided by a past reference route.
 class HudScreen extends StatefulWidget {
+  /// The SQLite session ID of the current active run.
   final int sessionId;
+
+  /// The total time allocated for the entire workout.
   final Duration targetDuration;
+
+  /// The safety buffer percentage used for turn-back alert checks.
   final double safetyBufferPct;
+
+  /// The activity type category (e.g. run, ride, kayak).
   final String activityType;
+
+  /// Optional session ID of a past completed run to use as a guidance route.
   final int? referenceSessionId;
 
+  /// Creates a new [HudScreen] instance.
   const HudScreen({
     super.key,
     required this.sessionId,
@@ -28,7 +47,9 @@ class HudScreen extends StatefulWidget {
   State<HudScreen> createState() => _HudScreenState();
 }
 
+/// State controller for [HudScreen], managing timers, sensors, and GPS streams.
 class _HudScreenState extends State<HudScreen> {
+
   // Telemetry list
   final List<Point<double>> _points = [];
   
@@ -40,9 +61,23 @@ class _HudScreenState extends State<HudScreen> {
   double _accuracy = 0.0;
   
   late DateTime _startTime;
-  Duration _elapsed = Duration.zero;
+  Duration _elapsed = Duration.zero; // moving time
+  Duration _totalElapsed = Duration.zero; // total time
   Timer? _timer;
   StreamSubscription? _telemetrySub;
+
+  // Detailed Geo Tracker metrics
+  double _maxSpeed = 0.0;
+  double _minAltitude = double.maxFinite;
+  double _maxAltitude = -double.maxFinite;
+  double _totalAscent = 0.0;
+  double _totalDescent = 0.0;
+  double? _prevAltitude;
+
+  // Multi-page HUD View
+  final PageController _pageController = PageController();
+  int _currentPageIndex = 0;
+  bool _showOsmTiles = false; // toggleable reference map
 
   // Hysteresis configuration
   bool _isSpeedMode = false; // false = Pace, true = Speed
@@ -166,12 +201,12 @@ class _HudScreenState extends State<HudScreen> {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_isPaused) return;
 
-      // Increment _elapsed by 1 second only if user is active (not taking a stationary break)
-      if (_currentSpeed > 0.2) {
-        setState(() {
+      setState(() {
+        _totalElapsed = _totalElapsed + const Duration(seconds: 1);
+        if (_currentSpeed > 0.2) {
           _elapsed = _elapsed + const Duration(seconds: 1);
-        });
-      }
+        }
+      });
 
       // Turn-Back Threshold Calculation: (100 - B) / 200 of T
       final double outboundRatio = (100.0 - widget.safetyBufferPct) / 200.0;
@@ -212,6 +247,26 @@ class _HudScreenState extends State<HudScreen> {
         _altitude = alt;
         _accuracy = acc;
 
+        // Detailed Geo Tracker stats updates
+        if (speed > _maxSpeed) {
+          _maxSpeed = speed;
+        }
+        if (alt < _minAltitude) {
+          _minAltitude = alt;
+        }
+        if (alt > _maxAltitude) {
+          _maxAltitude = alt;
+        }
+        if (_prevAltitude != null) {
+          final diff = alt - _prevAltitude!;
+          if (diff > 0.5) {
+            _totalAscent += diff;
+          } else if (diff < -0.5) {
+            _totalDescent += diff.abs();
+          }
+        }
+        _prevAltitude = alt;
+
         // Synchronize _elapsed active duration with the precise coordinate timestamps from the DB
         if (_lastTimestamp != null) {
           final int diff = timestamp - _lastTimestamp!;
@@ -221,12 +276,9 @@ class _HudScreenState extends State<HudScreen> {
         }
         _lastTimestamp = timestamp;
 
-        // Update rally engine navigation state
+        // Update rally engine navigation state (Haptics disabled)
         if (_rallyEngine != null) {
           final newState = _rallyEngine!.updateNavigation(lat, lng);
-          if (newState.isOffRoute && !(_rallyState?.isOffRoute ?? false)) {
-            HapticFeedback.vibrate();
-          }
           _rallyState = newState;
         }
 
@@ -322,55 +374,61 @@ class _HudScreenState extends State<HudScreen> {
     }
   }
 
+  Widget _buildTabDot(int idx, String name, Color primary) {
+    final bool active = _currentPageIndex == idx;
+    return GestureDetector(
+      onTap: () {
+        _pageController.animateToPage(idx, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          border: Border.all(color: active ? primary : Colors.transparent, width: 1.5),
+        ),
+        child: Text(
+          name,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
+            color: active ? primary : primary.withOpacity(0.4),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatsHeader(String title, Color primaryColor) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8.0),
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: primaryColor.withOpacity(0.3), width: 1.0)),
+      ),
+      child: Text(
+        title,
+        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: primaryColor.withOpacity(0.6), letterSpacing: 0.8),
+      ),
+    );
+  }
+
+  Widget _buildStatsRow(String label, String value, Color primaryColor) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.between,
+        children: [
+          Text(label, style: TextStyle(fontSize: 14, color: primaryColor.withOpacity(0.8))),
+          Text(value, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: primaryColor)),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final Brightness brightness = Theme.of(context).brightness;
     final Color primaryColor = brightness == Brightness.light ? Colors.black : Colors.white;
     final Color scaffoldBg = brightness == Brightness.light ? Colors.white : Colors.black;
-
-    // Full-screen Swipe Right confirmation overlay
-    if (_confirmSaveState) {
-      return Scaffold(
-        backgroundColor: Colors.red,
-        body: GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onHorizontalDragEnd: (details) {
-            if (details.primaryVelocity == null) return;
-            if (details.primaryVelocity! > 0) {
-              // Swiped right again -> Save & Finish!
-              _finishSession();
-            } else if (details.primaryVelocity! < 0) {
-              // Swiped left -> Cancel!
-              setState(() {
-                _confirmSaveState = false;
-              });
-            }
-          },
-          child: const SafeArea(
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.save_alt, size: 100, color: Colors.white),
-                  SizedBox(height: 24),
-                  Text(
-                    'SWIPE RIGHT AGAIN TO SAVE',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 1.5),
-                  ),
-                  SizedBox(height: 12),
-                  Text(
-                    '◀ SWIPE LEFT TO CANCEL & RESUME',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white70),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    }
 
     // Turnback threshold markers
     final double outboundRatio = (100.0 - widget.safetyBufferPct) / 200.0;
@@ -379,219 +437,403 @@ class _HudScreenState extends State<HudScreen> {
 
     return Scaffold(
       backgroundColor: scaffoldBg,
-      body: GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onHorizontalDragEnd: (details) {
-          if (details.primaryVelocity == null) return;
-          if (details.primaryVelocity! < 0) {
-            // Swipe Left -> Pause or Resume!
-            _togglePause();
-          } else if (details.primaryVelocity! > 0) {
-            // Swipe Right -> Show Save confirmation screen!
-            HapticFeedback.heavyImpact();
-            setState(() {
-              _confirmSaveState = true;
-            });
-          }
-        },
-        onLongPress: () {
-          // Long press -> Acknowledge and dismiss Turn-Back alert
-          if (_turnBackTriggered) {
-            HapticFeedback.mediumImpact();
-            setState(() {
-              _turnBackTriggered = false;
-            });
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('ALERT ACKNOWLEDGED')),
-            );
-          }
-        },
-        child: SafeArea(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Flashing turn-back alarm header
-              if (_turnBackTriggered)
-                Container(
+      body: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Flashing turn-back alarm header
+            if (_turnBackTriggered)
+              GestureDetector(
+                onLongPress: () {
+                  setState(() {
+                    _turnBackTriggered = false;
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('ALERT ACKNOWLEDGED')),
+                  );
+                },
+                child: Container(
                   color: _flashToggle ? primaryColor : Colors.red,
                   padding: const EdgeInsets.symmetric(vertical: 12.0),
                   child: Text(
-                    '// TURN BACK NOW //',
+                    '// TURN BACK NOW // (LONG PRESS TO DISMISS)',
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      fontSize: 22,
+                      fontSize: 16,
                       fontWeight: FontWeight.w900,
                       letterSpacing: 2.0,
                       color: _flashToggle ? scaffoldBg : Colors.white,
                     ),
                   ),
                 ),
+              ),
 
-              // Rally Turn Navigation Panel
-              if (_rallyState != null)
-                Container(
-                  color: _rallyState!.isOffRoute ? Colors.red : primaryColor.withOpacity(0.08),
-                  padding: const EdgeInsets.symmetric(vertical: 14.0, horizontal: 16.0),
-                  decoration: BoxDecoration(
-                    border: Border(bottom: BorderSide(color: primaryColor, width: 2.0)),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        _getTurnIcon(_rallyState!.nextCue?.type),
-                        size: 40,
-                        color: _rallyState!.isOffRoute ? Colors.white : primaryColor,
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _rallyState!.isOffRoute ? 'OFF ROUTE!' : _rallyState!.nextCue?.description.toUpperCase() ?? 'FOLLOW ROUTE',
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w900,
-                                color: _rallyState!.isOffRoute ? Colors.white : primaryColor,
-                              ),
-                            ),
-                            Text(
-                              _rallyState!.isOffRoute ? 'DRIFTED FROM PAST TRACK' : 'IN ${_rallyState!.distanceToNextCueMeters} METERS',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: _rallyState!.isOffRoute ? Colors.white.withOpacity(0.8) : primaryColor.withOpacity(0.6),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+            // Rally Turn Navigation Panel
+            if (_rallyState != null)
+              Container(
+                color: _rallyState!.isOffRoute ? Colors.red : primaryColor.withOpacity(0.08),
+                padding: const EdgeInsets.symmetric(vertical: 14.0, horizontal: 16.0),
+                decoration: BoxDecoration(
+                  border: Border(bottom: BorderSide(color: primaryColor, width: 2.0)),
                 ),
-
-              // Top Status Bar (Target & Timer details)
-              Padding(
-                padding: const EdgeInsets.only(left: 20, right: 20, top: 12),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.between,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('ELAPSED', style: TextStyle(fontSize: 12, color: primaryColor.withOpacity(0.6))),
-                        Text(
-                          _formatDuration(_elapsed),
-                          style: TextStyle(fontSize: 36, fontWeight: FontWeight.w900, color: primaryColor),
-                        ),
-                      ],
+                    Icon(
+                      _getTurnIcon(_rallyState!.nextCue?.type),
+                      size: 40,
+                      color: _rallyState!.isOffRoute ? Colors.white : primaryColor,
                     ),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          _turnBackTriggered ? 'RETURN TIMER' : 'OUTBOUND LIMIT',
-                          style: TextStyle(fontSize: 12, color: primaryColor.withOpacity(0.6)),
-                        ),
-                        Text(
-                          _turnBackTriggered
-                              ? _formatDuration(Duration(seconds: max(0, widget.targetDuration.inSeconds - _elapsed.inSeconds)))
-                              : _formatDuration(Duration(seconds: remainingSeconds)),
-                          style: TextStyle(
-                            fontSize: 36,
-                            fontWeight: FontWeight.w900,
-                            color: _turnBackTriggered ? Colors.red : primaryColor,
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _rallyState!.isOffRoute ? 'OFF ROUTE!' : _rallyState!.nextCue?.description.toUpperCase() ?? 'FOLLOW ROUTE',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                              color: _rallyState!.isOffRoute ? Colors.white : primaryColor,
+                            ),
                           ),
-                        ),
-                      ],
+                          Text(
+                            _rallyState!.isOffRoute ? 'DRIFTED FROM PAST TRACK' : 'IN ${_rallyState!.distanceToNextCueMeters} METERS',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: _rallyState!.isOffRoute ? Colors.white.withOpacity(0.8) : primaryColor.withOpacity(0.6),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
               ),
 
-              // Outbound ratio progress bar (Garmin style)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
-                child: LinearProgressIndicator(
-                  value: min(1.0, _elapsed.inSeconds / outboundLimitSeconds),
-                  backgroundColor: primaryColor.withOpacity(0.1),
-                  color: _turnBackTriggered ? Colors.red : primaryColor,
-                  minHeight: 8.0,
-                ),
+            // Swipable PageView Tab Indicators
+            Padding(
+              padding: const EdgeInsets.only(left: 20.0, right: 20.0, top: 12.0, bottom: 4.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _buildTabDot(0, 'HUD DASH', primaryColor),
+                  const SizedBox(width: 16),
+                  _buildTabDot(1, 'DETAILS', primaryColor),
+                  const SizedBox(width: 16),
+                  _buildTabDot(2, 'ROADBOOK', primaryColor),
+                ],
               ),
+            ),
 
-              // Center: Canvas Vector Map View
-              Expanded(
-                flex: 3,
-                child: Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 6.0),
-                  decoration: Border.all(color: primaryColor, width: 2.5),
-                  child: ClipRect(
-                    child: CustomPaint(
-                      painter: BreadcrumbPainter(points: _points, brightness: brightness),
-                      child: Align(
-                        alignment: Alignment.topLeft,
+            // Top Status Bar (Target & Timer details)
+            Padding(
+              padding: const EdgeInsets.only(left: 20, right: 20, top: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.between,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('MOVING TIME', style: TextStyle(fontSize: 12, color: primaryColor.withOpacity(0.6))),
+                      Text(
+                        _formatDuration(_elapsed),
+                        style: TextStyle(fontSize: 36, fontWeight: FontWeight.w900, color: primaryColor),
+                      ),
+                    ],
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        _turnBackTriggered ? 'RETURN TIMER' : 'OUTBOUND LIMIT',
+                        style: TextStyle(fontSize: 12, color: primaryColor.withOpacity(0.6)),
+                      ),
+                      Text(
+                        _turnBackTriggered
+                            ? _formatDuration(Duration(seconds: max(0, widget.targetDuration.inSeconds - _elapsed.inSeconds)))
+                            : _formatDuration(Duration(seconds: remainingSeconds)),
+                        style: TextStyle(
+                          fontSize: 36,
+                          fontWeight: FontWeight.w900,
+                          color: _turnBackTriggered ? Colors.red : primaryColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            // Multi-page HUD View
+            Expanded(
+              child: PageView(
+                controller: _pageController,
+                onPageChanged: (idx) {
+                  setState(() {
+                    _currentPageIndex = idx;
+                  });
+                },
+                children: [
+                  // Page 0: Main HUD Dash
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Outbound ratio progress bar (Garmin style)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
+                        child: LinearProgressIndicator(
+                          value: min(1.0, _elapsed.inSeconds / outboundLimitSeconds),
+                          backgroundColor: primaryColor.withOpacity(0.1),
+                          color: _turnBackTriggered ? Colors.red : primaryColor,
+                          minHeight: 8.0,
+                        ),
+                      ),
+
+                      // Canvas Vector Map View or On-demand OSM View
+                      Expanded(
+                        flex: 3,
                         child: Container(
-                          color: scaffoldBg,
-                          padding: const EdgeInsets.all(8.0),
-                          child: Text(
-                            'MAP: OFFLINE VECTOR (BREADCRUMB)',
-                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: primaryColor.withOpacity(0.5)),
+                          margin: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 6.0),
+                          decoration: Border.all(color: primaryColor, width: 2.5),
+                          child: ClipRect(
+                            child: Stack(
+                              children: [
+                                OsmMapView(
+                                  points: _points,
+                                  showOsmTiles: _showOsmTiles,
+                                  brightness: brightness,
+                                ),
+                                // Top Left: Map Label
+                                Align(
+                                  alignment: Alignment.topLeft,
+                                  child: Container(
+                                    color: scaffoldBg,
+                                    padding: const EdgeInsets.all(8.0),
+                                    child: Text(
+                                      _showOsmTiles ? 'MAP: ONLINE OSM' : 'MAP: OFFLINE VECTOR',
+                                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: primaryColor.withOpacity(0.5)),
+                                    ),
+                                  ),
+                                ),
+                                // Top Right: Toggle Map Button
+                                Align(
+                                  alignment: Alignment.topRight,
+                                  child: Container(
+                                    margin: const EdgeInsets.all(4.0),
+                                    color: scaffoldBg.withOpacity(0.8),
+                                    child: IconButton(
+                                      icon: Icon(_showOsmTiles ? Icons.layers : Icons.layers_clear, color: primaryColor),
+                                      tooltip: 'Toggle Reference Map On/Off',
+                                      onPressed: () {
+                                        setState(() {
+                                          _showOsmTiles = !_showOsmTiles;
+                                        });
+                                      },
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ),
-                ),
-              ),
 
-              // Bottom: Sunlight-Readable Dashboard Grid
-              Expanded(
-                flex: 2,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20.0),
-                  child: GridView.count(
-                    crossAxisCount: 2,
-                    childAspectRatio: 2.2,
-                    mainAxisSpacing: 8,
-                    crossAxisSpacing: 8,
-                    physics: const NeverScrollableScrollPhysics(),
-                    children: [
-                      _buildMetricBox(
-                        _isSpeedMode ? 'SPEED (KM/H)' : 'PACE (MIN/KM)',
-                        _formatSpeedOrPace(_currentSpeed),
-                        primaryColor,
+                      // Bottom: Dashboard Grid
+                      Expanded(
+                        flex: 2,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20.0),
+                          child: GridView.count(
+                            crossAxisCount: 2,
+                            childAspectRatio: 2.2,
+                            mainAxisSpacing: 8,
+                            crossAxisSpacing: 8,
+                            physics: const NeverScrollableScrollPhysics(),
+                            children: [
+                              GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    _isSpeedMode = !_isSpeedMode;
+                                  });
+                                },
+                                child: _buildMetricBox(
+                                  _isSpeedMode ? 'SPEED (KM/H) [TAP]' : 'PACE (MIN/KM) [TAP]',
+                                  _formatSpeedOrPace(_currentSpeed),
+                                  primaryColor,
+                                ),
+                              ),
+                              _buildMetricBox('DISTANCE (KM)', _distanceKm.toStringAsFixed(2), primaryColor),
+                              _buildMetricBox('AVG SPEED (KM/H)', (_avgSpeed * 3.6).toStringAsFixed(1), primaryColor),
+                              _buildMetricBox('ALTITUDE (M)', _altitude.toStringAsFixed(0), primaryColor),
+                            ],
+                          ),
+                        ),
                       ),
-                      _buildMetricBox('DISTANCE (KM)', _distanceKm.toStringAsFixed(2), primaryColor),
-                      _buildMetricBox('AVG SPEED (KM/H)', (_avgSpeed * 3.6).toStringAsFixed(1), primaryColor),
-                      _buildMetricBox('ALTITUDE (M)', _altitude.toStringAsFixed(0), primaryColor),
                     ],
                   ),
-                ),
-              ),
 
-              // Glanceable Gesture Instructions Bar
-              Container(
-                color: _isPaused ? Colors.orange.withOpacity(0.2) : primaryColor.withOpacity(0.05),
-                padding: const EdgeInsets.symmetric(vertical: 14.0),
-                decoration: BoxDecoration(
-                  border: Border(top: BorderSide(color: primaryColor, width: 1.5)),
-                ),
-                child: Text(
-                  _isPaused
-                      ? '◀ SWIPE LEFT TO RESUME RUN'
-                      : '◀ SWIPE LEFT: PAUSE  |  SWIPE RIGHT: SAVE ▶',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1.0,
-                    color: _isPaused ? Colors.orange[800] : primaryColor.withOpacity(0.7),
+                  // Page 1: Geo Tracker Style Detailed Statistics
+                  SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          '// DETAILED TRACK DESCRIPTION',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: primaryColor, letterSpacing: 1.0),
+                        ),
+                        const SizedBox(height: 16),
+                        
+                        _buildStatsHeader('TIME METRICS', primaryColor),
+                        _buildStatsRow('Total Elapsed Time', _formatDuration(_totalElapsed), primaryColor),
+                        _buildStatsRow('Active Moving Time', _formatDuration(_elapsed), primaryColor),
+                        _buildStatsRow('Stationary Break Time', _formatDuration(_totalElapsed - _elapsed), primaryColor),
+                        const SizedBox(height: 16),
+
+                        _buildStatsHeader('SPEED METRICS', primaryColor),
+                        _buildStatsRow('Current Speed', '${(_currentSpeed * 3.6).toStringAsFixed(1)} km/h', primaryColor),
+                        _buildStatsRow(
+                          'Average Moving Speed', 
+                          _elapsed.inSeconds > 0 ? '${(_distanceKm / (_elapsed.inSeconds / 3600.0)).toStringAsFixed(1)} km/h' : '0.0 km/h',
+                          primaryColor,
+                        ),
+                        _buildStatsRow('Max Speed Recorded', '${(_maxSpeed * 3.6).toStringAsFixed(1)} km/h', primaryColor),
+                        _buildStatsRow(
+                          'Average Total Speed', 
+                          _totalElapsed.inSeconds > 0 ? '${(_distanceKm / (_totalElapsed.inSeconds / 3600.0)).toStringAsFixed(1)} km/h' : '0.0 km/h',
+                          primaryColor,
+                        ),
+                        const SizedBox(height: 16),
+
+                        _buildStatsHeader('ELEVATION PROFILE', primaryColor),
+                        _buildStatsRow('Altitude Ascent (+)', '${_totalAscent.toStringAsFixed(1)} m', primaryColor),
+                        _buildStatsRow('Altitude Descent (-)', '${_totalDescent.toStringAsFixed(1)} m', primaryColor),
+                        _buildStatsRow('Max Elevation Height', _maxAltitude == -double.maxFinite ? '0.0 m' : '${_maxAltitude.toStringAsFixed(1)} m', primaryColor),
+                        _buildStatsRow('Min Elevation Height', _minAltitude == double.maxFinite ? '0.0 m' : '${_minAltitude.toStringAsFixed(1)} m', primaryColor),
+                      ],
+                    ),
                   ),
-                ),
+
+                  // Page 2: Rally Navigation Roadbook
+                  SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          '// RALLY ROADBOOK CUES',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: primaryColor, letterSpacing: 1.0),
+                        ),
+                        const SizedBox(height: 16),
+                        if (_rallyEngine == null || _rallyEngine!.cues.isEmpty)
+                          Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(40.0),
+                              child: Text(
+                                'NO REFERENCE ROUTE SELECTED\n\nChoose a past route during setup to generate roadbook cues.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: primaryColor.withOpacity(0.5), height: 1.4),
+                              ),
+                            ),
+                          )
+                        else
+                          ..._rallyEngine!.cues.map((cue) {
+                            final bool isPassed = _rallyState != null && 
+                                _rallyState!.nextCue != null &&
+                                cue.distanceKm < (_rallyEngine!.totalReferenceDistanceKm - (_rallyState!.distanceToNextCueMeters / 1000.0));
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 12.0),
+                              padding: const EdgeInsets.all(14.0),
+                              decoration: BoxDecoration(
+                                border: Border.all(
+                                  color: isPassed ? primaryColor.withOpacity(0.2) : primaryColor,
+                                  width: 1.5,
+                                ),
+                                color: isPassed ? Colors.transparent : primaryColor.withOpacity(0.02),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    _getTurnIcon(cue.type),
+                                    size: 32,
+                                    color: isPassed ? primaryColor.withOpacity(0.3) : primaryColor,
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          cue.description.toUpperCase(),
+                                          style: TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w900,
+                                            color: isPassed ? primaryColor.withOpacity(0.4) : primaryColor,
+                                          ),
+                                        ),
+                                        Text(
+                                          'AT POSITION: ${cue.distanceKm.toStringAsFixed(2)} KM',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: primaryColor.withOpacity(0.5),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+
+            // Secure Control Buttons (Physical Row)
+            Padding(
+              padding: const EdgeInsets.only(left: 20.0, right: 20.0, bottom: 20.0, top: 8.0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: primaryColor,
+                        side: BorderSide(color: primaryColor, width: 2.5),
+                        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                        padding: const EdgeInsets.symmetric(vertical: 18.0),
+                      ),
+                      onPressed: _togglePause,
+                      child: Text(
+                        _isPaused ? 'RESUME RUN' : 'PAUSE RUN',
+                        style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.0),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primaryColor,
+                        foregroundColor: scaffoldBg,
+                        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                        padding: const EdgeInsets.symmetric(vertical: 18.0),
+                        elevation: 0,
+                      ),
+                      onPressed: _confirmStopSession,
+                      child: const Text(
+                        'STOP & SAVE',
+                        style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.0),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

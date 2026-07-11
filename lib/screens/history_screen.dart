@@ -7,14 +7,21 @@ import '../services/backup_service.dart';
 import '../widgets/breadcrumb_painter.dart';
 import 'editor_screen.dart';
 
+/// Screen widget that displays the list feed of completed workouts/activities.
+///
+/// Provides options to inspect the GPS path, edit/chop the coordinate list,
+/// export to GPX files, delete sessions, or compile a full SQLite/GPX ZIP database backup.
 class HistoryScreen extends StatefulWidget {
+  /// Creates a new [HistoryScreen] instance.
   const HistoryScreen({super.key});
 
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
 }
 
+/// State controller for the [HistoryScreen].
 class _HistoryScreenState extends State<HistoryScreen> {
+
   List<Map<String, dynamic>> _sessions = [];
   bool _isLoading = true;
 
