@@ -1,0 +1,1289 @@
+[Geo Tracker](https://geo-tracker.org/en)
+-   [Home](https://geo-tracker.org/en/) 
+-   [Reviews](https://geo-tracker.org/en/reviews/) 
+-  [Versions](https://geo-tracker.org/en/releases/)  
+-   [FAQ](https://geo-tracker.org/en/faq/) 
+-  Language        [🇩🇪 Deutsch](https://geo-tracker.org/de/releases/)   [🇬🇧 English](https://geo-tracker.org/en/releases/)   [🇷🇺 Русский](https://geo-tracker.org/ru/releases/)    
+-  [🇩🇪 Deutsch](https://geo-tracker.org/de/releases/) 
+-  [🇬🇧 English](https://geo-tracker.org/en/releases/) 
+-  [🇷🇺 Русский](https://geo-tracker.org/ru/releases/) 
+[Home](https://geo-tracker.org/en/)
+[Reviews](https://geo-tracker.org/en/reviews/)
+[Versions](https://geo-tracker.org/en/releases/)
+[FAQ](https://geo-tracker.org/en/faq/)
+-  [🇩🇪 Deutsch](https://geo-tracker.org/de/releases/) 
+-  [🇬🇧 English](https://geo-tracker.org/en/releases/) 
+-  [🇷🇺 Русский](https://geo-tracker.org/ru/releases/) 
+[🇩🇪 Deutsch](https://geo-tracker.org/de/releases/)
+[🇬🇧 English](https://geo-tracker.org/en/releases/)
+[🇷🇺 Русский](https://geo-tracker.org/ru/releases/)
+
+# Version History
+
+[Download APK (ARM 64)](https://cdn.geo-tracker.org/apk/stable/app-arm64-v8a-release.apk)
+Also for [ARM 32](https://cdn.geo-tracker.org/apk/stable/app-armeabi-v7a-release.apk), [[X86](https://cdn.geo-tracker.org/apk/stable/app-x86-release.apk)-64](https://cdn.geo-tracker.org/apk/stable/app-x86_64-release.apk), X86.
+1.  [July 2026 5.6.1](https://geo-tracker.org/en/releases/#5.6.1)   A bugfix release focused on long-track performance, recording reliability, and map polish.
+🚀 Performance
+
+Faster long tracks — large tracks now load and render faster, and powerful devices can handle a higher point threshold.
+More reliable storage — the database engine is more robust, and Geo Tracker now shows a small loading indicator while tracks are being read from disk.
+
+🧭 Track handling
+
+Cleaner stop flow — Geo Tracker no longer asks for stop confirmation when nothing is being recorded.
+Better split tracks — fixed missing comments and time inconsistencies in split tracks. You can now split a track at any marker on it.
+Directional arrow cleanup — fixed directional arrows lingering after a track is cleared on iOS.
+Track focusing fixes — focusing on tracks is now more reliable.
+
+🗺️ Map
+
+Smoother navigation — map movement is smoother in navigation mode.
+Smarter marker visibility — marker display now turns on automatically when you add a new marker.
+Location marker fixes — fixed cases where the location marker would not appear.
+
+📤 Sharing
+
+Map-only screenshots — you can now take screenshots of the map without statistics.
+Better screenshot names — screenshot files are now named using the track time.
+More reliable imports — fixed GPX, KML, and KMZ imports that could occasionally be dropped.
+
+Thanks for being with us!
+Want to try new features early?
+Join our beta program:
+
+Android — tap “Join beta” on our [Google Play](https://play.google.com/store/apps/details?id=com.ilyabogdanovich.geotracker) page, or install the APK directly from our [website](https://cdn.geo-tracker.org/apk/beta/app-arm64-v8a-release.apk).
+iOS — install via Apple’s [TestFlight](https://testflight.apple.com/join/wpxJYSTu).
+
+2. Faster long tracks — large tracks now load and render faster, and powerful devices can handle a higher point threshold.
+3. More reliable storage — the database engine is more robust, and Geo Tracker now shows a small loading indicator while tracks are being read from disk.
+4. Cleaner stop flow — Geo Tracker no longer asks for stop confirmation when nothing is being recorded.
+5. Better split tracks — fixed missing comments and time inconsistencies in split tracks. You can now split a track at any marker on it.
+6. Directional arrow cleanup — fixed directional arrows lingering after a track is cleared on iOS.
+7. Track focusing fixes — focusing on tracks is now more reliable.
+8. Smoother navigation — map movement is smoother in navigation mode.
+9. Smarter marker visibility — marker display now turns on automatically when you add a new marker.
+10. Location marker fixes — fixed cases where the location marker would not appear.
+11. Map-only screenshots — you can now take screenshots of the map without statistics.
+12. Better screenshot names — screenshot files are now named using the track time.
+13. More reliable imports — fixed GPX, KML, and KMZ imports that could occasionally be dropped.
+14. Android — tap “Join beta” on our [Google Play](https://play.google.com/store/apps/details?id=com.ilyabogdanovich.geotracker) page, or install the APK directly from our [website](https://cdn.geo-tracker.org/apk/beta/app-arm64-v8a-release.apk).
+15. iOS — install via Apple’s [TestFlight](https://testflight.apple.com/join/wpxJYSTu).
+16.  [June 2026 5.6.0](https://geo-tracker.org/en/releases/#5.6.0)   📍 Marker improvements
+
+Emoji waypoint icons — personalize the map with emoji markers: a tent for a campsite, an eye for a viewpoint, or a cup for a coffee stop. Emoji are preserved when exporting to GPX, KML, or KMZ.
+Easier waypoint organization — assign a waypoint to any trip, or create a new trip directly from the waypoint edit dialog.
+Safer editing — Geo Tracker now asks before discarding unsaved waypoint changes.
+
+➡️ Directional arrows
+
+Travel direction on the map — tracks can now show arrows, so you can quickly see which way you were moving. You can turn them on or off in map settings.
+
+# Version History
+
+Note — directional arrows are currently available with Mapbox Maps only, because other map providers do not offer the required components.
+
+📝 Trip comments
+
+Add more context to trips — add short notes like “France 2025”, “family hike”, or “bikepacking day 3”, see them in the trips list, and search by comment text when you need to find a specific trip later.
+
+🌍 Language settings
+
+Switch language in the app — choose one of 11 supported languages directly in Geo Tracker, independent from your system language.
+
+🚀 Performance
+
+Smoother large trips — smarter map loading keeps long tracks easier to browse.
+Lower memory use — displaying tracks now uses up to 50% less memory.
+Faster startup — launch time has been improved.
+Lighter exports — exporting large tracks uses less memory.
+
+🛡️ System & stability
+
+Track point count — now shown in trip statistics.
+Guidance improvements — generated maneuvers and stop-markers are no longer marked as visited by default, and maneuver generation can now be undone.
+Low storage warning — Geo Tracker alerts you when your device is running low on storage.
+Calculation and compass fixes — improved vertical distance calculation and fixed compass calibration messages appearing at the wrong time.
+Cleaner track details — track dates are hidden when they match the trip name.
+Android 17 support — fully compatible with the latest Android release.
+Bug fixes — many stability improvements across Android and iOS.
+
+
+
+
+17. Emoji waypoint icons — personalize the map with emoji markers: a tent for a campsite, an eye for a viewpoint, or a cup for a coffee stop. Emoji are preserved when exporting to GPX, KML, or KMZ.
+18. Easier waypoint organization — assign a waypoint to any trip, or create a new trip directly from the waypoint edit dialog.
+19. Safer editing — Geo Tracker now asks before discarding unsaved waypoint changes.
+20. Travel direction on the map — tracks can now show arrows, so you can quickly see which way you were moving. You can turn them on or off in map settings.
+21. Note — directional arrows are currently available with Mapbox Maps only, because other map providers do not offer the required components.
+22. Add more context to trips — add short notes like “France 2025”, “family hike”, or “bikepacking day 3”, see them in the trips list, and search by comment text when you need to find a specific trip later.
+23. Switch language in the app — choose one of 11 supported languages directly in Geo Tracker, independent from your system language.
+24. Smoother large trips — smarter map loading keeps long tracks easier to browse.
+25. Lower memory use — displaying tracks now uses up to 50% less memory.
+26. Faster startup — launch time has been improved.
+27. Lighter exports — exporting large tracks uses less memory.
+28. Track point count — now shown in trip statistics.
+29. Guidance improvements — generated maneuvers and stop-markers are no longer marked as visited by default, and maneuver generation can now be undone.
+30. Low storage warning — Geo Tracker alerts you when your device is running low on storage.
+31. Calculation and compass fixes — improved vertical distance calculation and fixed compass calibration messages appearing at the wrong time.
+32. Cleaner track details — track dates are hidden when they match the trip name.
+33. Android 17 support — fully compatible with the latest Android release.
+34. Bug fixes — many stability improvements across Android and iOS.
+35.  [January 2026 5.5.1](https://geo-tracker.org/en/releases/#5.5.1)   📝 New sorting options in the track list
+You can now sort your tracks:
+
+by date,
+by name,
+by last modified,
+(in both directions – ascending or descending).
+
+
+We also added ✅ a checkbox that allows you to always show selected tracks at the top of the list.
+Super helpful if you manage lots of tracks!
+
+📈 New chart engine
+We’ve completely reworked the chart rendering system:
+
+Chart intervals are now rounded - for example, instead of 2.51, you’ll see a neat tick at 3, and so on;
+You can now use the chart cursor even outside fullscreen - just slide your finger along the chart to view exact values;
+On iOS, fullscreen charts are now available too - tap to open and take a closer look;
+Charts are now more accurate and faster, especially on long or detailed tracks.
+
+
+Thanks for being with us!
+
+
+
+
+36. by date,
+37. by name,
+38. by last modified,
+
+# Version History
+
+(in both directions – ascending or descending).
+39. Chart intervals are now rounded - for example, instead of 2.51, you’ll see a neat tick at 3, and so on;
+40. You can now use the chart cursor even outside fullscreen - just slide your finger along the chart to view exact values;
+41. On iOS, fullscreen charts are now available too - tap to open and take a closer look;
+42. Charts are now more accurate and faster, especially on long or detailed tracks.
+43.  [October 2025 5.5.0](https://geo-tracker.org/en/releases/#5.5.0)   Track Splitting ✂️
+
+Split tracks into parts — ever forgot to stop recording and ended up with multiple activities in one track? Now you can drop a marker anywhere and split it into separate parts in seconds.
+
+Performance 🚀
+
+Lower memory footprint — Geo Tracker now uses less memory for smoother operation.
+Faster rendering — maps and tracks load more quickly.
+Overall smoother experience — enjoy better responsiveness all around.
+
+System & Stability 🛡️
+
+Bug fixes — we’ve resolved a bunch of annoying problems for a more reliable app.
+
+
+Keep tracking and have fun out there! 🎒
+
+
+
+Want to try new features early?
+Join our beta program:
+
+Android — tap “Join beta” on our [Google Play](https://play.google.com/store/apps/details?id=com.ilyabogdanovich.geotracker) page, or install the APK directly from our [website](https://cdn.geo-tracker.org/apk/beta/app-arm64-v8a-release.apk).
+iOS — install via Apple’s [TestFlight](https://testflight.apple.com/join/wpxJYSTu).
+
+44. Split tracks into parts — ever forgot to stop recording and ended up with multiple activities in one track? Now you can drop a marker anywhere and split it into separate parts in seconds.
+45. Lower memory footprint — Geo Tracker now uses less memory for smoother operation.
+46. Faster rendering — maps and tracks load more quickly.
+47. Overall smoother experience — enjoy better responsiveness all around.
+48. Bug fixes — we’ve resolved a bunch of annoying problems for a more reliable app.
+49. Android — tap “Join beta” on our [Google Play](https://play.google.com/store/apps/details?id=com.ilyabogdanovich.geotracker) page, or install the APK directly from our [website](https://cdn.geo-tracker.org/apk/beta/app-arm64-v8a-release.apk).
+50. iOS — install via Apple’s [TestFlight](https://testflight.apple.com/join/wpxJYSTu).
+51.  [July 2025 5.4.2](https://geo-tracker.org/en/releases/#5.4.2)   Notifications and Status ✨
+
+iOS Live Activity — see current recording info on the Lock Screen and Dynamic Island.
+Redesigned recording notification on Android — cleaner, clearer, and easier to read at a glance.
+
+Map View Options 🗺️
+
+Hide segment connectors — a new setting to toggle visibility of connecting lines between track segments.
+
+System & Stability 🛡️
+
+Android 16 support — fully compatible with the latest Android release.
+GPX import improvements — better handling of complex or non-standard GPX files.
+Bug fixes — general reliability and performance enhancements.
+
+
+Enjoy the update and happy exploring! 🚶‍♂️📍
+
+
+
+
+
+52. iOS Live Activity — see current recording info on the Lock Screen and Dynamic Island.
+53. Redesigned recording notification on Android — cleaner, clearer, and easier to read at a glance.
+54. Hide segment connectors — a new setting to toggle visibility of connecting lines between track segments.
+55. Android 16 support — fully compatible with the latest Android release.
+56. GPX import improvements — better handling of complex or non-standard GPX files.
+57. Bug fixes — general reliability and performance enhancements.
+58.  [May 2025 5.4.1](https://geo-tracker.org/en/releases/#5.4.1)   Route Guidance Enhancements 🚀
+
+ETA display — see your estimated time of arrival right in Route Guidance mode.
+
+Continuous Sync (Android) 🔄
+
+Live folder sync — with Auto-Sync enabled, your tracks are written to the external sync folder during recording.
+Near real-time tracking — pair this with a tool like FolderSync and you’ll have an almost online tracking experience.
+Configurable interval — adjust how often sync runs under Settings → Storage settings.
+
+Import & Stability 🛠️
+
+GPX import fix — resolved an issue that blocked certain GPX files from loading.
+Miscellaneous improvements — assorted bug fixes and performance optimizations for a smoother experience.
+
+
+Enjoy the refinements and safe travels!
+
+# Version History
+
+59. ETA display — see your estimated time of arrival right in Route Guidance mode.
+60. Live folder sync — with Auto-Sync enabled, your tracks are written to the external sync folder during recording.
+61. Near real-time tracking — pair this with a tool like FolderSync and you’ll have an almost online tracking experience.
+62. Configurable interval — adjust how often sync runs under Settings → Storage settings.
+63. GPX import fix — resolved an issue that blocked certain GPX files from loading.
+64. Miscellaneous improvements — assorted bug fixes and performance optimizations for a smoother experience.
+65.  [March 2025 5.4.0](https://geo-tracker.org/en/releases/#5.4.0)   Route Guidance 🚗
+
+New route guidance mode — use any saved route as a guided trip with on-screen prompts and maneuvers. Learn more in our [route guidance guide](https://geo-tracker.org/en/how-to/route-guidance).
+
+File & Sync Improvements 🔄
+
+KML/KMZ support (iOS) — import and export trips in these formats on iPhone and iPad.
+Single-trip export (Android) — select “Sync this trip” to write one route to external storage.
+Enhanced sync & auto-start (Android) — more reliable folder scanning and automatic recording improvements.
+
+3. Marker & Editing Enhancements 📍✏️
+
+Smarter markers — assign maneuver types, add notes, and access new waypoint settings.
+Live editing — tweak track descriptions (and other metadata) even while recording.
+
+4. Map Features & UI 🗺️
+
+Night mode & traffic for Mapbox — switch to a dark theme and view live traffic where available.
+
+5. Stability & Performance ⚙️
+
+Improved GPX export and numerous bug fixes for a smoother, more stable experience.
+
+
+Enjoy the streamlined update—happy navigating!
+
+66. New route guidance mode — use any saved route as a guided trip with on-screen prompts and maneuvers. Learn more in our [route guidance guide](https://geo-tracker.org/en/how-to/route-guidance).
+67. KML/KMZ support (iOS) — import and export trips in these formats on iPhone and iPad.
+68. Single-trip export (Android) — select “Sync this trip” to write one route to external storage.
+69. Enhanced sync & auto-start (Android) — more reliable folder scanning and automatic recording improvements.
+70. Smarter markers — assign maneuver types, add notes, and access new waypoint settings.
+71. Live editing — tweak track descriptions (and other metadata) even while recording.
+72. Night mode & traffic for Mapbox — switch to a dark theme and view live traffic where available.
+73. Improved GPX export and numerous bug fixes for a smoother, more stable experience.
+74.  [December 2024 5.3.7](https://geo-tracker.org/en/releases/#5.3.7)   Platform Support
+
+Geo Tracker for iPad — our stable iOS build now runs natively on tablets. Download via the [App Store](https://apps.apple.com/us/app/geo-tracker-gps-tracker/id1610586137).
+Android 15 Ready — full compatibility with the latest Android release.
+
+2. Immersive Map View
+
+True full-screen — top and bottom panels become translucent so your map fills the display.
+
+3. iOS Enhancements
+
+Improved compass navigation — leverage your device’s built-in compass for even more accurate movement direction.
+GPX import fix — resolved an issue that could prevent GPX files from loading correctly.
+
+
+Enjoy the broader device support and cleaner, more accurate mapping!
+
+75. Geo Tracker for iPad — our stable iOS build now runs natively on tablets. Download via the [App Store](https://apps.apple.com/us/app/geo-tracker-gps-tracker/id1610586137).
+76. Android 15 Ready — full compatibility with the latest Android release.
+77. True full-screen — top and bottom panels become translucent so your map fills the display.
+78. Improved compass navigation — leverage your device’s built-in compass for even more accurate movement direction.
+79. GPX import fix — resolved an issue that could prevent GPX files from loading correctly.
+80.  [October 2024 5.3.6 - Welcome iOS Users 🎉](https://geo-tracker.org/en/releases/#5.3.6)   Geo Tracker is now on iOS! Download from the [App Store](https://apps.apple.com/app/geo-tracker-gps-tracker/id1610586137) and read more [here](https://geo-tracker.org/en/ios/).
+New Subscription Options
+
+Annual plans available — enjoy all premium features at a lower yearly rate.
+Switch between monthly and annual billing in Settings → Manage Subscription.
+
+Smarter Recording
+
+# Version History
+
+Keep previous tracks selected — long-press the record button after choosing tracks in the list to retain your selection for the new session.
+
+Garmin Watch Fix
+
+Resolved the issue causing constant vibration notifications on Garmin watches. No more interruptions!
+
+
+Enjoy the new platform, savings, and smoother tracking experience!
+
+81. Annual plans available — enjoy all premium features at a lower yearly rate.
+82. Switch between monthly and annual billing in Settings → Manage Subscription.
+83. Keep previous tracks selected — long-press the record button after choosing tracks in the list to retain your selection for the new session.
+84. Resolved the issue causing constant vibration notifications on Garmin watches. No more interruptions!
+85.  [June 2024 5.3.4](https://geo-tracker.org/en/releases/#5.3.4)   
+GPX route support — Geo Tracker now imports GPX files containing <rte> (route) tags.
+Enhanced KML/KMZ import — improved parsing of KML and KMZ files, with more reliable handling of waypoints and track segments.
+Hide “My location” button — toggle the on-screen location-pin button off in Display settings for an uncluttered map view.
+
+86. GPX route support — Geo Tracker now imports GPX files containing <rte> (route) tags.
+87. Enhanced KML/KMZ import — improved parsing of KML and KMZ files, with more reliable handling of waypoints and track segments.
+88. Hide “My location” button — toggle the on-screen location-pin button off in Display settings for an uncluttered map view.
+89.  [March 2024 5.3.3](https://geo-tracker.org/en/releases/#5.3.3)   Refreshed UI
+
+Slimmed top panel — takes up less screen space for a cleaner map view.
+
+Trash Bin Enhancements
+
+Empty bin on demand — manually clear the trash, or let it auto-purge deleted routes after 30 days.
+
+Stats Screen Update
+
+Recording date now appears under the route name in Statistics (and in shared screenshots).
+
+Expanded Trip List Info
+
+See your total route count, plus how many are selected or in the trash, right in the trip list header.
+
+5. Azimuth Display Fix
+
+Compass heading now shows as 0…360° (instead of -180…+180°) for unambiguous bearings.
+
+
+
+
+
+90. Slimmed top panel — takes up less screen space for a cleaner map view.
+91. Empty bin on demand — manually clear the trash, or let it auto-purge deleted routes after 30 days.
+92. Recording date now appears under the route name in Statistics (and in shared screenshots).
+93. See your total route count, plus how many are selected or in the trash, right in the trip list header.
+94. Compass heading now shows as 0…360° (instead of -180…+180°) for unambiguous bearings.
+95.  [December 2023 5.3.2](https://geo-tracker.org/en/releases/#5.3.2)   Map Providers Overhaul
+
+Petal Maps added — enjoy Huawei’s Petal Maps in Geo Tracker: detailed vector data for many regions and full support on devices without Google Play services. (Note: Petal Maps does not include satellite imagery.)
+Yandex Maps removed — we’ve dropped Yandex support due to their new, prohibitive pricing policy.
+
+
+96. Petal Maps added — enjoy Huawei’s Petal Maps in Geo Tracker: detailed vector data for many regions and full support on devices without Google Play services. (Note: Petal Maps does not include satellite imagery.)
+97. Yandex Maps removed — we’ve dropped Yandex support due to their new, prohibitive pricing policy.
+98.  [November 2023 5.3.0](https://geo-tracker.org/en/releases/#5.3.0)   Seamless Sync to Folder
+
+Sync to folder replaces separate import/export: drop GPX/KML/KMZ files into /Documents/GeoTracker (or other folder) and tap Sync  to load.
+Auto-Sync (subscription required) — enable in Settings → Storage settings to import new files automatically on launch.
+Pro tip: Use FolderSync or similar to mirror this folder with cloud services (Google Drive, OneDrive, etc.).
+
+Enhanced Trip Management
+
+Trash bin — recover accidentally deleted trips via the new bin, accessible from the trip list.
+Bulk delete — select multiple trips and remove them all in one tap.
+
+
+Enjoy a smoother workflow and peace of mind knowing your trips are safe!
+
+99. Sync to folder replaces separate import/export: drop GPX/KML/KMZ files into /Documents/GeoTracker (or other folder) and tap Sync  to load.
+100. Auto-Sync (subscription required) — enable in Settings → Storage settings to import new files automatically on launch.
+
+# Version History
+
+101. Pro tip: Use FolderSync or similar to mirror this folder with cloud services (Google Drive, OneDrive, etc.).
+102. Trash bin — recover accidentally deleted trips via the new bin, accessible from the trip list.
+103. Bulk delete — select multiple trips and remove them all in one tap.
+104.  [June 2023 5.2.3](https://geo-tracker.org/en/releases/#5.2.3)   Automatic Stop Detection (Beta)
+
+Stop markers — Geo Tracker now flags points where you pause for some time.
+Enable in Settings → Record settings → Stop markers (Beta).
+
+Bearing to Point
+
+Azimuth display — tap any marker or selected point to view the bearing (direction) and distance to it in real time.
+
+
+Enjoy the new auto-stop feature and easier navigation cues!
+
+105. Stop markers — Geo Tracker now flags points where you pause for some time.
+106. Enable in Settings → Record settings → Stop markers (Beta).
+107. Azimuth display — tap any marker or selected point to view the bearing (direction) and distance to it in real time.
+108.  [April 2023 5.2.1](https://geo-tracker.org/en/releases/#5.2.1)   Chart Enhancements
+
+Marker overlays on charts — see your waypoints directly in the graphs, marked with dots and dashed vertical lines.
+
+Recording Profiles
+
+New “Airplane” profile — optimized settings for reliable GPS logging during flights.
+
+Track Interaction
+
+Instant point info — drag along the route line on the map to view that point’s details in real time.
+
+Search Improvements
+
+Expanded coordinate parsing — enter a wider variety of coordinate formats in the search dialog and jump straight to them.
+
+
+Enjoy the sharper insights and new flight-friendly recording mode!
+
+109. Marker overlays on charts — see your waypoints directly in the graphs, marked with dots and dashed vertical lines.
+110. New “Airplane” profile — optimized settings for reliable GPS logging during flights.
+111. Instant point info — drag along the route line on the map to view that point’s details in real time.
+112. Expanded coordinate parsing — enter a wider variety of coordinate formats in the search dialog and jump straight to them.
+113.  [January 2022 5.1.3](https://geo-tracker.org/en/releases/#5.1.3)   Automated Recording
+
+Tasker & MacroDroid support — trigger Geo Tracker to start/stop recording automatically. See our [automation guide](https://geo-tracker.org/en/automate-recording/) for setup.
+
+New Sport Mode
+
+Ski statistics — Geo Tracker now computes downhill and uphill metrics for your ski sessions.
+
+Android Compatibility
+
+Android 12 ready — full support and optimized behavior on the latest OS.
+
+Navigation Improvements
+
+Landscape & startup fixes — Navigation Mode now initializes correctly in landscape and on app launch.
+
+Background Recording Setup
+
+Updated guides — in-app instructions for [Xiaomi](https://geo-tracker.org/en/setup#xiaomi), [Huawei](https://geo-tracker.org/en/setup#huawei) and others.
+
+Performance & Efficiency
+
+Faster stats & charts — smoother loading of statistics and full-screen graphs.
+Lower battery use — reduced background recording drain.
+
+
+Enjoy the new automation features and improved performance!   
+114. Tasker & MacroDroid support — trigger Geo Tracker to start/stop recording automatically. See our [automation guide](https://geo-tracker.org/en/automate-recording/) for setup.
+115. Ski statistics — Geo Tracker now computes downhill and uphill metrics for your ski sessions.
+116. Android 12 ready — full support and optimized behavior on the latest OS.
+117. Landscape & startup fixes — Navigation Mode now initializes correctly in landscape and on app launch.
+118. Updated guides — in-app instructions for [Xiaomi](https://geo-tracker.org/en/setup#xiaomi), [Huawei](https://geo-tracker.org/en/setup#huawei) and others.
+119. Faster stats & charts — smoother loading of statistics and full-screen graphs.
+120. Lower battery use — reduced background recording drain.
+121.  [December 2021 5.1.2](https://geo-tracker.org/en/releases/#5.1.2)   Faster Trip Search
+
+Search bar in the track list—filter by name or description to quickly find and select any trip.
+
+Flexible Units & Metrics
+
+Separate units for distance (km, mi, nm) and altitude (m, ft).
+Slope display now toggles between degrees and percent.
+Refined vertical distance calculation—more accurate ascent/descent based on your feedback.
+
+Navigation & UI Tweaks
+
+Improved navigation mode—bottom panels no longer obscure your location arrow.
+
+# Version History
+
+Automatic compass off when speed exceeds 3 km/h (down from 5 km/h) for smoother tracking.
+
+Smarter Markers
+
+Enhanced “add marker here”—markers dropped at your current position now auto-include location accuracy and its distance/time from trip start in the description.
+
+
+Enjoy the faster search, more precise metrics, and cleaner navigation experience!
+
+122. Search bar in the track list—filter by name or description to quickly find and select any trip.
+123. Separate units for distance (km, mi, nm) and altitude (m, ft).
+124. Slope display now toggles between degrees and percent.
+125. Refined vertical distance calculation—more accurate ascent/descent based on your feedback.
+126. Improved navigation mode—bottom panels no longer obscure your location arrow.
+127. Automatic compass off when speed exceeds 3 km/h (down from 5 km/h) for smoother tracking.
+128. Enhanced “add marker here”—markers dropped at your current position now auto-include location accuracy and its distance/time from trip start in the description.
+129.  [October 2021 5.1.1](https://geo-tracker.org/en/releases/#5.1.1)   Performance
+
+Faster trip loading — optimized handling for routes with a large number of markers.
+
+Statistics
+
+Improved algorithms — refined calculations for speed, elevation and other metrics.
+Tip: To apply the updates to existing routes, export them as GPX/KML and then re-import.
+
+Recording Precision
+
+Higher-resolution distance triggers — now choose minimum recording distances of 50 cm, 10 cm, or 1 cm in your custom profile.
+
+UI Simplification
+
+Always-on route display — the “show/hide route” toggle has been removed to avoid accidental hides. Selected routes now reliably appear on the map.
+
+
+Enjoy the snappier performance and finer control!   
+130. Faster trip loading — optimized handling for routes with a large number of markers.
+131. Improved algorithms — refined calculations for speed, elevation and other metrics.
+Tip: To apply the updates to existing routes, export them as GPX/KML and then re-import.
+132. Higher-resolution distance triggers — now choose minimum recording distances of 50 cm, 10 cm, or 1 cm in your custom profile.
+133. Always-on route display — the “show/hide route” toggle has been removed to avoid accidental hides. Selected routes now reliably appear on the map.
+134.  [October 2021 5.1.0](https://geo-tracker.org/en/releases/#5.1.0)   Navigation Mode
+
+Navigation Mode — enable in Layers to have the map auto-rotate with your direction.
+Tip: Calibrate your compass by moving your phone in a “figure eight” for accurate readings.
+Compass toggle — turn off compass data in settings if you prefer GPS-only orientation.
+
+Geolocation & Recording
+
+Location services check — the app warns you if GPS is off, prompts to enable it before starting a recording, and updates status if it’s turned off mid-recording.
+Battery optimization prompt — Samsung users will be reminded to disable battery savers before a background recording begins.
+
+UI & Design
+
+Fresh look — updated icons, fonts, and colors; edit dialogs are now compact and no longer full-screen.
+
+Recording Notifications
+
+Enhanced notification — your current speed, altitude, coordinate accuracy, and visible satellite count are shown in the ongoing recording alert.
+
+
+Enjoy smoother navigation and a more reliable recording experience!   
+135. Navigation Mode — enable in Layers to have the map auto-rotate with your direction.
+Tip: Calibrate your compass by moving your phone in a “figure eight” for accurate readings.
+136. Compass toggle — turn off compass data in settings if you prefer GPS-only orientation.
+137. Location services check — the app warns you if GPS is off, prompts to enable it before starting a recording, and updates status if it’s turned off mid-recording.
+138. Battery optimization prompt — Samsung users will be reminded to disable battery savers before a background recording begins.
+139. Fresh look — updated icons, fonts, and colors; edit dialogs are now compact and no longer full-screen.
+140. Enhanced notification — your current speed, altitude, coordinate accuracy, and visible satellite count are shown in the ongoing recording alert.
+141.  [September 2021 5.0.4](https://geo-tracker.org/en/releases/#5.0.4)   Expanded Cache
+
+Larger map cache — OSM/Mapbox now stores up to 256 MB (up from 50 MB).
+
+2. Coordinate Tools
+
+# Version History
+
+Find by coordinates — enter decimal or DMS in the main menu to jump to any location. Also supports “open with” from other apps (e.g. Google Photos).
+Copy format choice — long-press the copy button to select decimal or degrees when copying coordinates.
+
+4. Units & Display
+
+Nautical miles — new distance unit available under display settings.
+Hide status bar — fully hide the bottom panel via display settings for an uncluttered map view.
+
+5. Screenshot Enhancements
+
+Stats-only screenshots — long-press the save/share button to capture just the charts and metrics, without the map.
+
+6. Data Import & KML Support
+
+Closed paths from KML — LinearRing polygons now import as closed routes in the app.
+
+7. Recording Profile Upgrades
+
+Custom profile options — new settings for recording rate and minimum distance thresholds.
+
+8. Smarter Statistics
+
+Algorithm improvements — refined calculations for max speed, elevation, vertical distance, and slopes. Minor elevation noise is now ignored so you get more accurate vertical ascent/descent.
+
+
+Thank you for all your feedback and track submissions—keep them coming! Enjoy the update.   
+142. Larger map cache — OSM/Mapbox now stores up to 256 MB (up from 50 MB).
+143. Find by coordinates — enter decimal or DMS in the main menu to jump to any location. Also supports “open with” from other apps (e.g. Google Photos).
+144. Copy format choice — long-press the copy button to select decimal or degrees when copying coordinates.
+145. Nautical miles — new distance unit available under display settings.
+146. Hide status bar — fully hide the bottom panel via display settings for an uncluttered map view.
+147. Stats-only screenshots — long-press the save/share button to capture just the charts and metrics, without the map.
+148. Closed paths from KML — LinearRing polygons now import as closed routes in the app.
+149. Custom profile options — new settings for recording rate and minimum distance thresholds.
+150. Algorithm improvements — refined calculations for max speed, elevation, vertical distance, and slopes. Minor elevation noise is now ignored so you get more accurate vertical ascent/descent.
+151.  [September 2021 5.0.3](https://geo-tracker.org/en/releases/#5.0.3)   Satellite Imagery for OSM/Mapbox
+
+New satellite layer — switch to satellite view when using OSM/Mapbox maps.
+High-res tiles powered by Mapbox for crisp aerial imagery.
+
+Other Enhancements
+
+More precise speed display up to 30 km/h (30 mph) for finer-grained readings.
+Hide track endpoints — toggle off start/end markers on the map.
+Reduced memory usage — major optimizations when many tracks are open simultaneously.
+
+
+Enjoy the update!
+
+152. New satellite layer — switch to satellite view when using OSM/Mapbox maps.
+153. High-res tiles powered by Mapbox for crisp aerial imagery.
+154. More precise speed display up to 30 km/h (30 mph) for finer-grained readings.
+155. Hide track endpoints — toggle off start/end markers on the map.
+156. Reduced memory usage — major optimizations when many tracks are open simultaneously.
+157.  [August 2021 5.0.2](https://geo-tracker.org/en/releases/#5.0.2)   Reliable Background Recording
+
+Power-management guide — a new help [article](https://geo-tracker.org/en/setup) walks you through configuring your device’s battery and power-saving settings so Geo Tracker can record uninterrupted in the background.
+
+Flexible Donations
+
+Upgraded payments SDK — our Google in-app billing library is now updated, so you can make the same donation multiple times if you like 😉.
+
+GPS Week Rollover Fix
+
+Legacy device support — for older hardware that didn’t auto-apply the April 6, 2019 GPS week rollover, you can now enter a manual offset (619315200) in Settings → Record Settings.
+
+
+Enjoy the update, and thanks for helping us improve Geo Tracker!   
+158. Power-management guide — a new help [article](https://geo-tracker.org/en/setup) walks you through configuring your device’s battery and power-saving settings so Geo Tracker can record uninterrupted in the background.
+159. Upgraded payments SDK — our Google in-app billing library is now updated, so you can make the same donation multiple times if you like 😉.
+160. Legacy device support — for older hardware that didn’t auto-apply the April 6, 2019 GPS week rollover, you can now enter a manual offset (619315200) in Settings → Record Settings.
+
+# Version History
+
+161.  [June 2021 5.0.0](https://geo-tracker.org/en/releases/#5.0.0)   New Map Source: OpenStreetMap
+
+Switch to OSM — now available alongside Google and Yandex maps, via Mapbox.
+Why OSM? Trails and minor paths often appear here first—perfect for mountain and off-road exploration.
+High-quality delivery — fast rendering, smart caching, powered by Mapbox (subscription required).
+
+Recording & Compatibility
+
+Android 10+ support — background tracking has been optimized.
+
+Tip: Grant Allow all the time location access and disable battery optimizations (Samsung, Xiaomi, Huawei, OnePlus, Oppo, Realme, etc.). See [setup instructions](https://geo-tracker.org/en/setup).
+
+
+A-GPS reset — clear and reload your device’s A-GPS data from Record settings if you encounter GPS glitches.
+
+Map & UI Enhancements
+
+Redesigned map settings — quickly swap map sources (Yandex, Google, OSM) and layers (scheme, satellite, relief).
+Expanded status panel — now shows momentary azimuth, measurement precision, and more.
+
+Elevation & Data Settings
+
+Sea-level baseline — switch from the default WGS84 ellipsoid to mean sea level for more accurate altitude readings.
+Manual baseline correction — offset your elevation baseline if needed (both options under Record settings).
+
+Track Management
+
+Up to 100 open routes — load more tracks at once (warning: heavy RAM & battery usage).
+
+
+162. Switch to OSM — now available alongside Google and Yandex maps, via Mapbox.
+163. Why OSM? Trails and minor paths often appear here first—perfect for mountain and off-road exploration.
+164. High-quality delivery — fast rendering, smart caching, powered by Mapbox (subscription required).
+165. Android 10+ support — background tracking has been optimized.
+
+Tip: Grant Allow all the time location access and disable battery optimizations (Samsung, Xiaomi, Huawei, OnePlus, Oppo, Realme, etc.). See [setup instructions](https://geo-tracker.org/en/setup).
+
+
+166. Tip: Grant Allow all the time location access and disable battery optimizations (Samsung, Xiaomi, Huawei, OnePlus, Oppo, Realme, etc.). See [setup instructions](https://geo-tracker.org/en/setup).
+167. A-GPS reset — clear and reload your device’s A-GPS data from Record settings if you encounter GPS glitches.
+168. Redesigned map settings — quickly swap map sources (Yandex, Google, OSM) and layers (scheme, satellite, relief).
+169. Expanded status panel — now shows momentary azimuth, measurement precision, and more.
+170. Sea-level baseline — switch from the default WGS84 ellipsoid to mean sea level for more accurate altitude readings.
+171. Manual baseline correction — offset your elevation baseline if needed (both options under Record settings).
+172. Up to 100 open routes — load more tracks at once (warning: heavy RAM & battery usage).
+173.  [July 2019 4.0.0](https://geo-tracker.org/en/releases/#4.0.0)   Recording & Import
+
+Optimized background tracking — smoother, uninterrupted recordings. (Tip: whitelist Geo Tracker in your phone’s battery/recording settings.)
+Universal file opening — import GPX/KML/KMZ from any app (Chrome, Drive, WhatsApp, …).
+
+Maps & Visualization
+
+Dark mode for Google Maps — perfect for low-light viewing.
+Persistent color mode — your preferred track colors (solid, speed gradient or elevation gradient) stick across sessions.
+New info panel — see current coordinates, satellite count, elevation, speed, recording and GPS status at a glance.
+
+Navigation & Markers
+
+Redesigned markers — faster, more intuitive placement and editing.
+Coordinate copy — tap to copy any marker’s latitude/longitude.
+Live distance & bearing — real-time “how far and which direction” to your selected point.
+
+Performance & Storage
+
+Rewritten storage engine — lightning-fast track loading and browsing. (First launch may take a moment to migrate your data.)
+Yandex Maps SDK update — upgraded for snappier performance and cleaner visuals.
+
+Note: Yandex no longer supports its Satellite layer—use Google Maps for satellite imagery.
+
+
+
+
+174. Optimized background tracking — smoother, uninterrupted recordings. (Tip: whitelist Geo Tracker in your phone’s battery/recording settings.)
+175. Universal file opening — import GPX/KML/KMZ from any app (Chrome, Drive, WhatsApp, …).
+176. Dark mode for Google Maps — perfect for low-light viewing.
+177. Persistent color mode — your preferred track colors (solid, speed gradient or elevation gradient) stick across sessions.
+
+# Version History
+
+178. New info panel — see current coordinates, satellite count, elevation, speed, recording and GPS status at a glance.
+179. Redesigned markers — faster, more intuitive placement and editing.
+180. Coordinate copy — tap to copy any marker’s latitude/longitude.
+181. Live distance & bearing — real-time “how far and which direction” to your selected point.
+182. Rewritten storage engine — lightning-fast track loading and browsing. (First launch may take a moment to migrate your data.)
+183. Yandex Maps SDK update — upgraded for snappier performance and cleaner visuals.
+
+Note: Yandex no longer supports its Satellite layer—use Google Maps for satellite imagery.
+
+
+184. Note: Yandex no longer supports its Satellite layer—use Google Maps for satellite imagery.
+185.  [August 2016 3.3.0](https://geo-tracker.org/en/releases/#3.3.0)   Share Your Statistics
+
+Screenshot sharing — tap Share on the Statistics screen to send a full trip summary (map, charts, metrics) via Facebook, Twitter, email, or any app.
+
+Full‐Screen Charts
+
+Immersive view — tap any chart to expand it full-screen, then pinch-zoom or pan to inspect details.
+
+Duration-Based Charts
+
+New axis option — switch your charts between distance and duration directly from the Statistics screen for deeper insights.
+
+
+186. Screenshot sharing — tap Share on the Statistics screen to send a full trip summary (map, charts, metrics) via Facebook, Twitter, email, or any app.
+187. Immersive view — tap any chart to expand it full-screen, then pinch-zoom or pan to inspect details.
+188. New axis option — switch your charts between distance and duration directly from the Statistics screen for deeper insights.
+189.  [March 2016 3.2.1](https://geo-tracker.org/en/releases/#3.2.1)   Visualization
+
+Track color modes — now color your routes by speed or elevation gradient for instant visual insights.
+
+File Formats
+
+KMZ support — import and export KMZ files just like GPX/KML.
+
+Localization
+
+New languages — gracias a nuestros voluntarios! Geo Tracker now also in Spanish, Italian and French.
+
+Recording Enhancements
+
+Auto-start recording — begin tracking automatically when you launch the app.
+Richer custom profiles — added new parameter values for your tailored recording settings.
+
+Beta Program
+
+[Join the beta](https://play.google.com/apps/testing/com.ilyabogdanovich.geotracker) — test upcoming features!
+
+
+Enjoy the update and thanks for helping us make Geo Tracker better!
+
+190. Track color modes — now color your routes by speed or elevation gradient for instant visual insights.
+191. KMZ support — import and export KMZ files just like GPX/KML.
+192. New languages — gracias a nuestros voluntarios! Geo Tracker now also in Spanish, Italian and French.
+193. Auto-start recording — begin tracking automatically when you launch the app.
+194. Richer custom profiles — added new parameter values for your tailored recording settings.
+195. [Join the beta](https://play.google.com/apps/testing/com.ilyabogdanovich.geotracker) — test upcoming features!
+196.  [February 2014 2.0.0](https://geo-tracker.org/en/releases/#2.0.0)   Marker Placement
+
+Control-panel button — tap the marker-pin icon to drop a marker at your current GPS position (with error feedback if fix is unavailable).
+Long-press & drag — touch and hold anywhere on the map, then drag the pin.
+
+Route Planning
+
+Planning mode — start with a blank map, and add markers before you head out.
+
+KML Waypoint Support
+
+KML import/export — load and save tracks and waypoints in standard KML format for easy sharing across apps.
+
+
+
+
+
+197. Control-panel button — tap the marker-pin icon to drop a marker at your current GPS position (with error feedback if fix is unavailable).
+198. Long-press & drag — touch and hold anywhere on the map, then drag the pin.
+199. Planning mode — start with a blank map, and add markers before you head out.
+200. KML import/export — load and save tracks and waypoints in standard KML format for easy sharing across apps.
+201.  [January 2013 1.0.0](https://geo-tracker.org/en/releases/#1.0.0)   Geo Tracker is published for the first time in Google Play.   
+202.   August 2012 Start of development 
+[July 2026 5.6.1](https://geo-tracker.org/en/releases/#5.6.1)
+
+### 5.6.1
+A bugfix release focused on long-track performance, recording reliability, and map polish.
+
+### 🚀 Performance
+- Faster long tracks — large tracks now load and render faster, and powerful devices can handle a higher point threshold.
+- More reliable storage — the database engine is more robust, and Geo Tracker now shows a small loading indicator while tracks are being read from disk.
+
+### 🧭 Track handling
+- Cleaner stop flow — Geo Tracker no longer asks for stop confirmation when nothing is being recorded.
+- Better split tracks — fixed missing comments and time inconsistencies in split tracks. You can now split a track at any marker on it.
+- Directional arrow cleanup — fixed directional arrows lingering after a track is cleared on iOS.
+- Track focusing fixes — focusing on tracks is now more reliable.
+
+### 🗺️ Map
+- Smoother navigation — map movement is smoother in navigation mode.
+- Smarter marker visibility — marker display now turns on automatically when you add a new marker.
+- Location marker fixes — fixed cases where the location marker would not appear.
+
+### 📤 Sharing
+- Map-only screenshots — you can now take screenshots of the map without statistics.
+- Better screenshot names — screenshot files are now named using the track time.
+- More reliable imports — fixed GPX, KML, and KMZ imports that could occasionally be dropped.
+Thanks for being with us!
+
+#### Want to try new features early?
+Join our beta program:
+- Android — tap “Join beta” on our [Google Play](https://play.google.com/store/apps/details?id=com.ilyabogdanovich.geotracker) page, or install the APK directly from our [website](https://cdn.geo-tracker.org/apk/beta/app-arm64-v8a-release.apk).
+- iOS — install via Apple’s [TestFlight](https://testflight.apple.com/join/wpxJYSTu).
+[Google Play](https://play.google.com/store/apps/details?id=com.ilyabogdanovich.geotracker)
+[website](https://cdn.geo-tracker.org/apk/beta/app-arm64-v8a-release.apk)
+[TestFlight](https://testflight.apple.com/join/wpxJYSTu)
+[June 2026 5.6.0](https://geo-tracker.org/en/releases/#5.6.0)
+
+### 📍 Marker improvements
+- Emoji waypoint icons — personalize the map with emoji markers: a tent for a campsite, an eye for a viewpoint, or a cup for a coffee stop. Emoji are preserved when exporting to GPX, KML, or KMZ.
+- Easier waypoint organization — assign a waypoint to any trip, or create a new trip directly from the waypoint edit dialog.
+- Safer editing — Geo Tracker now asks before discarding unsaved waypoint changes.
+
+### ➡️ Directional arrows
+- Travel direction on the map — tracks can now show arrows, so you can quickly see which way you were moving. You can turn them on or off in map settings.
+- Note — directional arrows are currently available with Mapbox Maps only, because other map providers do not offer the required components.
+
+### 📝 Trip comments
+- Add more context to trips — add short notes like “France 2025”, “family hike”, or “bikepacking day 3”, see them in the trips list, and search by comment text when you need to find a specific trip later.
+
+### 🌍 Language settings
+- Switch language in the app — choose one of 11 supported languages directly in Geo Tracker, independent from your system language.
+
+### 🚀 Performance
+- Smoother large trips — smarter map loading keeps long tracks easier to browse.
+- Lower memory use — displaying tracks now uses up to 50% less memory.
+- Faster startup — launch time has been improved.
+- Lighter exports — exporting large tracks uses less memory.
+
+### 🛡️ System & stability
+- Track point count — now shown in trip statistics.
+- Guidance improvements — generated maneuvers and stop-markers are no longer marked as visited by default, and maneuver generation can now be undone.
+- Low storage warning — Geo Tracker alerts you when your device is running low on storage.
+- Calculation and compass fixes — improved vertical distance calculation and fixed compass calibration messages appearing at the wrong time.
+- Cleaner track details — track dates are hidden when they match the trip name.
+- Android 17 support — fully compatible with the latest Android release.
+- Bug fixes — many stability improvements across Android and iOS.
+[January 2026 5.5.1](https://geo-tracker.org/en/releases/#5.5.1)
+
+### 📝 New sorting options in the track list
+You can now sort your tracks:
+- by date,
+- by name,
+- by last modified,
+(in both directions – ascending or descending).
+We also added ✅ a checkbox that allows you to always show selected tracks at the top of the list.
+Super helpful if you manage lots of tracks!
+
+### 📈 New chart engine
+We’ve completely reworked the chart rendering system:
+- Chart intervals are now rounded - for example, instead of 2.51, you’ll see a neat tick at 3, and so on;
+- You can now use the chart cursor even outside fullscreen - just slide your finger along the chart to view exact values;
+- On iOS, fullscreen charts are now available too - tap to open and take a closer look;
+- Charts are now more accurate and faster, especially on long or detailed tracks.
+Thanks for being with us!
+[October 2025 5.5.0](https://geo-tracker.org/en/releases/#5.5.0)
+
+### Track Splitting ✂️
+- Split tracks into parts — ever forgot to stop recording and ended up with multiple activities in one track? Now you can drop a marker anywhere and split it into separate parts in seconds.
+
+### Performance 🚀
+- Lower memory footprint — Geo Tracker now uses less memory for smoother operation.
+- Faster rendering — maps and tracks load more quickly.
+- Overall smoother experience — enjoy better responsiveness all around.
+
+### System & Stability 🛡️
+- Bug fixes — we’ve resolved a bunch of annoying problems for a more reliable app.
+Keep tracking and have fun out there! 🎒
+
+#### Want to try new features early?
+Join our beta program:
+- Android — tap “Join beta” on our [Google Play](https://play.google.com/store/apps/details?id=com.ilyabogdanovich.geotracker) page, or install the APK directly from our [website](https://cdn.geo-tracker.org/apk/beta/app-arm64-v8a-release.apk).
+- iOS — install via Apple’s [TestFlight](https://testflight.apple.com/join/wpxJYSTu).
+[Google Play](https://play.google.com/store/apps/details?id=com.ilyabogdanovich.geotracker)
+[website](https://cdn.geo-tracker.org/apk/beta/app-arm64-v8a-release.apk)
+[TestFlight](https://testflight.apple.com/join/wpxJYSTu)
+[July 2025 5.4.2](https://geo-tracker.org/en/releases/#5.4.2)
+
+### Notifications and Status ✨
+- iOS Live Activity — see current recording info on the Lock Screen and Dynamic Island.
+- Redesigned recording notification on Android — cleaner, clearer, and easier to read at a glance.
+
+### Map View Options 🗺️
+- Hide segment connectors — a new setting to toggle visibility of connecting lines between track segments.
+
+### System & Stability 🛡️
+- Android 16 support — fully compatible with the latest Android release.
+- GPX import improvements — better handling of complex or non-standard GPX files.
+- Bug fixes — general reliability and performance enhancements.
+Enjoy the update and happy exploring! 🚶‍♂️📍
+[May 2025 5.4.1](https://geo-tracker.org/en/releases/#5.4.1)
+
+### Route Guidance Enhancements 🚀
+- ETA display — see your estimated time of arrival right in Route Guidance mode.
+
+### Continuous Sync (Android) 🔄
+- Live folder sync — with Auto-Sync enabled, your tracks are written to the external sync folder during recording.
+- Near real-time tracking — pair this with a tool like FolderSync and you’ll have an almost online tracking experience.
+- Configurable interval — adjust how often sync runs under Settings → Storage settings.
+
+### Import & Stability 🛠️
+- GPX import fix — resolved an issue that blocked certain GPX files from loading.
+- Miscellaneous improvements — assorted bug fixes and performance optimizations for a smoother experience.
+Enjoy the refinements and safe travels!
+[March 2025 5.4.0](https://geo-tracker.org/en/releases/#5.4.0)
+
+### Route Guidance 🚗
+- New route guidance mode — use any saved route as a guided trip with on-screen prompts and maneuvers. Learn more in our [route guidance guide](https://geo-tracker.org/en/how-to/route-guidance).
+[route guidance guide](https://geo-tracker.org/en/how-to/route-guidance)
+
+### File & Sync Improvements 🔄
+- KML/KMZ support (iOS) — import and export trips in these formats on iPhone and iPad.
+- Single-trip export (Android) — select “Sync this trip” to write one route to external storage.
+- Enhanced sync & auto-start (Android) — more reliable folder scanning and automatic recording improvements.
+
+### 3. Marker & Editing Enhancements 📍✏️
+- Smarter markers — assign maneuver types, add notes, and access new waypoint settings.
+- Live editing — tweak track descriptions (and other metadata) even while recording.
+
+### 4. Map Features & UI 🗺️
+- Night mode & traffic for Mapbox — switch to a dark theme and view live traffic where available.
+
+### 5. Stability & Performance ⚙️
+- Improved GPX export and numerous bug fixes for a smoother, more stable experience.
+Enjoy the streamlined update—happy navigating!
+[December 2024 5.3.7](https://geo-tracker.org/en/releases/#5.3.7)
+
+### Platform Support
+- Geo Tracker for iPad — our stable iOS build now runs natively on tablets. Download via the [App Store](https://apps.apple.com/us/app/geo-tracker-gps-tracker/id1610586137).
+- Android 15 Ready — full compatibility with the latest Android release.
+[App Store](https://apps.apple.com/us/app/geo-tracker-gps-tracker/id1610586137)
+
+### 2. Immersive Map View
+- True full-screen — top and bottom panels become translucent so your map fills the display.
+
+### 3. iOS Enhancements
+- Improved compass navigation — leverage your device’s built-in compass for even more accurate movement direction.
+- GPX import fix — resolved an issue that could prevent GPX files from loading correctly.
+Enjoy the broader device support and cleaner, more accurate mapping!
+[October 2024 5.3.6 - Welcome iOS Users 🎉](https://geo-tracker.org/en/releases/#5.3.6)
+
+### Geo Tracker is now on iOS! Download from the [App Store](https://apps.apple.com/app/geo-tracker-gps-tracker/id1610586137) and read more [here](https://geo-tracker.org/en/ios/).
+[App Store](https://apps.apple.com/app/geo-tracker-gps-tracker/id1610586137)
+[here](https://geo-tracker.org/en/ios/)
+
+### New Subscription Options
+- Annual plans available — enjoy all premium features at a lower yearly rate.
+- Switch between monthly and annual billing in Settings → Manage Subscription.
+
+### Smarter Recording
+- Keep previous tracks selected — long-press the record button after choosing tracks in the list to retain your selection for the new session.
+
+### Garmin Watch Fix
+- Resolved the issue causing constant vibration notifications on Garmin watches. No more interruptions!
+Enjoy the new platform, savings, and smoother tracking experience!
+[June 2024 5.3.4](https://geo-tracker.org/en/releases/#5.3.4)
+
+### 5.3.4
+- GPX route support — Geo Tracker now imports GPX files containing <rte> (route) tags.
+- Enhanced KML/KMZ import — improved parsing of KML and KMZ files, with more reliable handling of waypoints and track segments.
+- Hide “My location” button — toggle the on-screen location-pin button off in Display settings for an uncluttered map view.
+
+```
+<rte>
+```
+
+[March 2024 5.3.3](https://geo-tracker.org/en/releases/#5.3.3)
+
+### Refreshed UI
+- Slimmed top panel — takes up less screen space for a cleaner map view.
+
+### Trash Bin Enhancements
+- Empty bin on demand — manually clear the trash, or let it auto-purge deleted routes after 30 days.
+
+### Stats Screen Update
+- Recording date now appears under the route name in Statistics (and in shared screenshots).
+
+### Expanded Trip List Info
+- See your total route count, plus how many are selected or in the trash, right in the trip list header.
+
+### 5. Azimuth Display Fix
+- Compass heading now shows as 0…360° (instead of -180…+180°) for unambiguous bearings.
+[December 2023 5.3.2](https://geo-tracker.org/en/releases/#5.3.2)
+
+### Map Providers Overhaul
+- Petal Maps added — enjoy Huawei’s Petal Maps in Geo Tracker: detailed vector data for many regions and full support on devices without Google Play services. (Note: Petal Maps does not include satellite imagery.)
+- Yandex Maps removed — we’ve dropped Yandex support due to their new, prohibitive pricing policy.
+[November 2023 5.3.0](https://geo-tracker.org/en/releases/#5.3.0)
+
+### Seamless Sync to Folder
+- Sync to folder replaces separate import/export: drop GPX/KML/KMZ files into /Documents/GeoTracker (or other folder) and tap Sync  to load.
+- Auto-Sync (subscription required) — enable in Settings → Storage settings to import new files automatically on launch.
+- Pro tip: Use FolderSync or similar to mirror this folder with cloud services (Google Drive, OneDrive, etc.).
+
+```
+/Documents/GeoTracker
+```
+
+### Enhanced Trip Management
+- Trash bin — recover accidentally deleted trips via the new bin, accessible from the trip list.
+- Bulk delete — select multiple trips and remove them all in one tap.
+Enjoy a smoother workflow and peace of mind knowing your trips are safe!
+[June 2023 5.2.3](https://geo-tracker.org/en/releases/#5.2.3)
+
+### Automatic Stop Detection (Beta)
+- Stop markers — Geo Tracker now flags points where you pause for some time.
+- Enable in Settings → Record settings → Stop markers (Beta).
+
+### Bearing to Point
+- Azimuth display — tap any marker or selected point to view the bearing (direction) and distance to it in real time.
+Enjoy the new auto-stop feature and easier navigation cues!
+[April 2023 5.2.1](https://geo-tracker.org/en/releases/#5.2.1)
+
+### Chart Enhancements
+- Marker overlays on charts — see your waypoints directly in the graphs, marked with dots and dashed vertical lines.
+
+### Recording Profiles
+- New “Airplane” profile — optimized settings for reliable GPS logging during flights.
+
+### Track Interaction
+- Instant point info — drag along the route line on the map to view that point’s details in real time.
+
+### Search Improvements
+- Expanded coordinate parsing — enter a wider variety of coordinate formats in the search dialog and jump straight to them.
+Enjoy the sharper insights and new flight-friendly recording mode!
+[January 2022 5.1.3](https://geo-tracker.org/en/releases/#5.1.3)
+
+### Automated Recording
+- Tasker & MacroDroid support — trigger Geo Tracker to start/stop recording automatically. See our [automation guide](https://geo-tracker.org/en/automate-recording/) for setup.
+[automation guide](https://geo-tracker.org/en/automate-recording/)
+
+### New Sport Mode
+- Ski statistics — Geo Tracker now computes downhill and uphill metrics for your ski sessions.
+
+### Android Compatibility
+- Android 12 ready — full support and optimized behavior on the latest OS.
+
+### Navigation Improvements
+- Landscape & startup fixes — Navigation Mode now initializes correctly in landscape and on app launch.
+
+### Background Recording Setup
+- Updated guides — in-app instructions for [Xiaomi](https://geo-tracker.org/en/setup#xiaomi), [Huawei](https://geo-tracker.org/en/setup#huawei) and others.
+[Xiaomi](https://geo-tracker.org/en/setup#xiaomi)
+[Huawei](https://geo-tracker.org/en/setup#huawei)
+
+### Performance & Efficiency
+- Faster stats & charts — smoother loading of statistics and full-screen graphs.
+- Lower battery use — reduced background recording drain.
+Enjoy the new automation features and improved performance!
+[December 2021 5.1.2](https://geo-tracker.org/en/releases/#5.1.2)
+
+### Faster Trip Search
+- Search bar in the track list—filter by name or description to quickly find and select any trip.
+
+### Flexible Units & Metrics
+- Separate units for distance (km, mi, nm) and altitude (m, ft).
+- Slope display now toggles between degrees and percent.
+- Refined vertical distance calculation—more accurate ascent/descent based on your feedback.
+
+### Navigation & UI Tweaks
+- Improved navigation mode—bottom panels no longer obscure your location arrow.
+- Automatic compass off when speed exceeds 3 km/h (down from 5 km/h) for smoother tracking.
+
+### Smarter Markers
+- Enhanced “add marker here”—markers dropped at your current position now auto-include location accuracy and its distance/time from trip start in the description.
+Enjoy the faster search, more precise metrics, and cleaner navigation experience!
+[October 2021 5.1.1](https://geo-tracker.org/en/releases/#5.1.1)
+
+### Performance
+- Faster trip loading — optimized handling for routes with a large number of markers.
+
+### Statistics
+- Improved algorithms — refined calculations for speed, elevation and other metrics.
+Tip: To apply the updates to existing routes, export them as GPX/KML and then re-import.
+
+### Recording Precision
+- Higher-resolution distance triggers — now choose minimum recording distances of 50 cm, 10 cm, or 1 cm in your custom profile.
+
+### UI Simplification
+- Always-on route display — the “show/hide route” toggle has been removed to avoid accidental hides. Selected routes now reliably appear on the map.
+Enjoy the snappier performance and finer control!
+[October 2021 5.1.0](https://geo-tracker.org/en/releases/#5.1.0)
+
+### Navigation Mode
+- Navigation Mode — enable in Layers to have the map auto-rotate with your direction.
+Tip: Calibrate your compass by moving your phone in a “figure eight” for accurate readings.
+- Compass toggle — turn off compass data in settings if you prefer GPS-only orientation.
+
+### Geolocation & Recording
+- Location services check — the app warns you if GPS is off, prompts to enable it before starting a recording, and updates status if it’s turned off mid-recording.
+- Battery optimization prompt — Samsung users will be reminded to disable battery savers before a background recording begins.
+
+### UI & Design
+- Fresh look — updated icons, fonts, and colors; edit dialogs are now compact and no longer full-screen.
+
+### Recording Notifications
+- Enhanced notification — your current speed, altitude, coordinate accuracy, and visible satellite count are shown in the ongoing recording alert.
+Enjoy smoother navigation and a more reliable recording experience!
+[September 2021 5.0.4](https://geo-tracker.org/en/releases/#5.0.4)
+
+### Expanded Cache
+- Larger map cache — OSM/Mapbox now stores up to 256 MB (up from 50 MB).
+
+### 2. Coordinate Tools
+- Find by coordinates — enter decimal or DMS in the main menu to jump to any location. Also supports “open with” from other apps (e.g. Google Photos).
+- Copy format choice — long-press the copy button to select decimal or degrees when copying coordinates.
+
+### 4. Units & Display
+- Nautical miles — new distance unit available under display settings.
+- Hide status bar — fully hide the bottom panel via display settings for an uncluttered map view.
+
+### 5. Screenshot Enhancements
+- Stats-only screenshots — long-press the save/share button to capture just the charts and metrics, without the map.
+
+### 6. Data Import & KML Support
+- Closed paths from KML — LinearRing polygons now import as closed routes in the app.
+
+```
+LinearRing
+```
+
+### 7. Recording Profile Upgrades
+- Custom profile options — new settings for recording rate and minimum distance thresholds.
+
+### 8. Smarter Statistics
+- Algorithm improvements — refined calculations for max speed, elevation, vertical distance, and slopes. Minor elevation noise is now ignored so you get more accurate vertical ascent/descent.
+Thank you for all your feedback and track submissions—keep them coming! Enjoy the update.
+[September 2021 5.0.3](https://geo-tracker.org/en/releases/#5.0.3)
+
+### Satellite Imagery for OSM/Mapbox
+- New satellite layer — switch to satellite view when using OSM/Mapbox maps.
+- High-res tiles powered by Mapbox for crisp aerial imagery.
+
+### Other Enhancements
+- More precise speed display up to 30 km/h (30 mph) for finer-grained readings.
+- Hide track endpoints — toggle off start/end markers on the map.
+- Reduced memory usage — major optimizations when many tracks are open simultaneously.
+Enjoy the update!
+[August 2021 5.0.2](https://geo-tracker.org/en/releases/#5.0.2)
+
+### Reliable Background Recording
+- Power-management guide — a new help [article](https://geo-tracker.org/en/setup) walks you through configuring your device’s battery and power-saving settings so Geo Tracker can record uninterrupted in the background.
+[article](https://geo-tracker.org/en/setup)
+
+### Flexible Donations
+- Upgraded payments SDK — our Google in-app billing library is now updated, so you can make the same donation multiple times if you like 😉.
+
+### GPS Week Rollover Fix
+- Legacy device support — for older hardware that didn’t auto-apply the April 6, 2019 GPS week rollover, you can now enter a manual offset (619315200) in Settings → Record Settings.
+
+```
+619315200
+```
+
+Enjoy the update, and thanks for helping us improve Geo Tracker!
+[June 2021 5.0.0](https://geo-tracker.org/en/releases/#5.0.0)
+
+### New Map Source: OpenStreetMap
+- Switch to OSM — now available alongside Google and Yandex maps, via Mapbox.
+- Why OSM? Trails and minor paths often appear here first—perfect for mountain and off-road exploration.
+- High-quality delivery — fast rendering, smart caching, powered by Mapbox (subscription required).
+
+### Recording & Compatibility
+- Android 10+ support — background tracking has been optimized.
+
+Tip: Grant Allow all the time location access and disable battery optimizations (Samsung, Xiaomi, Huawei, OnePlus, Oppo, Realme, etc.). See [setup instructions](https://geo-tracker.org/en/setup).
+
+
+- Tip: Grant Allow all the time location access and disable battery optimizations (Samsung, Xiaomi, Huawei, OnePlus, Oppo, Realme, etc.). See [setup instructions](https://geo-tracker.org/en/setup).
+- A-GPS reset — clear and reload your device’s A-GPS data from Record settings if you encounter GPS glitches.
+- Tip: Grant Allow all the time location access and disable battery optimizations (Samsung, Xiaomi, Huawei, OnePlus, Oppo, Realme, etc.). See [setup instructions](https://geo-tracker.org/en/setup).
+[setup instructions](https://geo-tracker.org/en/setup)
+
+### Map & UI Enhancements
+- Redesigned map settings — quickly swap map sources (Yandex, Google, OSM) and layers (scheme, satellite, relief).
+- Expanded status panel — now shows momentary azimuth, measurement precision, and more.
+
+### Elevation & Data Settings
+- Sea-level baseline — switch from the default WGS84 ellipsoid to mean sea level for more accurate altitude readings.
+- Manual baseline correction — offset your elevation baseline if needed (both options under Record settings).
+
+### Track Management
+- Up to 100 open routes — load more tracks at once (warning: heavy RAM & battery usage).
+[July 2019 4.0.0](https://geo-tracker.org/en/releases/#4.0.0)
+
+### Recording & Import
+- Optimized background tracking — smoother, uninterrupted recordings. (Tip: whitelist Geo Tracker in your phone’s battery/recording settings.)
+- Universal file opening — import GPX/KML/KMZ from any app (Chrome, Drive, WhatsApp, …).
+
+### Maps & Visualization
+- Dark mode for Google Maps — perfect for low-light viewing.
+- Persistent color mode — your preferred track colors (solid, speed gradient or elevation gradient) stick across sessions.
+- New info panel — see current coordinates, satellite count, elevation, speed, recording and GPS status at a glance.
+
+### Navigation & Markers
+- Redesigned markers — faster, more intuitive placement and editing.
+- Coordinate copy — tap to copy any marker’s latitude/longitude.
+- Live distance & bearing — real-time “how far and which direction” to your selected point.
+
+### Performance & Storage
+- Rewritten storage engine — lightning-fast track loading and browsing. (First launch may take a moment to migrate your data.)
+- Yandex Maps SDK update — upgraded for snappier performance and cleaner visuals.
+
+Note: Yandex no longer supports its Satellite layer—use Google Maps for satellite imagery.
+
+
+- Note: Yandex no longer supports its Satellite layer—use Google Maps for satellite imagery.
+- Note: Yandex no longer supports its Satellite layer—use Google Maps for satellite imagery.
+[August 2016 3.3.0](https://geo-tracker.org/en/releases/#3.3.0)
+
+### Share Your Statistics
+- Screenshot sharing — tap Share on the Statistics screen to send a full trip summary (map, charts, metrics) via Facebook, Twitter, email, or any app.
+
+### Full‐Screen Charts
+- Immersive view — tap any chart to expand it full-screen, then pinch-zoom or pan to inspect details.
+
+### Duration-Based Charts
+- New axis option — switch your charts between distance and duration directly from the Statistics screen for deeper insights.
+[March 2016 3.2.1](https://geo-tracker.org/en/releases/#3.2.1)
+
+### Visualization
+- Track color modes — now color your routes by speed or elevation gradient for instant visual insights.
+
+### File Formats
+- KMZ support — import and export KMZ files just like GPX/KML.
+
+### Localization
+- New languages — gracias a nuestros voluntarios! Geo Tracker now also in Spanish, Italian and French.
+
+### Recording Enhancements
+- Auto-start recording — begin tracking automatically when you launch the app.
+- Richer custom profiles — added new parameter values for your tailored recording settings.
+
+### Beta Program
+- [Join the beta](https://play.google.com/apps/testing/com.ilyabogdanovich.geotracker) — test upcoming features!
+[Join the beta](https://play.google.com/apps/testing/com.ilyabogdanovich.geotracker)
+Enjoy the update and thanks for helping us make Geo Tracker better!
+[February 2014 2.0.0](https://geo-tracker.org/en/releases/#2.0.0)
+
+### Marker Placement
+- Control-panel button — tap the marker-pin icon to drop a marker at your current GPS position (with error feedback if fix is unavailable).
+- Long-press & drag — touch and hold anywhere on the map, then drag the pin.
+
+### Route Planning
+- Planning mode — start with a blank map, and add markers before you head out.
+
+### KML Waypoint Support
+- KML import/export — load and save tracks and waypoints in standard KML format for easy sharing across apps.
+[January 2013 1.0.0](https://geo-tracker.org/en/releases/#1.0.0)
+
+### 1.0.0
+Geo Tracker is published for the first time in Google Play.
+
+### Start of development
+[Geo Tracker](https://geo-tracker.org/en/)
+-  [Imprint](https://geo-tracker.org/en/imprint/) 
+-  [Privacy Policy (App)](https://geo-tracker.org/en/privacy-policy-app/) 
+-  [Privacy Policy (Web)](https://geo-tracker.org/en/privacy-policy-web/) 
+-  [User Agreement](https://geo-tracker.org/en/user-agreement/) 
+[Imprint](https://geo-tracker.org/en/imprint/)
+[Privacy Policy (App)](https://geo-tracker.org/en/privacy-policy-app/)
+[Privacy Policy (Web)](https://geo-tracker.org/en/privacy-policy-web/)
+[User Agreement](https://geo-tracker.org/en/user-agreement/)
+[Geo Tracker - GPS Tracker](https://geo-tracker.org/en/)
+This site uses essential cookies and cookies for anonymous analytics (Google Analytics). They help us improve the website. No personal data is collected. You can accept or decline them. We respect "Do Not Track."
+Learn more in our [Privacy Policy](https://geo-tracker.org/en/privacy-policy-web/) and [Cookie Policy](https://geo-tracker.org/en/cookie-policy/)
