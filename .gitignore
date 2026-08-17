@@ -43,6 +43,8 @@ local.properties
 *.ap_
 *.aab
 *.dex
+*.hprof
+android/build/
 
 # iOS specific
 *.pbxuser
@@ -59,6 +61,11 @@ profile
 *.ipa
 *.bundle
 *.xcworkspace
+ios/Flutter/Generated.xcconfig
+ios/Flutter/ephemeral/
+ios/Flutter/flutter_export_environment.sh
+ios/Runner/GeneratedPluginRegistrant.*
+android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
 
 # Python Specific (User Global Rules)
 .venv/
