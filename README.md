@@ -1,94 +1,115 @@
-# Activity Mapper: Local-First Endurance Tracker
+# TurnBack: Local-First Endurance Tracker & Activity Mapper
 
-An ultra-lightweight, offline-first GPS activity tracking mobile application designed to solve "fatigue asymmetry" on out-and-back routes while preserving maximum device battery life under direct sunlight.
+An ultra-lightweight, 100% serverless, battery-optimized GPS activity tracking mobile application designed for runners, cyclists, and hikers. Features fatigue-asymmetric turn-back navigation, low-memory 2GB RAM device optimization, post-run trajectory adjustments (Crop & Merge), and comprehensive multi-format `.zip` export capabilities.
+
+---
 
 ## 🚀 Core Features
 
-- **The 54% Turn-Back Engine:** Monitors elapsed time against your target limit and alerts you when exactly 54% of the time remains (meaning you have spent 46% of the target time), leaving a 4% safety margin (an 8% absolute time allocation buffer for the return leg) to account for muscular fatigue, headwinds, or uphill climbs on the way back.
-- **Sunlight-Optimized UI:** Designed to combat screen reflections and glare. The app features a primary **Ultra-High-Contrast Light Theme** (pure white background with heavy black typography) for superior legibility under direct sunlight, alongside a **Monochrome AMOLED Black Theme** for battery preservation. Uses local vector tiles (`.mbtiles`) mapped to bitmap canvases for zero-bloat map rendering.
-- **Dynamic Velocity Metrics:** Automatically switches metric display formats at **18 km/h** (~3:20 min/km):
-  - *Pedestrian speed (< 18 km/h):* Runner-centric pace format (`min/km`).
-  - *Transit speed (≥ 18 km/h):* Cyclist-centric speed format (`km/h`).
-- **Zero-Cloud Privacy:** Fully offline calculations. Writes location nodes incrementally to a local SQLite/Isar database. No accounts, telemetry, or server requirements.
-- **Automated GPX & Backups:** Incremental transaction logs prevent crash data loss. Generates standard GPX 1.1 files upon completion and exports them to your directory of choice. Supports full database and media exports as `.zip` archives.
-- **Deep Local Automation:** Built-in integration with Android Tasker (via Broadcast Receivers) and iOS App Intents / Shortcuts for silent, hands-free tracking control.
+### 1. 🛡️ The 54% Turn-Back Engine
+Solves the fundamental problem of **"fatigue asymmetry"** on out-and-back routes (where returning against headwinds or with muscular exhaustion takes longer than heading out).
+- Configurable **Safety Margin Buffer** (0% to 20%, defaulting to 8%).
+- Evaluates your elapsed time and alerts you when exactly **54%** of the target duration remains (at 46% elapsed time).
+- Fires a persistent audible alarm tone (`ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD`) and distinct haptic pulse pattern.
+
+### 2. ⚡ 2GB RAM & Ultra-Low Battery Architecture
+Specifically engineered to run smoothly on low-spec hardware without CPU throttling or battery drain:
+- **Stationary Stop Detection:** When resting or stopped ($\le 0.2\text{ m/s}$ across 3 consecutive ticks), GPS sampling frequency automatically scales from 5s down to 30s intervals.
+- **Ramer-Douglas-Peucker (RDP) Decimation:** In-memory GPS coordinates are dynamically decimated down to visual resolution for the custom breadcrumb painter, maintaining 60 FPS rendering under $< 5\text{MB}$ RAM overhead.
+- **Deterministic 2x3 HUD Grid:** High-performance dashboard enclosed in a `RepaintBoundary` to prevent unnecessary widget tree repaints:
+  - Top Left: Big Pace / Speed (auto-switching with 5-tick hysteresis at 18 km/h).
+  - Top Right: Remaining Countdown / 54% Target.
+  - Mid Left: Total Distance (km).
+  - Mid Right: Current Elevation / Elevation Gain (m).
+  - Bottom Row: Compact Vector Breadcrumb Polyline.
+
+### 3. ✂️ Post-Run Adjustment Suite
+Full post-run editing suite located in the activity editor:
+- **CROP:** Hardware-accelerated dual-handle range slider with haptic feedback (`HapticFeedback.selectionClick()`), live path preview, and recalculated distance/duration.
+- **MERGE:** Chronologically merges two completed workout sessions into a single continuous track with database transaction safety.
+- **N-CHOP:** Divides long endurance activities into $N$ equal distance segments.
+- **TIME-CHOP:** Splits workouts into fixed time chunk intervals.
+
+### 4. 📦 Multi-Format Export & ZIP Engine
+Export single activities or your entire workout history directly from device storage without any cloud or server dependencies:
+- **GPX 1.1:** Standard XML with `<trkpt>`, timestamps, and elevation data.
+- **KML:** Google Earth formatted `<LineString>` and start/finish `<Placemark>` pins.
+- **GeoJSON:** RFC 7946 compliant `FeatureCollection` format for GIS tools and Web maps.
+- **CSV:** Raw tabular telemetry with timestamps, lat/lng, speed, and accuracy columns.
+- **ZIP Bundles:** 
+  - *Single Activity:* Compresses all 4 formats for a workout into a single `.zip`.
+  - *Full Lifetime Backup:* Archives the raw SQLite database (`turnback.db`), WAL journals, and complete GPX archives in one zip file.
 
 ---
 
 ## 🛠️ Technology Stack
 
-- **UI Framework:** Flutter (Multi-platform UI layer)
-- **Background Location Engine:** Native Services
-  - **Android:** Foreground Service (`GpsLoggingService`) with sticky notification and hardware batching optimization.
-  - **iOS:** CoreLocation (`CLBackgroundActivitySession`) configured with `CLActivityTypeFitness` and background location indicator.
-- **Local Persistence:** SQLite or Isar Database.
-- **Offline Maps:** MapLibre Native with offline vector map files.
+- **UI & Presentation:** Flutter (Dart 3.x, Material 3, Pure Vanilla CustomPainter)
+- **Background Location Engine:** 
+  - **Android:** Native Foreground Service (`GpsLoggingService.kt`) with `WAKE_LOCK`, `FOREGROUND_SERVICE_LOCATION`, and direct WAL-mode SQLite writes.
+- **Database:** SQLite with Write-Ahead Logging (`PRAGMA journal_mode=WAL;`)
+- **Archiving & Compression:** Pure Dart `archive` library for fast on-device zip generation.
 
 ---
 
-## 📁 Repository Structure
+## 📁 Project Architecture
 
 ```
 .
-├── android/                  # Android Native Layer (Kotlin background service, Intents)
-├── ios/                      # iOS Native Layer (Swift background intents, CL Session)
-├── lib/                      # Flutter UI Layer & Dynamic Calculations
-│   ├── main.dart             # Application Entrypoint
-│   ├── models/               # Geodesic, Velocity & Battery Models
-│   ├── screens/              # High-contrast AMOLED views & Onboarding
-│   └── services/             # Database & Platform Channels interfaces
-├── docs/                     # Project documentation (local-only, ignored in git)
-│   ├── idea.md               # Core Product Specification & Rationale
-│   ├── Research.md           # Comparative architecture and technical research
-│   └── Roadmap.md            # 4-Milestone Engineering Roadmap
-├── .gitignore                # Repository ignore file
+├── android/                  # Android Native Layer
+│   └── app/src/main/kotlin/  # GpsLoggingService.kt, AutomationReceiver.kt, DBHelper.kt
+├── lib/                      # Flutter UI & Business Logic Layer
+│   ├── main.dart             # Application Entrypoint & Theme Routing
+│   ├── models/               # Geodesic, Activity, & Navigation Models
+│   ├── screens/              # SetupScreen, HudScreen, HistoryScreen, EditorScreen
+│   ├── services/             # DbService, ExportService, BackupService, RallyEngine
+│   └── widgets/              # BreadcrumbPainter (RDP Decimation), OsmMapView
+├── docs/                     # Technical Specifications & Documentation
+│   └── idea.md               # Detailed Product Spec & Verification Notes
+├── test/                     # Mathematical & Unit Test Suites
+│   └── turnback_math_test.dart # 16 test suites (Safety math, Hysteresis, RDP, Exporters)
+├── .gitignore                # Strict ignore for archives, uv.lock, and build files
 └── README.md                 # Project Overview (This file)
 ```
 
 ---
 
-## 🤖 Local Automation API
+## 🧪 Unit & Math Tests
 
-Control the application headlessly using automation tools like **Tasker** or **Apple Shortcuts**.
+All core algorithms (safety buffer arithmetic, speed hysteresis state machine, multi-format serializers, RDP decimation, and session merging) are verified via comprehensive tests:
 
-### Android Broadcast Intents
-
-| Action Intent | Intent Extras | Description |
-|---|---|---|
-| `org.opensource.tracker.START_ACTIVITY` | `mode: "timed" \| "infinity"`, `duration_mins: int` | Starts background tracking service instantly |
-| `org.opensource.tracker.STOP_ACTIVITY` | None | Stops tracking, processes GPX output, triggers auto-export |
-| `org.opensource.tracker.GET_CURRENT_STATS` | None | Returns JSON containing `distance`, `speed`, `elapsed_time`, and `turn_back_triggered` |
-
-### iOS App Intents
-
-- **Intent:** `AutoExportSessionIntent`
-- **Shortcut Phrase:** *"Export my active session in Activity Mapper"*
-- **Execution:** Runs in the background using `LongRunningIntent` to allow for GPX serialization and ZIP compilation without UI activation.
+```bash
+flutter test test/turnback_math_test.dart
+```
 
 ---
 
-## 📦 Build & Development Setup
+## 📦 Build Instructions
 
-### Prerequisites
-- **Flutter SDK:** Ensure you have the latest stable Flutter SDK installed.
-- **Android Studio & Xcode:** Required for building platform-specific native background services.
+### Android Debug APK
+To build the debug APK on Linux/macOS:
+```bash
+flutter build apk --debug
+```
+The output APK will be placed at:
+```
+build/app/outputs/flutter-apk/app-debug.apk
+```
 
-### Installation
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/seeramsujay/activity-mapper.git
-   cd activity-mapper
-   ```
-2. Fetch dependencies:
-   ```bash
-   flutter pub get
-   ```
-3. Run the development build:
-   ```bash
-   flutter run
-   ```
+---
+
+## 🤖 Headless Automation API (Tasker / Automation)
+
+Control the application headlessly via Android Broadcast Intents:
+
+| Action Intent | Intent Extras | Description |
+|---|---|---|
+| `org.opensource.tracker.START_ACTIVITY` | `duration_mins: int` | Starts background tracking service instantly |
+| `org.opensource.tracker.STOP_ACTIVITY` | None | Stops tracking and saves activity to database |
+| `org.opensource.tracker.GET_CURRENT_STATS` | None | Emits JSON with current distance, pace, speed, and status |
 
 ---
 
 ## 📄 License & Privacy
-This project is open-source under the MIT License. It does not collect, transmit, or store any personal data. All location coordinates are saved strictly on the local device.
+
+This project is open-source under the MIT License. It operates **100% locally and offline** without tracking, ads, analytics, or external servers. All data remains exclusively on your device.
