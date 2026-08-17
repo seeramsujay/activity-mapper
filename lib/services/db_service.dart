@@ -6,7 +6,7 @@ import 'package:sqflite/sqflite.dart';
 /// Local database helper class using SQLite.
 ///
 /// Configures tables, controls transaction WAL journal modes, and runs all
-/// session and coordinate telemetry database operations.
+/// session, coordinate telemetry, crop, and merge database operations.
 class DbService {
   /// The singleton instance of [DbService].
   static final DbService instance = DbService._init();
@@ -178,9 +178,9 @@ class DbService {
           'timestamp': p['timestamp'],
           'lat': p['lat'],
           'lng': p['lng'],
-          'altitude': p['altitude'],
-          'accuracy': p['accuracy'],
-          'speed': p['speed'],
+          'altitude': p['altitude'] ?? 0.0,
+          'accuracy': p['accuracy'] ?? 0.0,
+          'speed': p['speed'] ?? 0.0,
         });
       }
       await batch.commit(noResult: true);
@@ -188,8 +188,6 @@ class DbService {
   }
 
   /// Clones a tracking session configuration and inserts its coordinate points batch.
-  ///
-  /// Used by visual cropping, splits, and chopping utilities.
   Future<int> cloneSessionWithPoints({
     required String activityType,
     required int targetDuration,
@@ -208,8 +206,56 @@ class DbService {
       'end_time': endTime,
       'status': status,
     });
-    
+
     await insertPointsBatch(newSessionId, points);
+    return newSessionId;
+  }
+
+  /// Merges two sessions chronologically into a new unified session.
+  ///
+  /// Combines all points from [targetSessionId] and [sourceSessionId],
+  /// sorted by timestamp, and creates a consolidated session. Optionally deletes the source session.
+  Future<int> mergeSessions({
+    required int targetSessionId,
+    required int sourceSessionId,
+    bool deleteSourceAfterMerge = false,
+  }) async {
+    final db = await database;
+
+    final targetSession = (await db.query('sessions', where: 'id = ?', whereArgs: [targetSessionId])).first;
+    final sourceSession = (await db.query('sessions', where: 'id = ?', whereArgs: [sourceSessionId])).first;
+
+    final targetPoints = await getPoints(targetSessionId);
+    final sourcePoints = await getPoints(sourceSessionId);
+
+    final List<Map<String, dynamic>> combinedPoints = [...targetPoints, ...sourcePoints];
+    combinedPoints.sort((a, b) => (a['timestamp'] as int).compareTo(b['timestamp'] as int));
+
+    final int startTime = combinedPoints.isNotEmpty
+        ? (combinedPoints.first['timestamp'] as int)
+        : (targetSession['start_time'] as int);
+    final int endTime = combinedPoints.isNotEmpty
+        ? (combinedPoints.last['timestamp'] as int)
+        : (targetSession['end_time'] as int? ?? DateTime.now().millisecondsSinceEpoch);
+
+    final int targetDuration = (targetSession['target_duration'] as int) + (sourceSession['target_duration'] as int);
+    final double safetyBuffer = (targetSession['safety_buffer'] as double);
+    final String activityType = targetSession['activity_type'] as String;
+
+    final int newSessionId = await cloneSessionWithPoints(
+      activityType: activityType,
+      targetDuration: targetDuration,
+      safetyBuffer: safetyBuffer,
+      startTime: startTime,
+      endTime: endTime,
+      status: 'completed',
+      points: combinedPoints,
+    );
+
+    if (deleteSourceAfterMerge) {
+      await deleteSession(sourceSessionId);
+    }
+
     return newSessionId;
   }
 
@@ -221,4 +267,3 @@ class DbService {
     }
   }
 }
-

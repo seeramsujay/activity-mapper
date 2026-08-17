@@ -155,8 +155,9 @@ class _SetupScreenState extends State<SetupScreen> {
         points[i]['lat'] as double,
         points[i]['lng'] as double,
       );
-      final diff = points[i]['timestamp'] - points[i-1]['timestamp'];
-      if (diff > 0 && diff < 15000 && (points[i]['speed'] as double) > 0.2) {
+      final int diff = (points[i]['timestamp'] as num).toInt() - (points[i-1]['timestamp'] as num).toInt();
+      final double spd = (points[i]['speed'] as num?)?.toDouble() ?? 0.0;
+      if (diff > 0 && diff < 15000 && spd > 0.2) {
         activeMs += diff;
       }
     }
@@ -358,7 +359,7 @@ class _SetupScreenState extends State<SetupScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.between,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
                           'RECORD ACTIVITY',
@@ -511,7 +512,7 @@ class _SetupScreenState extends State<SetupScreen> {
 
   Widget _buildModalLabel(String title, String value, Color textColor) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.between,
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(title, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor.withOpacity(0.6))),
         Text(value, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: textColor)),
@@ -613,7 +614,7 @@ class _SetupScreenState extends State<SetupScreen> {
             color: Colors.red,
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.between,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Row(
                   children: [
@@ -639,7 +640,7 @@ class _SetupScreenState extends State<SetupScreen> {
             child: Column(
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.between,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -811,7 +812,7 @@ class _SetupScreenState extends State<SetupScreen> {
                     ),
                     const SizedBox(height: 14),
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.between,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         _buildStatBox('ACTIVITIES', '${_completedSessions.length}', textColor),
                         _buildStatBox('DISTANCE', '${_lifetimeDistance.toStringAsFixed(1)} km', textColor),
@@ -1006,7 +1007,7 @@ class _SessionFeedCardState extends State<SessionFeedCard> {
             color: widget.textColor,
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.between,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
                   '$type - ACTIVITY #$id',

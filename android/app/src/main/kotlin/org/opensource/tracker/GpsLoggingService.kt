@@ -202,7 +202,7 @@ class GpsLoggingService : Service(), LocationListener {
             // 2. Play loud alarm beep (system alarm stream, 5-second CDMA alert tone)
             try {
                 val toneGenerator = ToneGenerator(AudioManager.STREAM_ALARM, 100)
-                toneGenerator.startTone(ToneGenerator.TONE_SUP_ALERT_CLIP_LONG, 5000)
+                toneGenerator.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 5000)
             } catch (e: Exception) {
                 e.printStackTrace()
             }

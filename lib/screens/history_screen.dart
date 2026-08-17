@@ -2,15 +2,17 @@ import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../services/db_service.dart';
-import '../services/gpx_service.dart';
-import '../services/backup_service.dart';
+import '../services/export_service.dart';
 import '../widgets/breadcrumb_painter.dart';
 import 'editor_screen.dart';
 
-/// Screen widget that displays the list feed of completed workouts/activities.
+/// Screen widget that displays the history list of completed activities.
 ///
-/// Provides options to inspect the GPS path, edit/chop the coordinate list,
-/// export to GPX files, delete sessions, or compile a full SQLite/GPX ZIP database backup.
+/// Features:
+/// - Direct multi-format export (.ZIP, GPX, KML, GeoJSON, CSV)
+/// - Post-run editing (Crop, Merge, Split)
+/// - Offline vector map preview with RDP simplification
+/// - Full database lifetime ZIP backup
 class HistoryScreen extends StatefulWidget {
   /// Creates a new [HistoryScreen] instance.
   const HistoryScreen({super.key});
@@ -19,9 +21,7 @@ class HistoryScreen extends StatefulWidget {
   State<HistoryScreen> createState() => _HistoryScreenState();
 }
 
-/// State controller for the [HistoryScreen].
 class _HistoryScreenState extends State<HistoryScreen> {
-
   List<Map<String, dynamic>> _sessions = [];
   bool _isLoading = true;
 
@@ -44,18 +44,23 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Widget build(BuildContext context) {
     final Brightness brightness = Theme.of(context).brightness;
     final Color textColor = brightness == Brightness.light ? Colors.black : Colors.white;
+    final Color scaffoldBg = brightness == Brightness.light ? Colors.white : Colors.black;
 
     return Scaffold(
+      backgroundColor: scaffoldBg,
       appBar: AppBar(
-        title: const Text('// HISTORY', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.5)),
+        title: const Text(
+          '// ACTIVITY LOGS',
+          style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.5, fontSize: 18),
+        ),
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: false,
         actions: [
           IconButton(
             icon: Icon(Icons.archive_outlined, color: textColor),
-            tooltip: 'Export ZIP Backup',
-            onPressed: _runZipBackup,
+            tooltip: 'Export Full Backup (.ZIP)',
+            onPressed: _runFullLifetimeZipBackup,
           ),
         ],
       ),
@@ -65,7 +70,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             : _sessions.isEmpty
                 ? _buildEmptyState(textColor)
                 : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+                    padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
                     itemCount: _sessions.length,
                     itemBuilder: (context, index) {
                       final session = _sessions[index];
@@ -91,7 +96,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Record and complete a tracking session to view your activity history logs.',
+              'Record a session to view telemetry, export multi-format ZIP packages, or perform post-run crops and merges.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 14, color: textColor.withOpacity(0.5)),
             ),
@@ -105,16 +110,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final int id = session['id'] as int;
     final String type = (session['activity_type'] as String).toUpperCase();
     final int targetSec = session['target_duration'] as int;
-    final double buffer = session['safety_buffer'] as double;
+    final double buffer = (session['safety_buffer'] as num).toDouble();
     final int startMs = session['start_time'] as int;
     final int? endMs = session['end_time'] as int?;
 
     final startDate = DateTime.fromMillisecondsSinceEpoch(startMs);
     final duration = endMs != null ? Duration(milliseconds: endMs - startMs) : Duration.zero;
 
-    final String dateString = '${startDate.day}/${startDate.month}/${startDate.year}';
+    final String dateString = '${startDate.day.toString().padLeft(2, '0')}/${startDate.month.toString().padLeft(2, '0')}/${startDate.year}';
+    final String timeString = '${startDate.hour.toString().padLeft(2, '0')}:${startDate.minute.toString().padLeft(2, '0')}';
     final String durationString = '${duration.inMinutes}m ${duration.inSeconds.remainder(60)}s';
-    
+
     final bool triggered = session['turn_back_triggered_at'] != null;
 
     return Container(
@@ -130,17 +136,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
             color: textColor,
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.between,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  '$type - SESSION #$id',
+                  '$type #$id',
                   style: TextStyle(
                     fontWeight: FontWeight.w900,
+                    letterSpacing: 1.0,
                     color: brightness == Brightness.light ? Colors.white : Colors.black,
                   ),
                 ),
                 Text(
-                  dateString,
+                  '$dateString - $timeString',
                   style: TextStyle(
                     fontSize: 12,
                     color: (brightness == Brightness.light ? Colors.white : Colors.black).withOpacity(0.8),
@@ -157,10 +164,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.between,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     _buildSubstat('DURATION', durationString, textColor),
-                    _buildSubstat('TARGET', '${targetSec ~/ 60} min', textColor),
+                    _buildSubstat('TARGET', '${targetSec ~/ 60}m', textColor),
                     _buildSubstat('BUFFER', '${buffer.toStringAsFixed(0)}%', textColor),
                   ],
                 ),
@@ -170,15 +177,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     Icon(
                       triggered ? Icons.warning_amber_rounded : Icons.check_circle_outline,
                       size: 16,
-                      color: triggered ? Colors.red : Colors.green,
+                      color: triggered ? Colors.orangeAccent : Colors.green,
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      triggered ? 'Turn-Back Threshold Alert Fired' : 'Completed Out-and-Back Safely',
+                      triggered ? 'Turn-Back Threshold Reached' : 'Out-and-Back Completed Safely',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
-                        color: triggered ? Colors.red : Colors.green,
+                        color: triggered ? Colors.orangeAccent : Colors.green,
                       ),
                     ),
                   ],
@@ -188,30 +195,30 @@ class _HistoryScreenState extends State<HistoryScreen> {
           ),
 
           // Actions Row
-          Divider(color: textColor.withOpacity(0.3), height: 1, thickness: 1),
+          Divider(color: textColor.withOpacity(0.2), height: 1, thickness: 1),
           Container(
             color: textColor.withOpacity(0.04),
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 TextButton(
                   onPressed: () => _viewActivityMap(id, type, brightness),
-                  child: Text('VIEW PATH', style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 13)),
+                  child: Text('VIEW', style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 12)),
                 ),
-                const SizedBox(width: 8),
                 TextButton(
                   onPressed: () => _editActivity(id, type),
-                  child: Text('EDIT/CHOP', style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 13)),
+                  child: Text('ADJUST', style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 12)),
                 ),
-                const SizedBox(width: 8),
-                TextButton(
-                  onPressed: () => _exportGpx(id, type),
-                  child: Text('GPX', style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 13)),
+                TextButton.icon(
+                  icon: const Icon(Icons.file_download_outlined, size: 16),
+                  label: const Text('EXPORT', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                  style: TextButton.styleFrom(foregroundColor: textColor),
+                  onPressed: () => _showExportOptionsSheet(id, type),
                 ),
                 const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                  tooltip: 'Delete Session',
                   onPressed: () => _confirmDelete(id),
                 ),
               ],
@@ -220,6 +227,190 @@ class _HistoryScreenState extends State<HistoryScreen> {
         ],
       ),
     );
+  }
+
+  void _showExportOptionsSheet(int sessionId, String activityType) {
+    final textColor = Theme.of(context).brightness == Brightness.light ? Colors.black : Colors.white;
+    final scaffoldBg = Theme.of(context).brightness == Brightness.light ? Colors.white : Colors.black;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: scaffoldBg,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'EXPORT SESSION #$sessionId',
+                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: textColor, letterSpacing: 1.2),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '100% serverless, local file generation.',
+                  style: TextStyle(fontSize: 12, color: textColor.withOpacity(0.6)),
+                ),
+                const SizedBox(height: 16),
+
+                // Primary ZIP Export
+                ElevatedButton.icon(
+                  icon: const Icon(Icons.folder_zip_outlined),
+                  label: const Text(
+                    'EXPORT ALL IN ONE (.ZIP)',
+                    style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.0),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: textColor,
+                    foregroundColor: scaffoldBg,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                  ),
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    await _exportZipBundle(sessionId, activityType);
+                  },
+                ),
+                const SizedBox(height: 12),
+
+                // Individual formats
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: textColor,
+                          side: BorderSide(color: textColor),
+                          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                        ),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _exportSingleFormat(sessionId, activityType, 'gpx');
+                        },
+                        child: const Text('GPX 1.1', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: textColor,
+                          side: BorderSide(color: textColor),
+                          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                        ),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _exportSingleFormat(sessionId, activityType, 'kml');
+                        },
+                        child: const Text('KML', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: textColor,
+                          side: BorderSide(color: textColor),
+                          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                        ),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _exportSingleFormat(sessionId, activityType, 'geojson');
+                        },
+                        child: const Text('GeoJSON', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: textColor,
+                          side: BorderSide(color: textColor),
+                          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                        ),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _exportSingleFormat(sessionId, activityType, 'csv');
+                        },
+                        child: const Text('CSV', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _exportZipBundle(int sessionId, String type) async {
+    try {
+      final file = await ExportService.instance.exportSessionZipBundle(sessionId, type);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('ZIP Package Exported:\n${file.path}'),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Export failed: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _exportSingleFormat(int sessionId, String type, String format) async {
+    try {
+      final file = await ExportService.instance.exportSingleFormat(
+        sessionId: sessionId,
+        activityName: type,
+        format: format,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${format.toUpperCase()} Exported:\n${file.path}'), duration: const Duration(seconds: 4)),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Export failed: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _runFullLifetimeZipBackup() async {
+    try {
+      final zipFile = await ExportService.instance.exportLifetimeZipBackup();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Full Lifetime Backup (.ZIP) Generated:\n${zipFile.path}'),
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Backup failed: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _editActivity(int sessionId, String type) async {
@@ -246,8 +437,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Future<void> _viewActivityMap(int sessionId, String type, Brightness brightness) async {
-    final dbHelper = DbService.instance;
-    final points = await dbHelper.getPoints(sessionId);
+    final points = await DbService.instance.getPoints(sessionId);
 
     if (points.isEmpty) {
       if (mounted) {
@@ -258,10 +448,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       return;
     }
 
-    final List<Point<double>> mapPoints = [];
-    for (final p in points) {
-      mapPoints.add(Point(p['lat'] as double, p['lng'] as double));
-    }
+    final List<Point<double>> mapPoints = points.map((p) => Point(p['lat'] as double, p['lng'] as double)).toList();
 
     if (mounted) {
       showDialog(
@@ -273,17 +460,19 @@ class _HistoryScreenState extends State<HistoryScreen> {
             backgroundColor: bg,
             shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
             title: Text(
-              '$type - BREADCRUMB MAP',
+              '$type - BREADCRUMB ROUTE',
               style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 14, letterSpacing: 1.0),
             ),
             content: SizedBox(
               width: double.maxFinite,
-              height: 300,
+              height: 320,
               child: Container(
-                decoration: Border.all(color: color, width: 2.0),
+                decoration: BoxDecoration(border: Border.all(color: color, width: 2.0)),
                 child: ClipRect(
-                  child: CustomPaint(
-                    painter: BreadcrumbPainter(points: mapPoints, brightness: brightness),
+                  child: RepaintBoundary(
+                    child: CustomPaint(
+                      painter: BreadcrumbPainter(points: mapPoints, brightness: brightness),
+                    ),
                   ),
                 ),
               ),
@@ -297,23 +486,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
           );
         },
       );
-    }
-  }
-
-  Future<void> _exportGpx(int sessionId, String type) async {
-    try {
-      final file = await GpxService.instance.saveGpxFile(sessionId, type);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('GPX file exported to:\n${file.path}'), duration: const Duration(seconds: 4)),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export failed: $e')),
-        );
-      }
     }
   }
 
@@ -350,30 +522,5 @@ class _HistoryScreenState extends State<HistoryScreen> {
         );
       },
     );
-  }
-
-  Future<void> _runZipBackup() async {
-    try {
-      final zipFile = await BackupService.instance.createZipBackup();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('ZIP Backup generated successfully:\n${zipFile.path}'),
-            duration: const Duration(seconds: 6),
-            action: SnackBarAction(
-              label: 'OK',
-              textColor: Colors.white,
-              onPressed: () {},
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Backup compilation failed: $e')),
-        );
-      }
-    }
   }
 }

@@ -11,7 +11,7 @@
 .settings/
 .vscode/
 
-# Archives & Output files (User Global Rules)
+# Archives & Generated Data Export files (User Global Rules)
 *.zip
 *.tar
 *.gz
@@ -20,7 +20,11 @@
 *.gpx
 *.kml
 *.kmz
+*.geojson
+*.csv
 *.db
+*.db-wal
+*.db-shm
 *.isar
 
 # Flutter/Dart specific
@@ -45,7 +49,7 @@ local.properties
 *.mode1v3
 *.mode2v3
 *.perspectivev3
-xcuserdata/
+userdata/
 DerivedData/
 Helper/
 Podfile.lock
@@ -62,4 +66,3 @@ venv/
 ENV/
 __pycache__/
 uv.lock
-docs/*

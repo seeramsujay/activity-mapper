@@ -240,9 +240,6 @@ class TileBreadcrumbPainter extends CustomPainter {
   }
 
   @override
-  WidgetSemanticsBuilder get semanticsBuilder => null;
-
-  @override
   bool shouldRepaint(covariant TileBreadcrumbPainter oldDelegate) {
     return oldDelegate.points.length != points.length || oldDelegate.zoom != zoom;
   }
