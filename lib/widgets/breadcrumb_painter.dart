@@ -9,23 +9,19 @@ import 'package:flutter/material.dart';
 /// - Start marker ("O") and active heading direction arrow ("^").
 /// - High-contrast light and dark mode styling.
 class BreadcrumbPainter extends CustomPainter {
-  /// The list of coordinates in degrees representing the trail.
   final List<Point<double>> points;
-
-  /// The active app theme brightness to adjust line colors for maximum contrast.
   final Brightness brightness;
-
-  /// Epsilon tolerance for RDP polyline simplification. Set to 0.0 to disable.
   final double simplificationEpsilon;
-
-  /// Cached simplified points list.
+  final Offset panOffset;
+  final double zoomScale;
   late final List<Point<double>> _renderPoints;
 
-  /// Creates a new [BreadcrumbPainter] instance.
   BreadcrumbPainter({
     required this.points,
     required this.brightness,
-    this.simplificationEpsilon = 0.00005, // ~5 meters tolerance
+    this.simplificationEpsilon = 0.00005,
+    this.panOffset = Offset.zero,
+    this.zoomScale = 1.0,
   }) {
     if (points.length > 100 && simplificationEpsilon > 0) {
       _renderPoints = rdpSimplify(points, simplificationEpsilon);
@@ -34,7 +30,6 @@ class BreadcrumbPainter extends CustomPainter {
     }
   }
 
-  /// Ramer-Douglas-Peucker algorithm for polyline decimation.
   static List<Point<double>> rdpSimplify(List<Point<double>> pts, double epsilon) {
     if (pts.length < 3) return pts;
 
@@ -93,11 +88,9 @@ class BreadcrumbPainter extends CustomPainter {
 
     if (_renderPoints.isEmpty) return;
 
-    // Geographic Mercator/Equirectangular aspect ratio correction
     final double midLat = _renderPoints.map((p) => p.x).reduce((a, b) => a + b) / _renderPoints.length;
     final double cosLat = cos(midLat * pi / 180.0);
 
-    // Compute bounding box
     double minLat = _renderPoints.first.x;
     double maxLat = _renderPoints.first.x;
     double minLng = _renderPoints.first.y;
@@ -117,14 +110,14 @@ class BreadcrumbPainter extends CustomPainter {
     final double availWidth = size.width - (padding * 2);
     final double availHeight = size.height - (padding * 2);
 
-    final double scale = min(availWidth / lngSpan, availHeight / latSpan);
+    final double scale = min(availWidth / lngSpan, availHeight / latSpan) * zoomScale;
 
     final double cx = (minLng + maxLng) / 2.0;
     final double cy = (minLat + maxLat) / 2.0;
 
     Offset toCanvasOffset(Point<double> p) {
-      final double x = size.width / 2.0 + (p.y - cx) * cosLat * scale;
-      final double y = size.height / 2.0 - (p.x - cy) * scale;
+      final double x = size.width / 2.0 + (p.y - cx) * cosLat * scale + panOffset.dx;
+      final double y = size.height / 2.0 - (p.x - cy) * scale + panOffset.dy;
       return Offset(x, y);
     }
 
@@ -175,7 +168,10 @@ class BreadcrumbPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant BreadcrumbPainter oldDelegate) {
-    return oldDelegate.points.length != points.length || oldDelegate.brightness != brightness;
+    return oldDelegate.points.length != points.length ||
+        oldDelegate.brightness != brightness ||
+        oldDelegate.panOffset != panOffset ||
+        oldDelegate.zoomScale != zoomScale;
   }
 }
 
@@ -188,6 +184,7 @@ class TileBreadcrumbPainter extends CustomPainter {
   final int xCount;
   final int yCount;
   final Brightness brightness;
+  final Offset panOffset;
 
   TileBreadcrumbPainter({
     required this.points,
@@ -197,6 +194,7 @@ class TileBreadcrumbPainter extends CustomPainter {
     required this.xCount,
     required this.yCount,
     required this.brightness,
+    this.panOffset = Offset.zero,
   });
 
   double _lon2tileX(double lon, int zoom) {
@@ -218,8 +216,8 @@ class TileBreadcrumbPainter extends CustomPainter {
     Offset toPixelOffset(Point<double> p) {
       final double tileX = _lon2tileX(p.y, zoom);
       final double tileY = _lat2tileY(p.x, zoom);
-      final double px = (tileX - startX) * tileWidthPx;
-      final double py = (tileY - startY) * tileHeightPx;
+      final double px = (tileX - startX) * tileWidthPx + panOffset.dx;
+      final double py = (tileY - startY) * tileHeightPx + panOffset.dy;
       return Offset(px, py);
     }
 
@@ -265,6 +263,7 @@ class TileBreadcrumbPainter extends CustomPainter {
     return oldDelegate.points.length != points.length ||
         oldDelegate.zoom != zoom ||
         oldDelegate.startX != startX ||
-        oldDelegate.startY != startY;
+        oldDelegate.startY != startY ||
+        oldDelegate.panOffset != panOffset;
   }
 }

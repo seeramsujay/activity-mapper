@@ -1,15 +1,16 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'breadcrumb_painter.dart';
 import '../services/settings_service.dart';
 
-/// Ultra-optimized, 60-120 FPS Interactive Map and Vector Trail visualizer.
+/// Interactive, 60-120 FPS Pan-and-Zoom Map & Vector Trail Visualizer.
 ///
 /// Features:
+/// - Smooth 2D touch drag / panning across the entire map canvas.
+/// - Pinch-to-zoom & step zoom (+ / -).
+/// - Instant 1-tap "Recenter / Follow Live GPS" with pulsing status badge.
 /// - Isolated GPU texture rendering with [RepaintBoundary].
-/// - Stable viewport bounds calculation to prevent tile grid thrashing.
-/// - GPU-accelerated raster tile caching with [ResizeImage].
-/// - Instant offline vector breadcrumb path rendering with RDP decimation.
 class OsmMapView extends StatefulWidget {
   final List<Point<double>> points;
   final bool showOsmTiles;
@@ -30,8 +31,11 @@ class OsmMapView extends StatefulWidget {
 
 class _OsmMapViewState extends State<OsmMapView> {
   int _zoomOffset = 0;
+  Offset _userPanOffset = Offset.zero;
+  double _zoomScale = 1.0;
+  bool _isFreePanning = false;
 
-  // Cached viewport bounds to prevent tile jitter on micro-updates
+  // Viewport bounds cache
   int _lastZoom = 15;
   int _lastStartX = 0;
   int _lastStartY = 0;
@@ -46,6 +50,16 @@ class _OsmMapViewState extends State<OsmMapView> {
   int _lat2tileY(double lat, int zoom) {
     final latRad = lat * pi / 180.0;
     return ((1.0 - log(tan(latRad) + 1.0 / cos(latRad)) / pi) / 2.0 * (1 << zoom)).floor();
+  }
+
+  void _recenter() {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _userPanOffset = Offset.zero;
+      _zoomOffset = 0;
+      _zoomScale = 1.0;
+      _isFreePanning = false;
+    });
   }
 
   @override
@@ -101,7 +115,6 @@ class _OsmMapViewState extends State<OsmMapView> {
       );
     }
 
-    // Viewport calculation with hysteresis stabilization
     final pts = widget.points;
     if (_lastPointsLength == 0 || (pts.length - _lastPointsLength).abs() > 3 || _zoomOffset != 0) {
       double minLat = pts.first.x;
@@ -175,150 +188,207 @@ class _OsmMapViewState extends State<OsmMapView> {
           border: Border.all(color: borderColor, width: 1.5),
         ),
         clipBehavior: Clip.antiAlias,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (widget.showOsmTiles) ...[
-              // GPU Cached OSM Tile Grid with stable keys
-              GridView.builder(
-                key: ValueKey('grid-$zoom-$startX-$startY-$xCount-$yCount'),
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: xCount,
-                  childAspectRatio: 1.0,
-                ),
-                itemCount: xCount * yCount,
-                itemBuilder: (context, index) {
-                  final xOffset = index % xCount;
-                  final yOffset = index ~/ xCount;
-                  final tileX = startX + xOffset;
-                  final tileY = startY + yOffset;
-                  final url = tileBaseUrl
-                      .replaceAll('{z}', '$zoom')
-                      .replaceAll('{x}', '$tileX')
-                      .replaceAll('{y}', '$tileY');
+        child: GestureDetector(
+          onScaleStart: (_) {
+            setState(() => _isFreePanning = true);
+          },
+          onScaleUpdate: (details) {
+            setState(() {
+              _userPanOffset += details.focalPointDelta;
+              if (details.scale != 1.0) {
+                _zoomScale = (_zoomScale * details.scale).clamp(0.5, 4.0);
+              }
+            });
+          },
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (widget.showOsmTiles) ...[
+                // Transformable Tile Grid Layer
+                Transform.translate(
+                  offset: _userPanOffset,
+                  child: Transform.scale(
+                    scale: _zoomScale,
+                    child: GridView.builder(
+                      key: ValueKey('grid-$zoom-$startX-$startY-$xCount-$yCount'),
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: xCount,
+                        childAspectRatio: 1.0,
+                      ),
+                      itemCount: xCount * yCount,
+                      itemBuilder: (context, index) {
+                        final xOffset = index % xCount;
+                        final yOffset = index ~/ xCount;
+                        final tileX = startX + xOffset;
+                        final tileY = startY + yOffset;
+                        final url = tileBaseUrl
+                            .replaceAll('{z}', '$zoom')
+                            .replaceAll('{x}', '$tileX')
+                            .replaceAll('{y}', '$tileY');
 
-                  return RepaintBoundary(
-                    key: ValueKey(url),
-                    child: Image(
-                      image: ResizeImage(
-                        NetworkImage(url),
-                        width: 256,
-                        height: 256,
-                      ),
-                      fit: BoxFit.cover,
-                      gaplessPlayback: true,
-                      errorBuilder: (context, err, stack) => Container(
-                        color: isDark ? const Color(0xFF1E232B) : const Color(0xFFE2E8F0),
-                        child: Center(
-                          child: Icon(Icons.wifi_off, size: 20, color: textColor.withValues(alpha: 0.2)),
-                        ),
-                      ),
+                        return RepaintBoundary(
+                          key: ValueKey(url),
+                          child: Image(
+                            image: ResizeImage(
+                              NetworkImage(url),
+                              width: 256,
+                              height: 256,
+                            ),
+                            fit: BoxFit.cover,
+                            gaplessPlayback: true,
+                            errorBuilder: (context, err, stack) => Container(
+                              color: isDark ? const Color(0xFF1E232B) : const Color(0xFFE2E8F0),
+                              child: Center(
+                                child: Icon(Icons.wifi_off, size: 20, color: textColor.withValues(alpha: 0.2)),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
                     ),
-                  );
-                },
-              ),
-              RepaintBoundary(
-                child: CustomPaint(
-                  painter: TileBreadcrumbPainter(
-                    points: widget.points,
-                    zoom: zoom,
-                    startX: startX,
-                    startY: startY,
-                    xCount: xCount,
-                    yCount: yCount,
-                    brightness: widget.brightness,
                   ),
                 ),
-              ),
-            ] else ...[
-              // Offline High-Contrast Vector Map with RDP Decimation
-              RepaintBoundary(
-                child: CustomPaint(
-                  painter: BreadcrumbPainter(
-                    points: widget.points,
-                    brightness: widget.brightness,
+                RepaintBoundary(
+                  child: CustomPaint(
+                    painter: TileBreadcrumbPainter(
+                      points: widget.points,
+                      zoom: zoom,
+                      startX: startX,
+                      startY: startY,
+                      xCount: xCount,
+                      yCount: yCount,
+                      brightness: widget.brightness,
+                      panOffset: _userPanOffset,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ] else ...[
+                // Offline High-Contrast Vector Map with 2D Pan Support
+                RepaintBoundary(
+                  child: CustomPaint(
+                    painter: BreadcrumbPainter(
+                      points: widget.points,
+                      brightness: widget.brightness,
+                      panOffset: _userPanOffset,
+                      zoomScale: _zoomScale,
+                    ),
+                  ),
+                ),
+              ],
 
-            // Top Status Indicator Tag
-            Positioned(
-              top: 12,
-              left: 12,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.85),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: borderColor, width: 1),
-                ),
+              // Top Status Indicator Tag & Pan Status
+              Positioned(
+                top: 12,
+                left: 12,
                 child: Row(
-                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Container(
-                      width: 7,
-                      height: 7,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                       decoration: BoxDecoration(
-                        color: widget.showOsmTiles ? Colors.blueAccent : const Color(0xFF10B981),
-                        shape: BoxShape.circle,
+                        color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.85),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: borderColor, width: 1),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 7,
+                            height: 7,
+                            decoration: BoxDecoration(
+                              color: widget.showOsmTiles ? Colors.blueAccent : const Color(0xFF10B981),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            widget.showOsmTiles ? 'OSM TILES' : 'OFFLINE VECTOR',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.8,
+                              color: textColor,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(width: 6),
-                    Text(
-                      widget.showOsmTiles ? 'OSM TILES' : 'OFFLINE VECTOR',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0.8,
-                        color: textColor,
+                    if (_isFreePanning) ...[
+                      const SizedBox(width: 6),
+                      GestureDetector(
+                        onTap: _recenter,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: accentColor,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.gps_fixed, size: 11, color: Colors.white),
+                              SizedBox(width: 4),
+                              Text(
+                                'RECENTER',
+                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 0.8),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
+                    ],
+                  ],
+                ),
+              ),
+
+              // Floating Controls (Zoom & Recenter)
+              Positioned(
+                bottom: 12,
+                right: 12,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildMapButton(
+                      icon: Icons.add,
+                      onPressed: () {
+                        HapticFeedback.selectionClick();
+                        setState(() {
+                          _zoomOffset = min(3, _zoomOffset + 1);
+                          _zoomScale = min(4.0, _zoomScale * 1.25);
+                        });
+                      },
+                      isDark: isDark,
+                      textColor: textColor,
+                      borderColor: borderColor,
                     ),
-                    const SizedBox(width: 4),
-                    Text(
-                      '(${widget.points.length} pts)',
-                      style: TextStyle(fontSize: 10, color: textColor.withValues(alpha: 0.5)),
+                    const SizedBox(height: 6),
+                    _buildMapButton(
+                      icon: Icons.remove,
+                      onPressed: () {
+                        HapticFeedback.selectionClick();
+                        setState(() {
+                          _zoomOffset = max(-3, _zoomOffset - 1);
+                          _zoomScale = max(0.5, _zoomScale / 1.25);
+                        });
+                      },
+                      isDark: isDark,
+                      textColor: textColor,
+                      borderColor: borderColor,
+                    ),
+                    const SizedBox(height: 6),
+                    _buildMapButton(
+                      icon: Icons.my_location,
+                      onPressed: _recenter,
+                      isDark: isDark,
+                      textColor: _isFreePanning ? accentColor : textColor.withValues(alpha: 0.5),
+                      borderColor: _isFreePanning ? accentColor : borderColor,
                     ),
                   ],
                 ),
               ),
-            ),
-
-            // Floating Controls (Zoom & Recenter)
-            Positioned(
-              bottom: 12,
-              right: 12,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildMapButton(
-                    icon: Icons.add,
-                    onPressed: () => setState(() => _zoomOffset = min(3, _zoomOffset + 1)),
-                    isDark: isDark,
-                    textColor: textColor,
-                    borderColor: borderColor,
-                  ),
-                  const SizedBox(height: 6),
-                  _buildMapButton(
-                    icon: Icons.remove,
-                    onPressed: () => setState(() => _zoomOffset = max(-3, _zoomOffset - 1)),
-                    isDark: isDark,
-                    textColor: textColor,
-                    borderColor: borderColor,
-                  ),
-                  const SizedBox(height: 6),
-                  _buildMapButton(
-                    icon: Icons.my_location,
-                    onPressed: () => setState(() => _zoomOffset = 0),
-                    isDark: isDark,
-                    textColor: accentColor,
-                    borderColor: borderColor,
-                  ),
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
