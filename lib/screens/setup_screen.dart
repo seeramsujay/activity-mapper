@@ -8,6 +8,7 @@ import '../services/db_service.dart';
 import '../services/platform_service.dart';
 import '../services/gpx_service.dart';
 import '../services/backup_service.dart';
+import '../services/settings_service.dart';
 import '../widgets/breadcrumb_painter.dart';
 import 'editor_screen.dart';
 import 'hud_screen.dart';
@@ -1016,7 +1017,7 @@ class _SetupScreenState extends State<SetupScreen> {
     final Color textColor = isDark ? Colors.white : const Color(0xFF111827);
     final Color cardBg = isDark ? const Color(0xFF14171C) : Colors.white;
     final Color borderColor = isDark ? const Color(0xFF23272F) : const Color(0xFFE5E7EB);
-    final Color accentColor = const Color(0xFFFF5722);
+    final Color accentColor = SettingsService.instance.accentColor.color;
 
     return Scaffold(
       appBar: AppBar(
@@ -1045,10 +1046,12 @@ class _SetupScreenState extends State<SetupScreen> {
                 color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.05),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(Icons.archive_outlined, size: 20, color: textColor),
+              child: Icon(Icons.tune_rounded, size: 20, color: textColor),
             ),
-            tooltip: 'Export ZIP Database Backup',
-            onPressed: _runZipBackup,
+            tooltip: 'Settings, Themes & Preferences',
+            onPressed: () {
+              Navigator.pushNamed(context, '/settings').then((_) => setState(() {}));
+            },
           ),
           const SizedBox(width: 8),
         ],
