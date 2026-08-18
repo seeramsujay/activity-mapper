@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'services/db_service.dart';
 import 'screens/setup_screen.dart';
-import 'screens/hud_screen.dart';
 import 'screens/history_screen.dart';
 
 /// The entry point of the TurnBack Endurance Tracker.
@@ -12,12 +11,17 @@ import 'screens/history_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  // Initialize shared database connection (WAL mode enabled)
-  final dbHelper = DbService.instance;
-  await dbHelper.database;
-  
-  // Query for crash recovery
-  final activeSession = await dbHelper.getActiveSession();
+  Map<String, dynamic>? activeSession;
+  try {
+    // Initialize shared database connection (WAL mode enabled)
+    final dbHelper = DbService.instance;
+    await dbHelper.database;
+    
+    // Query for crash recovery
+    activeSession = await dbHelper.getActiveSession();
+  } catch (e, stack) {
+    debugPrint("Startup DB initialization error: $e\n$stack");
+  }
   
   runApp(TurnBackApp(recoveredSession: activeSession));
 }
@@ -38,14 +42,68 @@ class TurnBackApp extends StatelessWidget {
     return MaterialApp(
       title: 'TurnBack',
       theme: ThemeData(
+        useMaterial3: true,
         brightness: Brightness.light,
-        scaffoldBackgroundColor: Colors.white,
-        primaryColor: Colors.black,
+        scaffoldBackgroundColor: const Color(0xFFF8F9FA),
+        colorScheme: const ColorScheme.light(
+          primary: Color(0xFF111827),
+          secondary: Color(0xFFFF4500),
+          surface: Colors.white,
+          onSurface: Color(0xFF111827),
+        ),
+        cardTheme: CardThemeData(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: Color(0xFFE5E7EB), width: 1.5),
+          ),
+          color: Colors.white,
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            elevation: 0,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+          ),
+        ),
       ),
       darkTheme: ThemeData(
+        useMaterial3: true,
         brightness: Brightness.dark,
-        scaffoldBackgroundColor: Colors.black,
-        primaryColor: Colors.white,
+        scaffoldBackgroundColor: const Color(0xFF090A0C),
+        colorScheme: const ColorScheme.dark(
+          primary: Colors.white,
+          secondary: Color(0xFFFF5722),
+          surface: Color(0xFF14171C),
+          onSurface: Colors.white,
+        ),
+        cardTheme: CardThemeData(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: Color(0xFF23272F), width: 1.5),
+          ),
+          color: const Color(0xFF14171C),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            elevation: 0,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+          ),
+        ),
       ),
       themeMode: ThemeMode.system,
       // Handle recovery routing directly on start

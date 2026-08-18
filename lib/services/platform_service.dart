@@ -15,6 +15,26 @@ class PlatformService {
 
   Stream<dynamic>? _telemetryStream;
 
+  /// Checks if background and fine location permissions are granted.
+  Future<bool> checkPermissions() async {
+    try {
+      final bool? granted = await _controlChannel.invokeMethod<bool>('checkPermissions');
+      return granted ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  /// Requests runtime location and notification permissions.
+  Future<bool> requestPermissions() async {
+    try {
+      final bool? granted = await _controlChannel.invokeMethod<bool>('requestPermissions');
+      return granted ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
   /// Signals the native background tracking service to start polling GPS coordinates.
   ///
   /// Passes down session configurations like target durations, buffers, and gps polling intervals.

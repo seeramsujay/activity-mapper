@@ -93,17 +93,29 @@ class GpsLoggingService : Service(), LocationListener {
         }
 
         try {
-            locationManager.requestLocationUpdates(
-                LocationManager.GPS_PROVIDER,
-                currentGpsIntervalMs,
-                0.0f, // Record every movement
-                this
-            )
+            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                locationManager.requestLocationUpdates(
+                    LocationManager.GPS_PROVIDER,
+                    currentGpsIntervalMs,
+                    0.0f, // Record every movement
+                    this
+                )
+            }
+            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                locationManager.requestLocationUpdates(
+                    LocationManager.NETWORK_PROVIDER,
+                    currentGpsIntervalMs,
+                    0.0f,
+                    this
+                )
+            }
             isRunning = true
             updateNotification("GPS Signal Active")
         } catch (e: SecurityException) {
             updateNotification("Error: GPS Permission Denied")
             stopSelf()
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
 
         return START_STICKY
@@ -112,14 +124,26 @@ class GpsLoggingService : Service(), LocationListener {
     private fun adjustGpsSamplingRate(intervalMs: Long) {
         try {
             locationManager.removeUpdates(this)
-            locationManager.requestLocationUpdates(
-                LocationManager.GPS_PROVIDER,
-                intervalMs,
-                0.0f,
-                this
-            )
+            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                locationManager.requestLocationUpdates(
+                    LocationManager.GPS_PROVIDER,
+                    intervalMs,
+                    0.0f,
+                    this
+                )
+            }
+            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                locationManager.requestLocationUpdates(
+                    LocationManager.NETWORK_PROVIDER,
+                    intervalMs,
+                    0.0f,
+                    this
+                )
+            }
             currentGpsIntervalMs = intervalMs
         } catch (e: SecurityException) {
+            e.printStackTrace()
+        } catch (e: Exception) {
             e.printStackTrace()
         }
     }

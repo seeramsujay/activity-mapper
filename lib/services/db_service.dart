@@ -40,7 +40,7 @@ class DbService {
       onCreate: _createDB,
       onOpen: (db) async {
         // Enable Write-Ahead Logging for safe concurrent reads/writes
-        await db.execute('PRAGMA journal_mode=WAL;');
+        await db.rawQuery('PRAGMA journal_mode=WAL;');
       },
     );
   }

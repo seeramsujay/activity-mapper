@@ -76,27 +76,14 @@ class BreadcrumbPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final Paint linePaint = Paint()
-      ..color = brightness == Brightness.light ? Colors.black : Colors.white
-      ..strokeWidth = 3.5
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    final Paint startPaint = Paint()
-      ..color = brightness == Brightness.light ? Colors.black : Colors.white
-      ..style = PaintingStyle.fill;
-
-    final Paint currentPaint = Paint()
-      ..color = brightness == Brightness.light ? Colors.black : Colors.white
-      ..style = PaintingStyle.fill;
-
+    final bool isDark = brightness == Brightness.dark;
+    
+    // Background subtle grid
     final Paint gridPaint = Paint()
-      ..color = (brightness == Brightness.light ? Colors.black : Colors.white).withOpacity(0.10)
+      ..color = (isDark ? Colors.white : Colors.black).withValues(alpha: 0.05)
       ..strokeWidth = 1.0;
 
-    // 1. Draw high-contrast grid lines
-    const int gridSpacing = 40;
+    const int gridSpacing = 36;
     for (double x = 0; x < size.width; x += gridSpacing) {
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), gridPaint);
     }
@@ -106,79 +93,84 @@ class BreadcrumbPainter extends CustomPainter {
 
     if (_renderPoints.isEmpty) return;
 
-    // 2. Compute path bounding box for auto-scaling
-    double minX = _renderPoints.first.x;
-    double maxX = _renderPoints.first.x;
-    double minY = _renderPoints.first.y;
-    double maxY = _renderPoints.first.y;
+    // Geographic Mercator/Equirectangular aspect ratio correction
+    final double midLat = _renderPoints.map((p) => p.x).reduce((a, b) => a + b) / _renderPoints.length;
+    final double cosLat = cos(midLat * pi / 180.0);
+
+    // Compute bounding box
+    double minLat = _renderPoints.first.x;
+    double maxLat = _renderPoints.first.x;
+    double minLng = _renderPoints.first.y;
+    double maxLng = _renderPoints.first.y;
 
     for (final p in _renderPoints) {
-      minX = min(minX, p.x);
-      maxX = max(maxX, p.x);
-      minY = min(minY, p.y);
-      maxY = max(maxY, p.y);
+      minLat = min(minLat, p.x);
+      maxLat = max(maxLat, p.x);
+      minLng = min(minLng, p.y);
+      maxLng = max(maxLng, p.y);
     }
 
-    final double widthDelta = maxX - minX;
-    final double heightDelta = maxY - minY;
+    final double latSpan = max(0.0001, maxLat - minLat);
+    final double lngSpan = max(0.0001, (maxLng - minLng) * cosLat);
 
-    final double maxDelta = max(widthDelta, heightDelta);
-    final double scale = maxDelta == 0 ? 1.0 : (min(size.width, size.height) - 36) / maxDelta;
+    final double padding = 28.0;
+    final double availWidth = size.width - (padding * 2);
+    final double availHeight = size.height - (padding * 2);
 
-    final double offsetX = (size.width - (widthDelta * scale)) / 2;
-    final double offsetY = (size.height - (heightDelta * scale)) / 2;
+    final double scale = min(availWidth / lngSpan, availHeight / latSpan);
 
-    Offset toOffset(Point<double> p) {
-      final double cx = offsetX + (p.x - minX) * scale;
-      final double cy = size.height - (offsetY + (p.y - minY) * scale);
-      return Offset(cx, cy);
+    final double cx = (minLng + maxLng) / 2.0;
+    final double cy = (minLat + maxLat) / 2.0;
+
+    Offset toCanvasOffset(Point<double> p) {
+      final double x = size.width / 2.0 + (p.y - cx) * cosLat * scale;
+      final double y = size.height / 2.0 - (p.x - cy) * scale;
+      return Offset(x, y);
     }
 
-    // 3. Draw connecting path lines
+    // Draw Track Trail Shadow/Glow
+    final Paint glowPaint = Paint()
+      ..color = const Color(0xFFFF5722).withValues(alpha: 0.35)
+      ..strokeWidth = 6.0
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    final Paint linePaint = Paint()
+      ..color = const Color(0xFFFF4500)
+      ..strokeWidth = 3.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
     final Path path = Path();
-    path.moveTo(toOffset(_renderPoints.first).dx, toOffset(_renderPoints.first).dy);
+    path.moveTo(toCanvasOffset(_renderPoints.first).dx, toCanvasOffset(_renderPoints.first).dy);
 
     for (int i = 1; i < _renderPoints.length; i++) {
-      final offset = toOffset(_renderPoints[i]);
-      path.lineTo(offset.dx, offset.dy);
+      final off = toCanvasOffset(_renderPoints[i]);
+      path.lineTo(off.dx, off.dy);
     }
+
+    canvas.drawPath(path, glowPaint);
     canvas.drawPath(path, linePaint);
 
-    // 4. Draw Start marker ("O")
-    final startOffset = toOffset(_renderPoints.first);
-    canvas.drawCircle(startOffset, 6.0, startPaint);
-    final Paint cutoutPaint = Paint()
-      ..color = brightness == Brightness.light ? Colors.white : Colors.black
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(startOffset, 3.0, cutoutPaint);
+    // Draw Start point ("S")
+    final startOff = toCanvasOffset(_renderPoints.first);
+    final Paint startBgPaint = Paint()..color = const Color(0xFF10B981);
+    canvas.drawCircle(startOff, 7.0, startBgPaint);
+    final Paint startCenterPaint = Paint()..color = Colors.white;
+    canvas.drawCircle(startOff, 3.5, startCenterPaint);
 
-    // 5. Draw Current position arrow ("^")
-    if (_renderPoints.length > 1) {
-      final currentOffset = toOffset(_renderPoints.last);
-      final prevOffset = toOffset(_renderPoints[_renderPoints.length - 2]);
+    // Draw Current Position with pulsing radar halo
+    final currentOff = toCanvasOffset(_renderPoints.last);
+    final Paint haloPaint = Paint()..color = const Color(0xFFFF5722).withValues(alpha: 0.25);
+    canvas.drawCircle(currentOff, 14.0, haloPaint);
 
-      final double angle = atan2(currentOffset.dy - prevOffset.dy, currentOffset.dx - prevOffset.dx);
-      final arrowPath = Path();
-      const double arrowSize = 10.0;
+    final Paint currentBgPaint = Paint()..color = isDark ? Colors.white : Colors.black;
+    canvas.drawCircle(currentOff, 7.5, currentBgPaint);
 
-      arrowPath.moveTo(
-        currentOffset.dx + arrowSize * cos(angle),
-        currentOffset.dy + arrowSize * sin(angle),
-      );
-      arrowPath.lineTo(
-        currentOffset.dx + arrowSize * cos(angle + 2.3),
-        currentOffset.dy + arrowSize * sin(angle + 2.3),
-      );
-      arrowPath.lineTo(
-        currentOffset.dx + arrowSize * cos(angle - 2.3),
-        currentOffset.dy + arrowSize * sin(angle - 2.3),
-      );
-      arrowPath.close();
-
-      canvas.drawPath(arrowPath, currentPaint);
-    } else {
-      canvas.drawCircle(toOffset(_renderPoints.first), 5.0, currentPaint);
-    }
+    final Paint currentCenterPaint = Paint()..color = const Color(0xFFFF5722);
+    canvas.drawCircle(currentOff, 4.5, currentCenterPaint);
   }
 
   @override

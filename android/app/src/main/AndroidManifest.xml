@@ -9,9 +9,15 @@
     <!-- Foreground Service permissions -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     
-    <!-- Wakelock to prevent CPU sleeping -->
+    <!-- Network permissions for offline OSM cache & debug VM service -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Wakelock and Vibration -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:label="TurnBack"
@@ -27,6 +33,13 @@
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
             
+            <!-- Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme determines the style
+                 of the Android screen that is visible immediately after the app has
+                 launched and before the first Flutter frame is drawn. -->
+            <meta-data
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/NormalTheme" />
             <meta-data
                 android:name="io.flutter.entrypoint.default_activity"
                 android:value="true" />

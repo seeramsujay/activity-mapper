@@ -184,8 +184,8 @@ class _SetupScreenState extends State<SetupScreen> {
     _activeTelemetrySub = PlatformService.instance.telemetryStream.listen((event) {
       if (_activeSession == null || _activeSession!['status'] == 'paused') return;
       
-      final double lat = event['lat'] as double;
-      final double lng = event['lng'] as double;
+      final double lat = ((event['lat'] ?? 0.0) as num).toDouble();
+      final double lng = ((event['lng'] ?? 0.0) as num).toDouble();
 
       setState(() {
         if (points.isNotEmpty) {
@@ -334,23 +334,38 @@ class _SetupScreenState extends State<SetupScreen> {
 
   void _showRecordBottomSheet(BuildContext context) {
     final Brightness brightness = Theme.of(context).brightness;
-    final Color textColor = brightness == Brightness.light ? Colors.black : Colors.white;
+    final bool isDark = brightness == Brightness.dark;
+    final Color textColor = isDark ? Colors.white : const Color(0xFF111827);
+    final Color cardBg = isDark ? const Color(0xFF14171C) : Colors.white;
+    final Color surfaceBg = isDark ? const Color(0xFF1E232B) : const Color(0xFFF3F4F6);
+    final Color accentColor = const Color(0xFFFF5722);
+    final Color borderColor = isDark ? const Color(0xFF2D333F) : const Color(0xFFE5E7EB);
+
+    final durationController = TextEditingController(text: '$_targetDurationMinutes');
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: brightness == Brightness.light ? Colors.white : Colors.black,
+      backgroundColor: cardBg,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16)),
+        borderRadius: BorderRadius.only(topLeft: Radius.circular(24), topRight: Radius.circular(24)),
       ),
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setModalState) {
+            // Live math preview
+            final double outboundRatio = (100.0 - _safetyBufferPct) / 200.0;
+            final double returnRatio = 1.0 - outboundRatio;
+            final int totalSeconds = _targetDurationMinutes * 60;
+            final int outboundSeconds = (totalSeconds * outboundRatio).toInt();
+            final int returnSeconds = totalSeconds - outboundSeconds;
+            final int safetyCushionSeconds = (returnSeconds - outboundSeconds).clamp(0, 3600 * 24);
+
             return Padding(
               padding: EdgeInsets.only(
-                left: 24.0,
-                right: 24.0,
-                top: 24.0,
+                left: 20.0,
+                right: 20.0,
+                top: 20.0,
                 bottom: MediaQuery.of(context).viewInsets.bottom + 24.0,
               ),
               child: SingleChildScrollView(
@@ -358,146 +373,334 @@ class _SetupScreenState extends State<SetupScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // Sheet Drag Handle
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: textColor.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          'RECORD ACTIVITY',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: textColor, letterSpacing: 1.0),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'START TRACKING',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w900,
+                                color: textColor,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                            Text(
+                              'Out-and-Back Turn-Back Engine',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: textColor.withValues(alpha: 0.5),
+                              ),
+                            ),
+                          ],
                         ),
                         IconButton(
-                          icon: Icon(Icons.close, color: textColor),
+                          icon: Icon(Icons.close, color: textColor.withValues(alpha: 0.6)),
                           onPressed: () => Navigator.pop(context),
-                        )
+                        ),
                       ],
                     ),
-                    const Divider(thickness: 1.5),
                     const SizedBox(height: 16),
 
-                    // Activity Type Choice
-                    _buildModalLabel('ACTIVITY TYPE', _activityType.toUpperCase(), textColor),
+                    // Activity Selector Pills
+                    Text(
+                      'ACTIVITY',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: textColor.withValues(alpha: 0.6), letterSpacing: 0.8),
+                    ),
                     const SizedBox(height: 8),
-                    DropdownButtonFormField<String>(
-                      value: _activityType,
-                      dropdownColor: brightness == Brightness.light ? Colors.white : Colors.black,
-                      decoration: InputDecoration(
-                        enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: textColor, width: 1.5)),
-                        focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: textColor, width: 2.0)),
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 'run', child: Text('RUN / WALK')),
-                        DropdownMenuItem(value: 'ride', child: Text('CYCLING / RIDE')),
-                        DropdownMenuItem(value: 'kayak', child: Text('KAYAK / ROW')),
+                    Row(
+                      children: [
+                        _buildActivityChip(
+                          label: 'RUN',
+                          icon: Icons.directions_run,
+                          selected: _activityType == 'run',
+                          onTap: () {
+                            setModalState(() => _activityType = 'run');
+                            setState(() => _activityType = 'run');
+                          },
+                          isDark: isDark,
+                        ),
+                        const SizedBox(width: 8),
+                        _buildActivityChip(
+                          label: 'RIDE',
+                          icon: Icons.directions_bike,
+                          selected: _activityType == 'ride',
+                          onTap: () {
+                            setModalState(() => _activityType = 'ride');
+                            setState(() => _activityType = 'ride');
+                          },
+                          isDark: isDark,
+                        ),
+                        const SizedBox(width: 8),
+                        _buildActivityChip(
+                          label: 'HIKE',
+                          icon: Icons.hiking,
+                          selected: _activityType == 'hike',
+                          onTap: () {
+                            setModalState(() => _activityType = 'hike');
+                            setState(() => _activityType = 'hike');
+                          },
+                          isDark: isDark,
+                        ),
                       ],
-                      onChanged: (val) {
-                        if (val != null) {
-                          setModalState(() => _activityType = val);
-                          setState(() => _activityType = val);
-                        }
-                      },
                     ),
                     const SizedBox(height: 20),
 
-                    // Target Duration Slider
-                    _buildModalLabel('TARGET DURATION', '$_targetDurationMinutes MIN', textColor),
-                    Slider(
-                      value: _targetDurationMinutes.toDouble(),
-                      min: 10,
-                      max: 240,
-                      divisions: 46,
-                      activeColor: textColor,
-                      inactiveColor: textColor.withOpacity(0.2),
-                      onChanged: (val) {
-                        setModalState(() => _targetDurationMinutes = val.toInt());
-                        setState(() => _targetDurationMinutes = val.toInt());
-                      },
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Fatigue Safety Buffer Slider
-                    _buildModalLabel('FATIGUE SAFETY BUFFER', '${_safetyBufferPct.toStringAsFixed(1)}%', textColor),
-                    Slider(
-                      value: _safetyBufferPct,
-                      min: 0,
-                      max: 20,
-                      divisions: 20,
-                      activeColor: textColor,
-                      inactiveColor: textColor.withOpacity(0.2),
-                      onChanged: (val) {
-                        setModalState(() => _safetyBufferPct = val);
-                        setState(() => _safetyBufferPct = val);
-                      },
-                    ),
-                    const SizedBox(height: 16),
-
-                    // GPS Sampling Interval
-                    _buildModalLabel('GPS SAMPLING RATE', _gpsIntervalMs == 1000 ? '1S (HIGH ACCURACY)' : _gpsIntervalMs == 5000 ? '5S (BALANCED)' : '15S (POWER SAVE)', textColor),
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<int>(
-                      value: _gpsIntervalMs,
-                      dropdownColor: brightness == Brightness.light ? Colors.white : Colors.black,
-                      decoration: InputDecoration(
-                        enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: textColor, width: 1.5)),
-                        focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: textColor, width: 2.0)),
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 1000, child: Text('High Accuracy (1s)')),
-                        DropdownMenuItem(value: 5000, child: Text('Balanced (5s)')),
-                        DropdownMenuItem(value: 15000, child: Text('Power Save (15s)')),
+                    // Target Duration with Type + Quick Presets + Slider
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Text(
+                          'TOTAL WORKOUT DURATION',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: textColor.withValues(alpha: 0.6), letterSpacing: 0.8),
+                        ),
+                        // Numeric Direct Typing Field
+                        Container(
+                          width: 88,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: surfaceBg,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: borderColor),
+                          ),
+                          child: TextField(
+                            controller: durationController,
+                            keyboardType: TextInputType.number,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: textColor),
+                            decoration: const InputDecoration(
+                              contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                              border: InputBorder.none,
+                              suffixText: 'm',
+                              suffixStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                            ),
+                            onChanged: (val) {
+                              final parsed = int.tryParse(val);
+                              if (parsed != null && parsed >= 5 && parsed <= 360) {
+                                setModalState(() => _targetDurationMinutes = parsed);
+                                setState(() => _targetDurationMinutes = parsed);
+                              }
+                            },
+                          ),
+                        ),
                       ],
-                      onChanged: (val) {
-                        if (val != null) {
-                          setModalState(() => _gpsIntervalMs = val);
-                          setState(() => _gpsIntervalMs = val);
-                        }
-                      },
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 10),
+
+                    // Quick duration chips
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [30, 45, 60, 90, 120, 150].map((mins) {
+                          final isSelected = _targetDurationMinutes == mins;
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 8.0),
+                            child: ChoiceChip(
+                              label: Text('${mins}m', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : textColor)),
+                              selected: isSelected,
+                              selectedColor: accentColor,
+                              backgroundColor: surfaceBg,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: isSelected ? accentColor : borderColor)),
+                              showCheckmark: false,
+                              onSelected: (_) {
+                                durationController.text = '$mins';
+                                setModalState(() => _targetDurationMinutes = mins);
+                                setState(() => _targetDurationMinutes = mins);
+                              },
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+
+                    // Synced Slider
+                    SliderTheme(
+                      data: SliderThemeData(
+                        trackHeight: 6,
+                        activeTrackColor: accentColor,
+                        inactiveTrackColor: textColor.withValues(alpha: 0.1),
+                        thumbColor: accentColor,
+                        overlayColor: accentColor.withValues(alpha: 0.2),
+                      ),
+                      child: Slider(
+                        value: _targetDurationMinutes.clamp(10, 240).toDouble(),
+                        min: 10,
+                        max: 240,
+                        divisions: 46,
+                        onChanged: (val) {
+                          final mins = val.toInt();
+                          durationController.text = '$mins';
+                          setModalState(() => _targetDurationMinutes = mins);
+                          setState(() => _targetDurationMinutes = mins);
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Live Mathematical Breakdown Card
+                    Container(
+                      padding: const EdgeInsets.all(14.0),
+                      decoration: BoxDecoration(
+                        color: surfaceBg,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: borderColor),
+                      ),
+                      child: Column(
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('OUTBOUND RUN', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5))),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '${outboundSeconds ~/ 60}m ${outboundSeconds % 60}s',
+                                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: const Color(0xFF3B82F6)),
+                                  ),
+                                  Text('(${(outboundRatio * 100).toStringAsFixed(0)}% time)', style: TextStyle(fontSize: 10, color: textColor.withValues(alpha: 0.5))),
+                                ],
+                              ),
+                              Icon(Icons.sync_alt, color: textColor.withValues(alpha: 0.3)),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text('RETURN ALLOWANCE', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5))),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '${returnSeconds ~/ 60}m ${returnSeconds % 60}s',
+                                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: accentColor),
+                                  ),
+                                  Text('+${safetyCushionSeconds ~/ 60}m buffer', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF10B981))),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Fatigue Buffer Preset Selector
+                    Text(
+                      'FATIGUE SAFETY BUFFER',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: textColor.withValues(alpha: 0.6), letterSpacing: 0.8),
+                    ),
+                    const SizedBox(height: 8),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [0.0, 5.0, 8.0, 10.0, 15.0].map((buf) {
+                          final isSelected = (_safetyBufferPct - buf).abs() < 0.1;
+                          final isDefault = buf == 8.0;
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 8.0),
+                            child: ChoiceChip(
+                              label: Text(
+                                '${buf.toInt()}%${isDefault ? ' (Default)' : ''}',
+                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : textColor),
+                              ),
+                              selected: isSelected,
+                              selectedColor: const Color(0xFF10B981),
+                              backgroundColor: surfaceBg,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: isSelected ? const Color(0xFF10B981) : borderColor)),
+                              showCheckmark: false,
+                              onSelected: (_) {
+                                setModalState(() => _safetyBufferPct = buf);
+                                setState(() => _safetyBufferPct = buf);
+                              },
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
 
                     // Reference Track Selector
-                    _buildModalLabel('REFERENCE ROUTE GUIDANCE', _selectedReferenceSessionId != null ? 'ACTIVE' : 'NONE', textColor),
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<int?>(
-                      value: _selectedReferenceSessionId,
-                      dropdownColor: brightness == Brightness.light ? Colors.white : Colors.black,
-                      decoration: InputDecoration(
-                        enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: textColor, width: 1.5)),
-                        focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: textColor, width: 2.0)),
+                    if (_completedSessions.isNotEmpty) ...[
+                      Text(
+                        'PAST ROUTE TO FOLLOW (OPTIONAL)',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: textColor.withValues(alpha: 0.6), letterSpacing: 0.8),
                       ),
-                      hint: const Text('FOLLOW A COMPLETED SESSION (OPTIONAL)'),
-                      items: [
-                        const DropdownMenuItem<int?>(value: null, child: Text('NONE - FREE TRACKING')),
-                        ..._completedSessions.map((s) {
-                          final date = DateTime.fromMillisecondsSinceEpoch(s['start_time'] as int);
-                          final type = (s['activity_type'] as String).toUpperCase();
-                          return DropdownMenuItem<int?>(
-                            value: s['id'] as int,
-                            child: Text('$type - ${date.month}/${date.day} (ID: ${s['id']})'),
-                          );
-                        }),
-                      ],
-                      onChanged: (val) {
-                        setModalState(() => _selectedReferenceSessionId = val);
-                        setState(() => _selectedReferenceSessionId = val);
-                      },
-                    ),
-                    const SizedBox(height: 28),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        decoration: BoxDecoration(
+                          color: surfaceBg,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: borderColor),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<int?>(
+                            value: _selectedReferenceSessionId,
+                            isExpanded: true,
+                            dropdownColor: cardBg,
+                            hint: Text('Free Run (No route)', style: TextStyle(fontSize: 13, color: textColor.withValues(alpha: 0.6))),
+                            items: [
+                              DropdownMenuItem<int?>(
+                                value: null,
+                                child: Text('None - Free Tracking', style: TextStyle(fontSize: 13, color: textColor)),
+                              ),
+                              ..._completedSessions.map((s) {
+                                final date = DateTime.fromMillisecondsSinceEpoch(s['start_time'] as int);
+                                final type = (s['activity_type'] as String).toUpperCase();
+                                return DropdownMenuItem<int?>(
+                                  value: s['id'] as int,
+                                  child: Text('$type #${s['id']} (${date.month}/${date.day})', style: TextStyle(fontSize: 13, color: textColor)),
+                                );
+                              }),
+                            ],
+                            onChanged: (val) {
+                              setModalState(() => _selectedReferenceSessionId = val);
+                              setState(() => _selectedReferenceSessionId = val);
+                            },
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                    ],
 
-                    // Launch Session Button
+                    // Launch Button
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: textColor,
-                        foregroundColor: brightness == Brightness.light ? Colors.white : Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 18.0),
-                        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-                        side: BorderSide(color: textColor, width: 2.0),
+                        backgroundColor: accentColor,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16.0),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        elevation: 0,
                       ),
                       onPressed: _isLaunching ? null : () => _launchSession(context),
                       child: _isLaunching
-                          ? const CircularProgressIndicator(color: Colors.white)
-                          : const Text(
-                              'START TRACKING NOW',
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 1.2),
+                          ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5))
+                          : const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.play_arrow_rounded, size: 24),
+                                SizedBox(width: 8),
+                                Text(
+                                  'START RECORDING',
+                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 1.0),
+                                ),
+                              ],
                             ),
                     ),
                   ],
@@ -510,13 +713,46 @@ class _SetupScreenState extends State<SetupScreen> {
     );
   }
 
-  Widget _buildModalLabel(String title, String value, Color textColor) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(title, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor.withOpacity(0.6))),
-        Text(value, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: textColor)),
-      ],
+  Widget _buildActivityChip({
+    required String label,
+    required IconData icon,
+    required bool selected,
+    required VoidCallback onTap,
+    required bool isDark,
+  }) {
+    final Color selectedColor = const Color(0xFFFF5722);
+    final Color borderColor = isDark ? const Color(0xFF2D333F) : const Color(0xFFE5E7EB);
+    final Color surfaceBg = isDark ? const Color(0xFF1E232B) : const Color(0xFFF3F4F6);
+
+    return Expanded(
+      child: Material(
+        color: selected ? selectedColor : surfaceBg,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: selected ? selectedColor : borderColor, width: 1.5),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Column(
+              children: [
+                Icon(icon, size: 22, color: selected ? Colors.white : (isDark ? Colors.white70 : Colors.black87)),
+                const SizedBox(height: 4),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    color: selected ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -598,37 +834,48 @@ class _SetupScreenState extends State<SetupScreen> {
     final int outboundLimitSeconds = (targetSec * outboundRatio).toInt();
     final int remainingSeconds = max(0, outboundLimitSeconds - _activeElapsed.inSeconds);
 
-    final cardBg = brightness == Brightness.light ? Colors.red[50] : Colors.red[950]!.withOpacity(0.2);
+    final isDark = brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF1F1212) : const Color(0xFFFEF2F2);
+    final borderColor = isDark ? const Color(0xFF7F1D1D) : const Color(0xFFFECACA);
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 24.0),
+      margin: const EdgeInsets.only(bottom: 20.0),
       decoration: BoxDecoration(
         color: cardBg,
-        border: Border.all(color: Colors.red, width: 2.0),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: borderColor, width: 1.5),
       ),
+      clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // Banner header
           Container(
-            color: Colors.red,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            color: const Color(0xFFDC2626),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.radio_button_checked, size: 14, color: Colors.white),
-                    const SizedBox(width: 6),
+                    const Icon(Icons.radio_button_checked, size: 16, color: Colors.white),
+                    const SizedBox(width: 8),
                     Text(
-                      'ACTIVE SESSION (#$id) - $type',
-                      style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.white, fontSize: 13),
+                      'ACTIVE $type (#$id)',
+                      style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.white, fontSize: 13, letterSpacing: 0.8),
                     ),
                   ],
                 ),
-                Text(
-                  status.toUpperCase(),
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.25),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    status.toUpperCase(),
+                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 0.5),
+                  ),
                 ),
               ],
             ),
@@ -645,7 +892,8 @@ class _SetupScreenState extends State<SetupScreen> {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('MOVING TIME', style: TextStyle(fontSize: 10, color: textColor.withOpacity(0.6))),
+                        Text('MOVING TIME', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.6))),
+                        const SizedBox(height: 2),
                         Text(
                           _formatDuration(_activeElapsed),
                           style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: textColor),
@@ -656,9 +904,14 @@ class _SetupScreenState extends State<SetupScreen> {
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Text(
-                          _activeTurnBackTriggered ? 'RETURN TIMER' : 'OUTBOUND LIMIT',
-                          style: TextStyle(fontSize: 10, color: textColor.withOpacity(0.6)),
+                          _activeTurnBackTriggered ? 'RETURN TIMER' : 'TIME TO TURN BACK',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w900,
+                            color: _activeTurnBackTriggered ? const Color(0xFFDC2626) : const Color(0xFF2563EB),
+                          ),
                         ),
+                        const SizedBox(height: 2),
                         Text(
                           _activeTurnBackTriggered
                               ? _formatDuration(Duration(seconds: max(0, targetSec - _activeElapsed.inSeconds)))
@@ -666,7 +919,7 @@ class _SetupScreenState extends State<SetupScreen> {
                           style: TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.w900,
-                            color: _activeTurnBackTriggered ? Colors.red : textColor,
+                            color: _activeTurnBackTriggered ? const Color(0xFFDC2626) : textColor,
                           ),
                         ),
                       ],
@@ -674,28 +927,33 @@ class _SetupScreenState extends State<SetupScreen> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                LinearProgressIndicator(
-                  value: min(1.0, _activeElapsed.inSeconds / outboundLimitSeconds),
-                  backgroundColor: textColor.withOpacity(0.1),
-                  color: _activeTurnBackTriggered ? Colors.red : Colors.redAccent,
-                  minHeight: 6.0,
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: min(1.0, _activeElapsed.inSeconds / outboundLimitSeconds),
+                    backgroundColor: textColor.withValues(alpha: 0.1),
+                    color: _activeTurnBackTriggered ? const Color(0xFFDC2626) : const Color(0xFF3B82F6),
+                    minHeight: 6.0,
+                  ),
                 ),
               ],
             ),
           ),
 
           // Controller Action Buttons
-          Divider(color: Colors.red.withOpacity(0.3), height: 1, thickness: 1),
           Container(
-            color: Colors.red.withOpacity(0.04),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: isDark ? Colors.black.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.6),
+              border: Border(top: BorderSide(color: borderColor)),
+            ),
             child: Row(
               children: [
                 OutlinedButton(
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.red,
-                    side: const BorderSide(color: Colors.red, width: 1.5),
-                    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                    foregroundColor: const Color(0xFFDC2626),
+                    side: const BorderSide(color: Color(0xFFDC2626), width: 1.5),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   ),
                   onPressed: () => _toggleActivePause(id, type, targetSec, buffer),
@@ -707,9 +965,9 @@ class _SetupScreenState extends State<SetupScreen> {
                 const SizedBox(width: 8),
                 OutlinedButton(
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.red,
-                    side: const BorderSide(color: Colors.red, width: 1.5),
-                    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                    foregroundColor: const Color(0xFFDC2626),
+                    side: const BorderSide(color: Color(0xFFDC2626), width: 1.5),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   ),
                   onPressed: () => _confirmStopActiveSession(id, type),
@@ -721,9 +979,9 @@ class _SetupScreenState extends State<SetupScreen> {
                 const Spacer(),
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red,
+                    backgroundColor: const Color(0xFFDC2626),
                     foregroundColor: Colors.white,
-                    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                     elevation: 0,
                   ),
@@ -754,61 +1012,104 @@ class _SetupScreenState extends State<SetupScreen> {
   @override
   Widget build(BuildContext context) {
     final Brightness brightness = Theme.of(context).brightness;
-    final Color textColor = brightness == Brightness.light ? Colors.black : Colors.white;
-    final Color scaffoldBg = brightness == Brightness.light ? Colors.white : Colors.black;
+    final bool isDark = brightness == Brightness.dark;
+    final Color textColor = isDark ? Colors.white : const Color(0xFF111827);
+    final Color cardBg = isDark ? const Color(0xFF14171C) : Colors.white;
+    final Color borderColor = isDark ? const Color(0xFF23272F) : const Color(0xFFE5E7EB);
+    final Color accentColor = const Color(0xFFFF5722);
 
     return Scaffold(
-      backgroundColor: scaffoldBg,
       appBar: AppBar(
-        title: const Text('// TURNBACK', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.5)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: accentColor,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.turn_left_rounded, color: Colors.white, size: 18),
+            ),
+            const SizedBox(width: 10),
+            const Text('TURNBACK', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.5, fontSize: 18)),
+          ],
+        ),
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: false,
         actions: [
           IconButton(
-            icon: Icon(Icons.archive_outlined, color: textColor),
+            icon: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.archive_outlined, size: 20, color: textColor),
+            ),
             tooltip: 'Export ZIP Database Backup',
             onPressed: _runZipBackup,
           ),
+          const SizedBox(width: 8),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: textColor,
-        foregroundColor: brightness == Brightness.light ? Colors.white : Colors.black,
-        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-        icon: const Icon(Icons.play_arrow_outlined),
-        label: const Text('RECORD RUN', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.0)),
+        backgroundColor: accentColor,
+        foregroundColor: Colors.white,
+        elevation: 3,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        icon: const Icon(Icons.play_arrow_rounded, size: 28),
+        label: const Text('RECORD RUN', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.0, fontSize: 14)),
         onPressed: () => _showRecordBottomSheet(context),
       ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+          padding: const EdgeInsets.symmetric(horizontal: 20.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              const SizedBox(height: 8),
               // Real-Time Active Session Banner (Ticking return countdown)
               _buildActiveSessionCard(textColor, brightness),
 
-              // Premium Strava-Style Stats Card
+              // Strava-Style Athletic Performance Summary Card
               Container(
-                margin: const EdgeInsets.only(bottom: 24.0),
-                padding: const EdgeInsets.all(20.0),
+                margin: const EdgeInsets.only(bottom: 20.0),
+                padding: const EdgeInsets.all(18.0),
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: brightness == Brightness.light
-                        ? [Colors.grey[200]!, Colors.grey[300]!]
-                        : [Colors.grey[900]!, Colors.grey[850]!],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  border: Border.all(color: textColor, width: 2.0),
+                  color: cardBg,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: borderColor, width: 1.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'LIFETIME PERFORMANCE SUMMARY',
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor.withOpacity(0.5)),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'LIFETIME TOTALS',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: textColor.withValues(alpha: 0.5), letterSpacing: 1.0),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Text(
+                            'OFFLINE GPS',
+                            style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Color(0xFF10B981)),
+                          ),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 14),
                     Row(
@@ -816,23 +1117,7 @@ class _SetupScreenState extends State<SetupScreen> {
                       children: [
                         _buildStatBox('ACTIVITIES', '${_completedSessions.length}', textColor),
                         _buildStatBox('DISTANCE', '${_lifetimeDistance.toStringAsFixed(1)} km', textColor),
-                        _buildStatBox('ACTIVE TIME', '${_lifetimeDuration.inHours} hrs', textColor),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    const Divider(height: 1, thickness: 1),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Icon(Icons.folder_shared_outlined, size: 14, color: textColor.withOpacity(0.6)),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            'SYNC DIR: $_autoSyncPath',
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: textColor.withOpacity(0.6)),
-                          ),
-                        ),
+                        _buildStatBox('MOVING TIME', '${_lifetimeDuration.inHours}h ${_lifetimeDuration.inMinutes % 60}m', textColor),
                       ],
                     ),
                   ],
@@ -840,16 +1125,26 @@ class _SetupScreenState extends State<SetupScreen> {
               ),
 
               // Activity Feed Title
-              Text(
-                'YOUR ACTIVITY FEED',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: textColor, letterSpacing: 1.0),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'ACTIVITY HISTORY',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: textColor, letterSpacing: 0.8),
+                  ),
+                  if (_completedSessions.isNotEmpty)
+                    Text(
+                      '${_completedSessions.length} total',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5)),
+                    ),
+                ],
               ),
               const SizedBox(height: 12),
 
               // Completed Runs Listing Feed
               Expanded(
                 child: _isLoading
-                    ? Center(child: CircularProgressIndicator(color: textColor))
+                    ? Center(child: CircularProgressIndicator(color: accentColor))
                     : _completedSessions.isEmpty
                         ? _buildEmptyDashboard(textColor)
                         : ListView.builder(
@@ -877,11 +1172,11 @@ class _SetupScreenState extends State<SetupScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: textColor.withOpacity(0.5))),
+        Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5))),
         const SizedBox(height: 4),
         Text(
           value,
-          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: textColor),
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: textColor),
         ),
       ],
     );
@@ -892,16 +1187,23 @@ class _SetupScreenState extends State<SetupScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.directions_run, size: 48, color: textColor.withOpacity(0.3)),
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: textColor.withValues(alpha: 0.05),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.directions_run, size: 40, color: textColor.withValues(alpha: 0.4)),
+          ),
           const SizedBox(height: 14),
           Text(
             'NO COMPLETED ACTIVITIES YET',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: textColor.withOpacity(0.6)),
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: textColor.withValues(alpha: 0.7)),
           ),
           const SizedBox(height: 6),
           Text(
-            'Tap "RECORD RUN" at the bottom right to begin.',
-            style: TextStyle(fontSize: 11, color: textColor.withOpacity(0.4)),
+            'Tap "RECORD RUN" below to track your first out-and-back.',
+            style: TextStyle(fontSize: 12, color: textColor.withValues(alpha: 0.4)),
           ),
         ],
       ),
@@ -945,7 +1247,7 @@ class _SessionFeedCardState extends State<SessionFeedCard> {
     final a = 0.5 - cos((lat2 - lat1) * pVal) / 2 +
           cos(lat1 * pVal) * cos(lat2 * pVal) *
           (1 - cos((lon2 - lon1) * pVal)) / 2;
-    return 12742 * asin(sqrt(a)); // Haversine formula (km)
+    return 12742 * asin(sqrt(a));
   }
 
   Future<void> _loadPoints() async {
@@ -956,12 +1258,12 @@ class _SessionFeedCardState extends State<SessionFeedCard> {
     List<Point<double>> parsed = [];
     
     for (int i = 0; i < points.length; i++) {
-      final lat = points[i]['lat'] as double;
-      final lng = points[i]['lng'] as double;
+      final lat = ((points[i]['lat'] ?? 0.0) as num).toDouble();
+      final lng = ((points[i]['lng'] ?? 0.0) as num).toDouble();
       parsed.add(Point(lat, lng));
       
       if (i > 0) {
-        dist += _distanceBetween(points[i-1]['lat'] as double, points[i-1]['lng'] as double, lat, lng);
+        dist += _distanceBetween(parsed[i-1].x, parsed[i-1].y, lat, lng);
       }
     }
 
@@ -980,7 +1282,6 @@ class _SessionFeedCardState extends State<SessionFeedCard> {
     final int id = session['id'] as int;
     final String type = (session['activity_type'] as String).toUpperCase();
     final int targetSec = session['target_duration'] as int;
-    final double buffer = session['safety_buffer'] as double;
     final int startMs = session['start_time'] as int;
     final int? endMs = session['end_time'] as int?;
 
@@ -991,36 +1292,62 @@ class _SessionFeedCardState extends State<SessionFeedCard> {
     final String durationString = '${duration.inMinutes}m ${duration.inSeconds.remainder(60)}s';
     final bool triggered = session['turn_back_triggered_at'] != null;
 
-    final cardBg = widget.brightness == Brightness.light ? Colors.grey[100] : Colors.grey[900];
+    final isDark = widget.brightness == Brightness.dark;
+    final cardBg = isDark ? const Color(0xFF14171C) : Colors.white;
+    final borderColor = isDark ? const Color(0xFF23272F) : const Color(0xFFE5E7EB);
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 20.0),
+      margin: const EdgeInsets.only(bottom: 16.0),
       decoration: BoxDecoration(
         color: cardBg,
-        border: Border.all(color: widget.textColor, width: 2.0),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: borderColor, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
+      clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // Header Card
           Container(
-            color: widget.textColor,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1A1E24) : const Color(0xFFF3F4F6),
+              border: Border(bottom: BorderSide(color: borderColor)),
+            ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  '$type - ACTIVITY #$id',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w900,
-                    color: widget.brightness == Brightness.light ? Colors.white : Colors.black,
-                  ),
+                Row(
+                  children: [
+                    Icon(
+                      type == 'RIDE' ? Icons.directions_bike : type == 'HIKE' ? Icons.hiking : Icons.directions_run,
+                      size: 18,
+                      color: const Color(0xFFFF5722),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '$type #$id',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 14,
+                        color: widget.textColor,
+                      ),
+                    ),
+                  ],
                 ),
                 Text(
                   dateString,
                   style: TextStyle(
                     fontSize: 12,
-                    color: (widget.brightness == Brightness.light ? Colors.white : Colors.black).withOpacity(0.8),
+                    fontWeight: FontWeight.bold,
+                    color: widget.textColor.withValues(alpha: 0.6),
                   ),
                 ),
               ],
@@ -1045,9 +1372,10 @@ class _SessionFeedCardState extends State<SessionFeedCard> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'DISTANCE',
-                              style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: widget.textColor.withOpacity(0.5)),
+                              'TOTAL DISTANCE',
+                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: widget.textColor.withValues(alpha: 0.5)),
                             ),
+                            const SizedBox(height: 2),
                             Text(
                               _isLoading ? '...' : '${_distanceKm.toStringAsFixed(2)} KM',
                               style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: widget.textColor),
@@ -1058,15 +1386,15 @@ class _SessionFeedCardState extends State<SessionFeedCard> {
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text('DURATION', style: TextStyle(fontSize: 9, color: widget.textColor.withOpacity(0.5))),
+                                    Text('DURATION', style: TextStyle(fontSize: 9, color: widget.textColor.withValues(alpha: 0.5))),
                                     Text(durationString, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: widget.textColor)),
                                   ],
                                 ),
-                                const SizedBox(width: 16),
+                                const SizedBox(width: 14),
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text('TARGET', style: TextStyle(fontSize: 9, color: widget.textColor.withOpacity(0.5))),
+                                    Text('TARGET', style: TextStyle(fontSize: 9, color: widget.textColor.withValues(alpha: 0.5))),
                                     Text('${targetSec ~/ 60}m', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: widget.textColor)),
                                   ],
                                 ),
@@ -1080,15 +1408,16 @@ class _SessionFeedCardState extends State<SessionFeedCard> {
                             Icon(
                               triggered ? Icons.warning_amber_rounded : Icons.check_circle_outline,
                               size: 14,
-                              color: triggered ? Colors.red : Colors.green,
+                              color: triggered ? const Color(0xFFDC2626) : const Color(0xFF10B981),
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              triggered ? 'Safety alarm triggered' : 'Outbound return safe',
+                              triggered ? 'Turned back on signal' : 'Completed outbound safely',
                               style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: triggered ? Colors.red : Colors.green),
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: triggered ? const Color(0xFFDC2626) : const Color(0xFF10B981),
+                              ),
                             ),
                           ],
                         ),
@@ -1102,12 +1431,13 @@ class _SessionFeedCardState extends State<SessionFeedCard> {
                   flex: 2,
                   child: Container(
                     decoration: BoxDecoration(
-                      border: Border(left: BorderSide(color: widget.textColor, width: 2.0)),
+                      border: Border(left: BorderSide(color: borderColor)),
+                      color: isDark ? const Color(0xFF0F1115) : const Color(0xFFF8F9FA),
                     ),
                     child: _isLoading
                         ? const Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.0)))
                         : _mapPoints.isEmpty
-                            ? Center(child: Text("NO GPS", style: TextStyle(fontSize: 10, color: widget.textColor.withOpacity(0.4))))
+                            ? Center(child: Text("NO GPS", style: TextStyle(fontSize: 10, color: widget.textColor.withValues(alpha: 0.4))))
                             : ClipRect(
                                 child: CustomPaint(
                                   painter: BreadcrumbPainter(points: _mapPoints, brightness: widget.brightness),
@@ -1119,25 +1449,30 @@ class _SessionFeedCardState extends State<SessionFeedCard> {
             ),
           ),
 
-          Divider(color: widget.textColor.withOpacity(0.3), height: 1, thickness: 1),
-
           // Actions row
           Container(
-            color: widget.textColor.withOpacity(0.03),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1A1E24) : const Color(0xFFF8F9FA),
+              border: Border(top: BorderSide(color: borderColor)),
+            ),
             child: Row(
               children: [
-                TextButton(
+                TextButton.icon(
+                  style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10)),
                   onPressed: widget.onEdit,
-                  child: Text('EDIT/CHOP', style: TextStyle(color: widget.textColor, fontWeight: FontWeight.bold, fontSize: 12)),
+                  icon: Icon(Icons.content_cut, size: 14, color: widget.textColor.withValues(alpha: 0.7)),
+                  label: Text('EDIT', style: TextStyle(color: widget.textColor, fontWeight: FontWeight.bold, fontSize: 11)),
                 ),
-                TextButton(
+                TextButton.icon(
+                  style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10)),
                   onPressed: () => _exportGpx(id, type, context),
-                  child: Text('EXPORT GPX', style: TextStyle(color: widget.textColor, fontWeight: FontWeight.bold, fontSize: 12)),
+                  icon: Icon(Icons.file_download_outlined, size: 14, color: widget.textColor.withValues(alpha: 0.7)),
+                  label: Text('GPX', style: TextStyle(color: widget.textColor, fontWeight: FontWeight.bold, fontSize: 11)),
                 ),
                 const Spacer(),
                 IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                  icon: const Icon(Icons.delete_outline, color: Color(0xFFDC2626), size: 18),
                   onPressed: widget.onDelete,
                 ),
               ],
@@ -1151,13 +1486,17 @@ class _SessionFeedCardState extends State<SessionFeedCard> {
   Future<void> _exportGpx(int sessionId, String type, BuildContext context) async {
     try {
       final file = await GpxService.instance.saveGpxFile(sessionId, type);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('GPX saved to TurnBack folder:\n${file.path}'), duration: const Duration(seconds: 4)),
-      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('GPX saved to TurnBack folder:\n${file.path}'), duration: const Duration(seconds: 4)),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Export failed: $e')),
-      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Export failed: $e')),
+        );
+      }
     }
   }
 }
