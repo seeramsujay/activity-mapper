@@ -116,7 +116,7 @@ class _OsmMapViewState extends State<OsmMapView> {
     }
 
     final pts = widget.points;
-    if (_lastPointsLength == 0 || (pts.length - _lastPointsLength).abs() > 3 || _zoomOffset != 0) {
+    if (!_isFreePanning && (_lastPointsLength == 0 || (pts.length - _lastPointsLength).abs() > 3 || _zoomOffset != 0)) {
       double minLat = pts.first.x;
       double maxLat = pts.first.x;
       double minLng = pts.first.y;

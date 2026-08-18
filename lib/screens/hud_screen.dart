@@ -60,6 +60,7 @@ class _HudScreenState extends State<HudScreen> {
   final PageController _pageController = PageController();
   int _currentPageIndex = 0;
   bool _showOsmTiles = false;
+  bool _isMapFullScreen = false;
 
   // Dynamic unit switching hysteresis
   bool _isSpeedMode = false;
@@ -81,9 +82,12 @@ class _HudScreenState extends State<HudScreen> {
   bool _flashToggle = false;
   Timer? _flashTimer;
 
+  late Duration _activeTargetDuration;
+
   @override
   void initState() {
     super.initState();
+    _activeTargetDuration = widget.targetDuration;
     _startTime = DateTime.now();
     _isSpeedMode = widget.activityType == 'ride';
 
@@ -91,6 +95,284 @@ class _HudScreenState extends State<HudScreen> {
     _loadReferenceRoute();
     _startTimer();
     _startTelemetryStream();
+  }
+
+  void _showResumeOptionsDialog() {
+    HapticFeedback.selectionClick();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : const Color(0xFF111827);
+    final cardBg = isDark ? const Color(0xFF14171C) : Colors.white;
+    final surfaceBg = isDark ? const Color(0xFF1E232B) : const Color(0xFFF3F4F6);
+    final borderColor = isDark ? const Color(0xFF2D333F) : const Color(0xFFE5E7EB);
+    final accentColor = SettingsService.instance.accentColor.color;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: cardBg,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        int tempMinutes = _activeTargetDuration.inMinutes;
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return SingleChildScrollView(
+              padding: EdgeInsets.only(
+                left: 20.0,
+                right: 20.0,
+                top: 16.0,
+                bottom: 20.0 + MediaQuery.of(ctx).viewInsets.bottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Drag handle
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: textColor.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: accentColor.withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(Icons.play_circle_filled_rounded, color: accentColor, size: 24),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'RESUME WORKOUT / BREAK ENDED',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w900,
+                                color: textColor,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                            Text(
+                              'Choose how to handle your return timer',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: textColor.withValues(alpha: 0.5),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Option 1: Continue Existing Timer
+                  _buildResumeActionCard(
+                    title: 'CONTINUE EXISTING TIMER',
+                    subtitle: 'Keep current elapsed time (${_formatDuration(_elapsed)}) and continue return countdown',
+                    icon: Icons.fast_forward_rounded,
+                    color: const Color(0xFF10B981),
+                    textColor: textColor,
+                    surfaceBg: surfaceBg,
+                    borderColor: borderColor,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      setState(() => _isPaused = false);
+                    },
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Option 2: Reset Return Countdown (Fresh Start for Outbound)
+                  _buildResumeActionCard(
+                    title: 'RESET RETURN COUNTDOWN',
+                    subtitle: 'Reset return timer to full ${_activeTargetDuration.inMinutes}m (preserves all logged GPS track & distance)',
+                    icon: Icons.restart_alt_rounded,
+                    color: const Color(0xFF3B82F6),
+                    textColor: textColor,
+                    surfaceBg: surfaceBg,
+                    borderColor: borderColor,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      setState(() {
+                        _elapsed = Duration.zero;
+                        _turnBackTriggered = false;
+                        _isPaused = false;
+                      });
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('RETURN TIMER RESET TO START')),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Option 3: Set Whole New Target Duration
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: surfaceBg,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: borderColor),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.edit_calendar_rounded, size: 18, color: Color(0xFFF59E0B)),
+                            const SizedBox(width: 8),
+                            Text(
+                              'SET NEW RETURN TARGET: $tempMinutes MIN',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: textColor, letterSpacing: 0.6),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        SliderTheme(
+                          data: SliderTheme.of(context).copyWith(
+                            activeTrackColor: const Color(0xFFF59E0B),
+                            thumbColor: const Color(0xFFF59E0B),
+                            trackHeight: 4,
+                          ),
+                          child: Slider(
+                            value: tempMinutes.toDouble(),
+                            min: 5,
+                            max: 180,
+                            divisions: 35,
+                            label: '$tempMinutes min',
+                            onChanged: (v) => setModalState(() => tempMinutes = v.round()),
+                          ),
+                        ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            for (final m in [15, 30, 45, 60, 90])
+                              GestureDetector(
+                                onTap: () => setModalState(() => tempMinutes = m),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: tempMinutes == m ? const Color(0xFFF59E0B) : (isDark ? Colors.black.withValues(alpha: 0.3) : Colors.white),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: borderColor),
+                                  ),
+                                  child: Text(
+                                    '${m}m',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w900,
+                                      color: tempMinutes == m ? Colors.white : textColor,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFF59E0B),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              setState(() {
+                                _activeTargetDuration = Duration(minutes: tempMinutes);
+                                _elapsed = Duration.zero;
+                                _turnBackTriggered = false;
+                                _isPaused = false;
+                              });
+                              // Update SQLite session target duration
+                              DbService.instance.updateSessionTargetDuration(widget.sessionId, tempMinutes * 60);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('NEW TARGET SET TO $tempMinutes MINUTES')),
+                              );
+                            },
+                            child: const Text('APPLY NEW DURATION & RESUME', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildResumeActionCard({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required Color textColor,
+    required Color surfaceBg,
+    required Color borderColor,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: surfaceBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: borderColor),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: textColor, letterSpacing: 0.6),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(fontSize: 10, color: textColor.withValues(alpha: 0.6), fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, size: 18, color: textColor.withValues(alpha: 0.4)),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _loadReferenceRoute() async {
@@ -278,7 +560,7 @@ class _HudScreenState extends State<HudScreen> {
 
         // 54% Outbound Limit trigger
         final double outboundRatio = (100.0 - widget.safetyBufferPct) / 200.0;
-        final int outboundLimitSeconds = (widget.targetDuration.inSeconds * outboundRatio).toInt();
+        final int outboundLimitSeconds = (_activeTargetDuration.inSeconds * outboundRatio).toInt();
 
         if (_elapsed.inSeconds >= outboundLimitSeconds && !_turnBackTriggered) {
           _turnBackTriggered = true;
@@ -376,10 +658,176 @@ class _HudScreenState extends State<HudScreen> {
     final Color accentColor = SettingsService.instance.accentColor.color;
 
     final double outboundRatio = (100.0 - widget.safetyBufferPct) / 200.0;
-    final int outboundLimitSeconds = (widget.targetDuration.inSeconds * outboundRatio).toInt();
+    final int outboundLimitSeconds = (_activeTargetDuration.inSeconds * outboundRatio).toInt();
     final int remainingOutboundSeconds = max(0, outboundLimitSeconds - _elapsed.inSeconds);
-    final int remainingTotalSeconds = max(0, widget.targetDuration.inSeconds - _elapsed.inSeconds);
+    final int remainingTotalSeconds = max(0, _activeTargetDuration.inSeconds - _elapsed.inSeconds);
 
+    // ------------------------------------------------------------------------
+    // FULLSCREEN IMMERSIVE MAP MODE
+    // ------------------------------------------------------------------------
+    if (_isMapFullScreen) {
+      return Scaffold(
+        backgroundColor: scaffoldBg,
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            // Map receives 100% uninterrupted touch gestures (pan, zoom)
+            OsmMapView(
+              points: _points,
+              showOsmTiles: _showOsmTiles,
+              brightness: brightness,
+            ),
+
+            // Top Translucent Telemetry Header
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                  padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 10.0),
+                  decoration: BoxDecoration(
+                    color: (isDark ? const Color(0xFF14171C) : Colors.white).withValues(alpha: 0.9),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: borderColor),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 10, offset: const Offset(0, 4)),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      // Collapse / Back button
+                      IconButton(
+                        icon: const Icon(Icons.fullscreen_exit_rounded, size: 24),
+                        tooltip: 'Exit Fullscreen Map',
+                        onPressed: () {
+                          HapticFeedback.selectionClick();
+                          setState(() => _isMapFullScreen = false);
+                        },
+                      ),
+                      const SizedBox(width: 6),
+                      // Quick Glance Metrics
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  _formatSpeedOrPace(_currentSpeed),
+                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: textColor),
+                                ),
+                                Text(
+                                  _isSpeedMode ? ' km/h' : ' /km',
+                                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.6)),
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  '${_distanceKm.toStringAsFixed(2)} km',
+                                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: accentColor),
+                                ),
+                              ],
+                            ),
+                            Text(
+                              'Return in: ${_turnBackTriggered ? _formatDuration(Duration(seconds: remainingTotalSeconds)) : _formatDuration(Duration(seconds: remainingOutboundSeconds))}',
+                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: textColor.withValues(alpha: 0.7)),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // Layer toggle button
+                      IconButton(
+                        icon: Icon(_showOsmTiles ? Icons.layers : Icons.layers_outlined, size: 20),
+                        tooltip: 'Toggle OSM Layer',
+                        onPressed: () {
+                          HapticFeedback.selectionClick();
+                          setState(() => _showOsmTiles = !_showOsmTiles);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // Bottom "Swipe Right on Button to Restore HUD" Slider
+            Positioned(
+              bottom: 16,
+              left: 24,
+              right: 24,
+              child: SafeArea(
+                child: Dismissible(
+                  key: const Key('swipe-restore-hud-button'),
+                  direction: DismissDirection.startToEnd,
+                  confirmDismiss: (direction) async {
+                    HapticFeedback.mediumImpact();
+                    setState(() => _isMapFullScreen = false);
+                    return false; // don't remove widget tree
+                  },
+                  background: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    alignment: Alignment.centerLeft,
+                    decoration: BoxDecoration(
+                      color: accentColor,
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 20),
+                        SizedBox(width: 8),
+                        Text(
+                          'RESTORING HUD...',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 0.8),
+                        ),
+                      ],
+                    ),
+                  ),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 16.0),
+                    decoration: BoxDecoration(
+                      color: (isDark ? const Color(0xFF14171C) : Colors.white).withValues(alpha: 0.92),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: borderColor, width: 1.5),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 10, offset: const Offset(0, 4)),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: accentColor,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.arrow_forward_rounded, size: 14, color: Colors.white),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          'SWIPE RIGHT TO RESTORE HUD  ➔',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                            color: textColor,
+                            letterSpacing: 0.8,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // ------------------------------------------------------------------------
+    // STANDARD ATHLETIC HUD LAYOUT
+    // ------------------------------------------------------------------------
     return Scaffold(
       backgroundColor: scaffoldBg,
       body: SafeArea(
@@ -388,22 +836,22 @@ class _HudScreenState extends State<HudScreen> {
           children: [
             // Top App Bar & Status
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
               child: Row(
                 children: [
                   IconButton(
-                    icon: Icon(Icons.arrow_back_ios_new, size: 18, color: textColor),
+                    icon: Icon(Icons.arrow_back_ios_new, size: 16, color: textColor),
                     onPressed: () => Navigator.pop(context),
                   ),
-                  const SizedBox(width: 4),
+                  const SizedBox(width: 2),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(
                         children: [
                           Container(
-                            width: 8,
-                            height: 8,
+                            width: 7,
+                            height: 7,
                             decoration: BoxDecoration(
                               color: _isPaused ? Colors.amber : const Color(0xFF10B981),
                               shape: BoxShape.circle,
@@ -412,13 +860,13 @@ class _HudScreenState extends State<HudScreen> {
                           const SizedBox(width: 6),
                           Text(
                             '${widget.activityType.toUpperCase()} #${widget.sessionId}',
-                            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14, color: textColor, letterSpacing: 0.8),
+                            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: textColor, letterSpacing: 0.8),
                           ),
                         ],
                       ),
                       Text(
-                        _isPaused ? 'TRACKING PAUSED' : 'LIVE GPS RECORDING',
-                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5)),
+                        _isPaused ? 'PAUSED' : 'LIVE GPS ACTIVE',
+                        style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5)),
                       ),
                     ],
                   ),
@@ -432,7 +880,7 @@ class _HudScreenState extends State<HudScreen> {
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: borderColor),
                       ),
-                      child: Icon(_showOsmTiles ? Icons.layers : Icons.layers_outlined, size: 18, color: textColor),
+                      child: Icon(_showOsmTiles ? Icons.layers : Icons.layers_outlined, size: 16, color: textColor),
                     ),
                     tooltip: 'Toggle Vector / Satellite OSM',
                     onPressed: () {
@@ -455,8 +903,8 @@ class _HudScreenState extends State<HudScreen> {
                   );
                 },
                 child: Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
-                  padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 16.0),
+                  margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 2.0),
+                  padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 14.0),
                   decoration: BoxDecoration(
                     color: _flashToggle ? const Color(0xFFDC2626) : const Color(0xFF991B1B),
                     borderRadius: BorderRadius.circular(14),
@@ -464,35 +912,28 @@ class _HudScreenState extends State<HudScreen> {
                   child: const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.warning_amber_rounded, color: Colors.white, size: 20),
+                      Icon(Icons.warning_amber_rounded, color: Colors.white, size: 18),
                       SizedBox(width: 8),
                       Text(
                         'TURN BACK NOW (Hold to dismiss)',
-                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 0.8),
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 0.8),
                       ),
                     ],
                   ),
                 ),
               ),
 
-            // Reverse Countdown & Duration Hero Header Card
+            // Compact Reverse Countdown & Duration Hero Header Card
             Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
-              padding: const EdgeInsets.all(16.0),
+              margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
               decoration: BoxDecoration(
                 color: cardBg,
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(18),
                 border: Border.all(
                   color: _turnBackTriggered ? const Color(0xFFDC2626) : borderColor,
-                  width: _turnBackTriggered ? 2.0 : 1.5,
+                  width: _turnBackTriggered ? 2.0 : 1.2,
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: isDark ? 0.25 : 0.04),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
               ),
               child: Column(
                 children: [
@@ -505,19 +946,19 @@ class _HudScreenState extends State<HudScreen> {
                         children: [
                           Row(
                             children: [
-                              Icon(Icons.timer_outlined, size: 13, color: textColor.withValues(alpha: 0.5)),
+                              Icon(Icons.timer_outlined, size: 12, color: textColor.withValues(alpha: 0.5)),
                               const SizedBox(width: 4),
-                              Text('WORKOUT DURATION', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: textColor.withValues(alpha: 0.5), letterSpacing: 0.5)),
+                              Text('WORKOUT DURATION', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: textColor.withValues(alpha: 0.5), letterSpacing: 0.5)),
                             ],
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 2),
                           Text(
                             _formatDuration(_totalElapsed),
-                            style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: textColor),
+                            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: textColor),
                           ),
                           Text(
                             'Moving: ${_formatDuration(_elapsed)}',
-                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5)),
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5)),
                           ),
                         ],
                       ),
@@ -530,14 +971,14 @@ class _HudScreenState extends State<HudScreen> {
                             children: [
                               Icon(
                                 _turnBackTriggered ? Icons.run_circle : Icons.hourglass_top_rounded,
-                                size: 13,
+                                size: 12,
                                 color: _turnBackTriggered ? const Color(0xFFDC2626) : const Color(0xFF3B82F6),
                               ),
                               const SizedBox(width: 4),
                               Text(
                                 _turnBackTriggered ? 'RETURN LIMIT' : 'TIME TO TURN BACK',
                                 style: TextStyle(
-                                  fontSize: 10,
+                                  fontSize: 9,
                                   fontWeight: FontWeight.w900,
                                   color: _turnBackTriggered ? const Color(0xFFDC2626) : const Color(0xFF3B82F6),
                                   letterSpacing: 0.5,
@@ -545,90 +986,45 @@ class _HudScreenState extends State<HudScreen> {
                               ),
                             ],
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 2),
                           Text(
                             _turnBackTriggered ? _formatDuration(Duration(seconds: remainingTotalSeconds)) : _formatDuration(Duration(seconds: remainingOutboundSeconds)),
                             style: TextStyle(
-                              fontSize: 26,
+                              fontSize: 22,
                               fontWeight: FontWeight.w900,
                               color: _turnBackTriggered ? const Color(0xFFDC2626) : const Color(0xFF3B82F6),
                             ),
                           ),
                           Text(
                             _turnBackTriggered ? 'Target: ${widget.targetDuration.inMinutes}m' : 'Outbound: ${outboundLimitSeconds ~/ 60}m',
-                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5)),
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5)),
                           ),
                         ],
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(4),
                     child: LinearProgressIndicator(
                       value: min(1.0, _elapsed.inSeconds / outboundLimitSeconds),
                       backgroundColor: textColor.withValues(alpha: 0.08),
                       color: _turnBackTriggered ? const Color(0xFFDC2626) : const Color(0xFF3B82F6),
-                      minHeight: 6.0,
+                      minHeight: 5.0,
                     ),
                   ),
                 ],
               ),
             ),
 
-            // Rally Navigation Cue Panel
-            if (_rallyState != null)
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
-                padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 14.0),
-                decoration: BoxDecoration(
-                  color: _rallyState!.isOffRoute ? const Color(0xFFDC2626) : surfaceBg,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: _rallyState!.isOffRoute ? const Color(0xFFDC2626) : borderColor),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      _getTurnIcon(_rallyState!.nextCue?.type),
-                      size: 28,
-                      color: _rallyState!.isOffRoute ? Colors.white : accentColor,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _rallyState!.isOffRoute ? 'OFF ROUTE!' : _rallyState!.nextCue?.description.toUpperCase() ?? 'FOLLOW ROUTE',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w900,
-                              color: _rallyState!.isOffRoute ? Colors.white : textColor,
-                            ),
-                          ),
-                          Text(
-                            _rallyState!.isOffRoute ? 'Return toward reference line' : 'In ${_rallyState!.distanceToNextCueMeters} meters',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                              color: _rallyState!.isOffRoute ? Colors.white.withValues(alpha: 0.8) : textColor.withValues(alpha: 0.6),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-            // Segmented Navigation Tab Control (Smooth, non-sensitive switching)
+            // Segmented Navigation Tab Control (Smooth explicit tab switcher)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
               child: Container(
-                padding: const EdgeInsets.all(4),
+                padding: const EdgeInsets.all(3),
                 decoration: BoxDecoration(
                   color: surfaceBg,
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: borderColor),
                 ),
                 child: Row(
@@ -642,11 +1038,11 @@ class _HudScreenState extends State<HudScreen> {
               ),
             ),
 
-            // Main Content Area with Clamping Scroll Physics
+            // Main Content Area with NeverScrollableScrollPhysics (eliminates swipe conflict!)
             Expanded(
               child: PageView(
                 controller: _pageController,
-                physics: const ClampingScrollPhysics(),
+                physics: const NeverScrollableScrollPhysics(),
                 onPageChanged: (idx) => setState(() => _currentPageIndex = idx),
                 children: [
                   // TAB 0: Big Metric Grid + Mini Map
@@ -659,7 +1055,7 @@ class _HudScreenState extends State<HudScreen> {
                   ),
 
                   // TAB 1: Full Interactive Map
-                  _buildFullMapTabPage(brightness: brightness, borderColor: borderColor),
+                  _buildFullMapTabPage(brightness: brightness, borderColor: borderColor, accentColor: accentColor),
 
                   // TAB 2: Live Speed & Elevation Chart
                   _buildChartTabPage(textColor: textColor, cardBg: cardBg, borderColor: borderColor, accentColor: accentColor),
@@ -761,6 +1157,7 @@ class _HudScreenState extends State<HudScreen> {
     required Brightness brightness,
     required Color accentColor,
   }) {
+    final isDark = brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
       child: Column(
@@ -850,7 +1247,7 @@ class _HudScreenState extends State<HudScreen> {
           ),
           const SizedBox(height: 8),
 
-          // Mini Map Container
+          // Mini Map Container with Expand to Fullscreen Action
           Expanded(
             flex: 3,
             child: Container(
@@ -868,18 +1265,30 @@ class _HudScreenState extends State<HudScreen> {
                     showOsmTiles: _showOsmTiles,
                     brightness: brightness,
                   ),
+                  // Fullscreen Trigger Button (Top Right)
                   Positioned(
-                    top: 10,
-                    left: 10,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.6),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        _showOsmTiles ? 'OSM TILES' : 'OFFLINE VECTOR GPS',
-                        style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Colors.white),
+                    top: 8,
+                    right: 8,
+                    child: GestureDetector(
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        setState(() => _isMapFullScreen = true);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.9),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: borderColor),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.fullscreen_rounded, size: 16),
+                            SizedBox(width: 4),
+                            Text('EXPAND', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 0.6)),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -898,7 +1307,9 @@ class _HudScreenState extends State<HudScreen> {
   Widget _buildFullMapTabPage({
     required Brightness brightness,
     required Color borderColor,
+    required Color accentColor,
   }) {
+    final isDark = brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
       child: Container(
@@ -907,10 +1318,42 @@ class _HudScreenState extends State<HudScreen> {
           border: Border.all(color: borderColor, width: 1.5),
         ),
         clipBehavior: Clip.antiAlias,
-        child: OsmMapView(
-          points: _points,
-          showOsmTiles: _showOsmTiles,
-          brightness: brightness,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            OsmMapView(
+              points: _points,
+              showOsmTiles: _showOsmTiles,
+              brightness: brightness,
+            ),
+            // Floating Fullscreen Expand Pill
+            Positioned(
+              top: 10,
+              right: 10,
+              child: GestureDetector(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setState(() => _isMapFullScreen = true);
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.9),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: borderColor),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.fullscreen_rounded, size: 18),
+                      SizedBox(width: 4),
+                      Text('FULLSCREEN', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 0.6)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -940,10 +1383,14 @@ class _HudScreenState extends State<HudScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'REAL-TIME SPEED & ELEVATION PROFILE',
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: textColor.withValues(alpha: 0.6), letterSpacing: 0.8),
+                Expanded(
+                  child: Text(
+                    'REAL-TIME TELEMETRY PROFILE',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: textColor.withValues(alpha: 0.6), letterSpacing: 0.8),
+                  ),
                 ),
+                const SizedBox(width: 8),
                 GestureDetector(
                   onTap: () {
                     HapticFeedback.selectionClick();
@@ -957,7 +1404,7 @@ class _HudScreenState extends State<HudScreen> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
-                      SettingsService.instance.chartXAxis == ChartXAxis.distance ? 'X: DISTANCE (KM)' : 'X: DURATION (TIME)',
+                      SettingsService.instance.chartXAxis == ChartXAxis.distance ? 'X: DIST (KM)' : 'X: TIME',
                       style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: accentColor),
                     ),
                   ),
@@ -1135,7 +1582,11 @@ class _HudScreenState extends State<HudScreen> {
               ),
               onPressed: () {
                 HapticFeedback.heavyImpact();
-                setState(() => _isPaused = !_isPaused);
+                if (_isPaused) {
+                  _showResumeOptionsDialog();
+                } else {
+                  setState(() => _isPaused = true);
+                }
               },
             ),
           ),

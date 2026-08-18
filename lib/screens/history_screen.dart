@@ -1,9 +1,12 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../services/db_service.dart';
 import '../services/export_service.dart';
+import '../services/platform_service.dart';
 import '../widgets/breadcrumb_painter.dart';
 import 'editor_screen.dart';
+import 'hud_screen.dart';
 
 /// Screen widget that displays the history list of completed activities.
 ///
@@ -194,38 +197,337 @@ class _HistoryScreenState extends State<HistoryScreen> {
           ),
 
           // Actions Row
-          Divider(color: textColor.withOpacity(0.2), height: 1, thickness: 1),
+          Divider(color: textColor.withValues(alpha: 0.15), height: 1, thickness: 1),
           Container(
-            color: textColor.withOpacity(0.04),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            child: Row(
-              children: [
-                TextButton(
-                  onPressed: () => _viewActivityMap(id, type, brightness),
-                  child: Text('VIEW', style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 12)),
-                ),
-                TextButton(
-                  onPressed: () => _editActivity(id, type),
-                  child: Text('ADJUST', style: TextStyle(color: textColor, fontWeight: FontWeight.bold, fontSize: 12)),
-                ),
-                TextButton.icon(
-                  icon: const Icon(Icons.file_download_outlined, size: 16),
-                  label: const Text('EXPORT', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                  style: TextButton.styleFrom(foregroundColor: textColor),
-                  onPressed: () => _showExportOptionsSheet(id, type),
-                ),
-                const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20),
-                  tooltip: 'Delete Session',
-                  onPressed: () => _confirmDelete(id),
-                ),
-              ],
+            color: textColor.withValues(alpha: 0.03),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  // Prominent Continue Completed Run Button
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF10B981),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      elevation: 0,
+                    ),
+                    icon: const Icon(Icons.play_arrow_rounded, size: 16),
+                    label: const Text('CONTINUE RUN', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11, letterSpacing: 0.5)),
+                    onPressed: () => _showContinueRunModal(id, type, targetSec, buffer),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: textColor,
+                      side: BorderSide(color: textColor.withValues(alpha: 0.2)),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    icon: const Icon(Icons.map_outlined, size: 14),
+                    label: const Text('VIEW', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                    onPressed: () => _viewActivityMap(id, type, brightness),
+                  ),
+                  const SizedBox(width: 6),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: textColor,
+                      side: BorderSide(color: textColor.withValues(alpha: 0.2)),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    icon: const Icon(Icons.tune_rounded, size: 14),
+                    label: const Text('ADJUST', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                    onPressed: () => _editActivity(id, type),
+                  ),
+                  const SizedBox(width: 6),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: textColor,
+                      side: BorderSide(color: textColor.withValues(alpha: 0.2)),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    icon: const Icon(Icons.file_download_outlined, size: 14),
+                    label: const Text('EXPORT', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                    onPressed: () => _showExportOptionsSheet(id, type),
+                  ),
+                  const SizedBox(width: 6),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Color(0xFFDC2626), size: 18),
+                    tooltip: 'Delete Session',
+                    onPressed: () => _confirmDelete(id),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
       ),
     );
+  }
+
+  void _showContinueRunModal(int sessionId, String activityType, int originalTargetSec, double buffer) {
+    HapticFeedback.selectionClick();
+    final brightness = Theme.of(context).brightness;
+    final isDark = brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : const Color(0xFF111827);
+    final cardBg = isDark ? const Color(0xFF14171C) : Colors.white;
+    final surfaceBg = isDark ? const Color(0xFF1E232B) : const Color(0xFFF3F4F6);
+    final borderColor = isDark ? const Color(0xFF2D333F) : const Color(0xFFE5E7EB);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: cardBg,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        int targetMinutes = max(5, originalTargetSec ~/ 60);
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return SingleChildScrollView(
+              padding: EdgeInsets.only(
+                left: 20.0,
+                right: 20.0,
+                top: 16.0,
+                bottom: 20.0 + MediaQuery.of(ctx).viewInsets.bottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: textColor.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.play_arrow_rounded, color: Color(0xFF10B981), size: 24),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'CONTINUE WORKOUT #$sessionId',
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: textColor, letterSpacing: 0.8),
+                            ),
+                            Text(
+                              'Resume logging GPS track & append to this run',
+                              style: TextStyle(fontSize: 11, color: textColor.withValues(alpha: 0.6), fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Option 1: Continue with original target
+                  _buildContinueActionCard(
+                    title: 'CONTINUE EXISTING TIMER',
+                    subtitle: 'Resume with original target (${originalTargetSec ~/ 60}m) and append new GPS telemetry',
+                    icon: Icons.fast_forward_rounded,
+                    color: const Color(0xFF10B981),
+                    textColor: textColor,
+                    surfaceBg: surfaceBg,
+                    borderColor: borderColor,
+                    onTap: () => _launchContinuedSession(sessionId, activityType, originalTargetSec, buffer, resetTimer: false),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Option 2: Reset countdown to start fresh
+                  _buildContinueActionCard(
+                    title: 'RESET RETURN COUNTDOWN',
+                    subtitle: 'Start a fresh ${originalTargetSec ~/ 60}m return countdown from now (preserves previous GPS points)',
+                    icon: Icons.restart_alt_rounded,
+                    color: const Color(0xFF3B82F6),
+                    textColor: textColor,
+                    surfaceBg: surfaceBg,
+                    borderColor: borderColor,
+                    onTap: () => _launchContinuedSession(sessionId, activityType, originalTargetSec, buffer, resetTimer: true),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Option 3: Set whole new target duration
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: surfaceBg,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: borderColor),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.edit_calendar_rounded, size: 18, color: Color(0xFFF59E0B)),
+                            const SizedBox(width: 8),
+                            Text(
+                              'SET NEW RETURN TARGET: $targetMinutes MIN',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: textColor, letterSpacing: 0.6),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Slider(
+                          value: targetMinutes.toDouble(),
+                          min: 5,
+                          max: 180,
+                          divisions: 35,
+                          activeColor: const Color(0xFFF59E0B),
+                          label: '$targetMinutes min',
+                          onChanged: (v) => setModalState(() => targetMinutes = v.round()),
+                        ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            for (final m in [15, 30, 45, 60, 90])
+                              GestureDetector(
+                                onTap: () => setModalState(() => targetMinutes = m),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: targetMinutes == m ? const Color(0xFFF59E0B) : (isDark ? Colors.black.withValues(alpha: 0.3) : Colors.white),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: borderColor),
+                                  ),
+                                  child: Text(
+                                    '${m}m',
+                                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: targetMinutes == m ? Colors.white : textColor),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFF59E0B),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            onPressed: () => _launchContinuedSession(sessionId, activityType, targetMinutes * 60, buffer, resetTimer: true),
+                            child: const Text('APPLY NEW DURATION & CONTINUE', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildContinueActionCard({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required Color textColor,
+    required Color surfaceBg,
+    required Color borderColor,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: surfaceBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: borderColor),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: textColor, letterSpacing: 0.6),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(fontSize: 10, color: textColor.withValues(alpha: 0.6), fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, size: 18, color: textColor.withValues(alpha: 0.4)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _launchContinuedSession(int sessionId, String activityType, int targetSec, double buffer, {required bool resetTimer}) async {
+    Navigator.pop(context); // close modal
+
+    // Reactivate session in SQLite
+    await DbService.instance.reactivateSession(sessionId, newTargetDurationSeconds: targetSec);
+
+    // Start Kotlin GPS foreground tracking service
+    await PlatformService.instance.startTracking(
+      sessionId: sessionId,
+      activityType: activityType.toLowerCase(),
+      targetDurationSeconds: targetSec,
+      safetyBufferPct: buffer,
+      gpsIntervalMs: 5000,
+    );
+
+    if (mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => HudScreen(
+            sessionId: sessionId,
+            targetDuration: Duration(seconds: targetSec),
+            safetyBufferPct: buffer,
+            activityType: activityType.toLowerCase(),
+          ),
+        ),
+      ).then((_) => _loadSessions());
+    }
   }
 
   void _showExportOptionsSheet(int sessionId, String activityType) {

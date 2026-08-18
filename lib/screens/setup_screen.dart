@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import '../services/db_service.dart';
@@ -1160,6 +1161,7 @@ class _SetupScreenState extends State<SetupScreen> {
                                 brightness: brightness,
                                 onDelete: () => _confirmDelete(session['id'] as int),
                                 onEdit: () => _editActivity(session['id'] as int, session['activity_type'] as String),
+                                onContinue: () => _showContinueCompletedRunModal(session),
                               );
                             },
                           ),
@@ -1169,6 +1171,269 @@ class _SetupScreenState extends State<SetupScreen> {
         ),
       ),
     );
+  }
+
+  void _showContinueCompletedRunModal(Map<String, dynamic> session) {
+    HapticFeedback.selectionClick();
+    final int sessionId = session['id'] as int;
+    final String activityType = session['activity_type'] as String;
+    final int originalTargetSec = session['target_duration'] as int;
+    final double buffer = (session['safety_buffer'] as num).toDouble();
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : const Color(0xFF111827);
+    final cardBg = isDark ? const Color(0xFF14171C) : Colors.white;
+    final surfaceBg = isDark ? const Color(0xFF1E232B) : const Color(0xFFF3F4F6);
+    final borderColor = isDark ? const Color(0xFF2D333F) : const Color(0xFFE5E7EB);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: cardBg,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        int targetMinutes = max(5, originalTargetSec ~/ 60);
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return SingleChildScrollView(
+              padding: EdgeInsets.only(
+                left: 20.0,
+                right: 20.0,
+                top: 16.0,
+                bottom: 20.0 + MediaQuery.of(ctx).viewInsets.bottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: textColor.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.play_arrow_rounded, color: Color(0xFF10B981), size: 24),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'CONTINUE WORKOUT #$sessionId',
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: textColor, letterSpacing: 0.8),
+                            ),
+                            Text(
+                              'Resume logging GPS track & append to this run',
+                              style: TextStyle(fontSize: 11, color: textColor.withValues(alpha: 0.6), fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Option 1: Continue with original target
+                  _buildContinueModalCard(
+                    title: 'CONTINUE EXISTING TIMER',
+                    subtitle: 'Resume with original target (${originalTargetSec ~/ 60}m) and append new GPS points',
+                    icon: Icons.fast_forward_rounded,
+                    color: const Color(0xFF10B981),
+                    textColor: textColor,
+                    surfaceBg: surfaceBg,
+                    borderColor: borderColor,
+                    onTap: () => _executeContinueSession(sessionId, activityType, originalTargetSec, buffer),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Option 2: Reset countdown to start fresh
+                  _buildContinueModalCard(
+                    title: 'RESET RETURN COUNTDOWN',
+                    subtitle: 'Start a fresh ${originalTargetSec ~/ 60}m return countdown from now (preserves previous GPS trail)',
+                    icon: Icons.restart_alt_rounded,
+                    color: const Color(0xFF3B82F6),
+                    textColor: textColor,
+                    surfaceBg: surfaceBg,
+                    borderColor: borderColor,
+                    onTap: () => _executeContinueSession(sessionId, activityType, originalTargetSec, buffer),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // Option 3: Set whole new target duration
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: surfaceBg,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: borderColor),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.edit_calendar_rounded, size: 18, color: Color(0xFFF59E0B)),
+                            const SizedBox(width: 8),
+                            Text(
+                              'SET NEW RETURN TARGET: $targetMinutes MIN',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: textColor, letterSpacing: 0.6),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Slider(
+                          value: targetMinutes.toDouble(),
+                          min: 5,
+                          max: 180,
+                          divisions: 35,
+                          activeColor: const Color(0xFFF59E0B),
+                          label: '$targetMinutes min',
+                          onChanged: (v) => setModalState(() => targetMinutes = v.round()),
+                        ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            for (final m in [15, 30, 45, 60, 90])
+                              GestureDetector(
+                                onTap: () => setModalState(() => targetMinutes = m),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: targetMinutes == m ? const Color(0xFFF59E0B) : (isDark ? Colors.black.withValues(alpha: 0.3) : Colors.white),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: borderColor),
+                                  ),
+                                  child: Text(
+                                    '${m}m',
+                                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: targetMinutes == m ? Colors.white : textColor),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFF59E0B),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            onPressed: () => _executeContinueSession(sessionId, activityType, targetMinutes * 60, buffer),
+                            child: const Text('APPLY NEW DURATION & CONTINUE', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildContinueModalCard({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required Color color,
+    required Color textColor,
+    required Color surfaceBg,
+    required Color borderColor,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: surfaceBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: borderColor),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: textColor, letterSpacing: 0.6),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(fontSize: 10, color: textColor.withValues(alpha: 0.6), fontWeight: FontWeight.w600),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, size: 18, color: textColor.withValues(alpha: 0.4)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _executeContinueSession(int sessionId, String activityType, int targetSec, double buffer) async {
+    Navigator.pop(context); // close modal
+
+    await DbService.instance.reactivateSession(sessionId, newTargetDurationSeconds: targetSec);
+
+    await PlatformService.instance.startTracking(
+      sessionId: sessionId,
+      activityType: activityType.toLowerCase(),
+      targetDurationSeconds: targetSec,
+      safetyBufferPct: buffer,
+      gpsIntervalMs: 5000,
+    );
+
+    if (mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => HudScreen(
+            sessionId: sessionId,
+            targetDuration: Duration(seconds: targetSec),
+            safetyBufferPct: buffer,
+            activityType: activityType.toLowerCase(),
+          ),
+        ),
+      ).then((_) => _loadDashboardData());
+    }
   }
 
   Widget _buildStatBox(String label, String value, Color textColor) {
@@ -1220,6 +1485,7 @@ class SessionFeedCard extends StatefulWidget {
   final Brightness brightness;
   final VoidCallback onDelete;
   final VoidCallback onEdit;
+  final VoidCallback? onContinue;
 
   const SessionFeedCard({
     super.key,
@@ -1228,6 +1494,7 @@ class SessionFeedCard extends StatefulWidget {
     required this.brightness,
     required this.onDelete,
     required this.onEdit,
+    this.onContinue,
   });
 
   @override
@@ -1459,26 +1726,45 @@ class _SessionFeedCardState extends State<SessionFeedCard> {
               color: isDark ? const Color(0xFF1A1E24) : const Color(0xFFF8F9FA),
               border: Border(top: BorderSide(color: borderColor)),
             ),
-            child: Row(
-              children: [
-                TextButton.icon(
-                  style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10)),
-                  onPressed: widget.onEdit,
-                  icon: Icon(Icons.content_cut, size: 14, color: widget.textColor.withValues(alpha: 0.7)),
-                  label: Text('EDIT', style: TextStyle(color: widget.textColor, fontWeight: FontWeight.bold, fontSize: 11)),
-                ),
-                TextButton.icon(
-                  style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10)),
-                  onPressed: () => _exportGpx(id, type, context),
-                  icon: Icon(Icons.file_download_outlined, size: 14, color: widget.textColor.withValues(alpha: 0.7)),
-                  label: Text('GPX', style: TextStyle(color: widget.textColor, fontWeight: FontWeight.bold, fontSize: 11)),
-                ),
-                const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Color(0xFFDC2626), size: 18),
-                  onPressed: widget.onDelete,
-                ),
-              ],
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  if (widget.onContinue != null) ...[
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF10B981),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        elevation: 0,
+                      ),
+                      onPressed: widget.onContinue,
+                      icon: const Icon(Icons.play_arrow_rounded, size: 15),
+                      label: const Text('CONTINUE', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  TextButton.icon(
+                    style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
+                    onPressed: widget.onEdit,
+                    icon: Icon(Icons.content_cut, size: 14, color: widget.textColor.withValues(alpha: 0.7)),
+                    label: Text('EDIT', style: TextStyle(color: widget.textColor, fontWeight: FontWeight.bold, fontSize: 11)),
+                  ),
+                  const SizedBox(width: 4),
+                  TextButton.icon(
+                    style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
+                    onPressed: () => _exportGpx(id, type, context),
+                    icon: Icon(Icons.file_download_outlined, size: 14, color: widget.textColor.withValues(alpha: 0.7)),
+                    label: Text('GPX', style: TextStyle(color: widget.textColor, fontWeight: FontWeight.bold, fontSize: 11)),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Color(0xFFDC2626), size: 18),
+                    onPressed: widget.onDelete,
+                  ),
+                ],
+              ),
             ),
           ),
         ],

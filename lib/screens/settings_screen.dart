@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../services/settings_service.dart';
 import '../services/backup_service.dart';
 import '../services/db_service.dart';
+import '../services/platform_service.dart';
 
 /// Comprehensive application settings, themes, and map customization screen.
 class SettingsScreen extends StatefulWidget {
@@ -433,10 +434,99 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 40),
+                const SizedBox(height: 24),
+
+                // 4. DATABASE & STORAGE MANAGEMENT
+                _buildSectionHeader('DATABASE & DATA STORAGE', Icons.storage_rounded, textColor),
+                Container(
+                  padding: const EdgeInsets.all(16.0),
+                  decoration: BoxDecoration(
+                    color: cardBg,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: textColor.withValues(alpha: 0.12), width: 1.2),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('LOCAL STORAGE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.6))),
+                      const SizedBox(height: 10),
+                      Text(
+                        'All your workout tracks and telemetry points are stored offline locally in an SQLite database on your device.',
+                        style: TextStyle(fontSize: 12, color: textColor.withValues(alpha: 0.7)),
+                      ),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFFDC2626),
+                            side: const BorderSide(color: Color(0xFFDC2626), width: 1.5),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                          icon: const Icon(Icons.delete_forever_rounded, size: 20),
+                          label: const Text('RESET DATABASE / ERASE ALL DATA', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 0.6)),
+                          onPressed: () => _confirmResetDatabase(context, textColor, cardBg),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 32),
               ],
             ),
           ),
+        );
+      },
+    );
+  }
+
+  void _confirmResetDatabase(BuildContext context, Color textColor, Color cardBg) {
+    HapticFeedback.selectionClick();
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: cardBg,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626), size: 24),
+              SizedBox(width: 8),
+              Text('Reset Database?', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: Color(0xFFDC2626))),
+            ],
+          ),
+          content: Text(
+            'This will permanently delete all recorded workouts, GPS telemetry points, and history from your local SQLite database.\n\nThis action cannot be undone.',
+            style: TextStyle(fontSize: 13, color: textColor.withValues(alpha: 0.8)),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text('CANCEL', style: TextStyle(color: textColor.withValues(alpha: 0.6), fontWeight: FontWeight.bold)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFDC2626),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: () async {
+                Navigator.pop(ctx);
+                await PlatformService.instance.stopTracking();
+                await DbService.instance.clearAllData();
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('DATABASE RESET: All sessions and points cleared.'),
+                      backgroundColor: Color(0xFFDC2626),
+                    ),
+                  );
+                }
+              },
+              child: const Text('ERASE EVERYTHING', style: TextStyle(fontWeight: FontWeight.w900)),
+            ),
+          ],
         );
       },
     );

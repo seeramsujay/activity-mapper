@@ -93,6 +93,17 @@ class DbService {
     });
   }
 
+  /// Updates the target duration of an active tracking session.
+  Future<int> updateSessionTargetDuration(int id, int targetDurationSeconds) async {
+    final db = await database;
+    return await db.update(
+      'sessions',
+      {'target_duration': targetDurationSeconds},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
   /// Queries the database for any active or paused tracking session.
   ///
   /// Used during startup crash recovery. Returns the session map or null.
@@ -266,4 +277,32 @@ class DbService {
       await db.close();
     }
   }
+
+  /// Wipes all sessions and points from SQLite, resetting the database completely.
+  Future<void> clearAllData() async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('points');
+      await txn.delete('sessions');
+    });
+  }
+
+  /// Reactivates a completed session so the user can continue logging GPS points to it.
+  Future<void> reactivateSession(int sessionId, {int? newTargetDurationSeconds}) async {
+    final db = await database;
+    final Map<String, dynamic> values = {
+      'status': 'active',
+      'end_time': null,
+    };
+    if (newTargetDurationSeconds != null) {
+      values['target_duration'] = newTargetDurationSeconds;
+    }
+    await db.update(
+      'sessions',
+      values,
+      where: 'id = ?',
+      whereArgs: [sessionId],
+    );
+  }
 }
+
