@@ -93,19 +93,19 @@ class GpsLoggingService : Service(), LocationListener {
         }
 
         try {
+            val minDistanceMeters = intent.getDoubleExtra("minDistanceMeters", 5.0).toFloat()
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                 locationManager.requestLocationUpdates(
                     LocationManager.GPS_PROVIDER,
                     currentGpsIntervalMs,
-                    0.0f, // Record every movement
+                    minDistanceMeters,
                     this
                 )
-            }
-            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+            } else if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
                 locationManager.requestLocationUpdates(
                     LocationManager.NETWORK_PROVIDER,
                     currentGpsIntervalMs,
-                    0.0f,
+                    minDistanceMeters,
                     this
                 )
             }
@@ -124,19 +124,19 @@ class GpsLoggingService : Service(), LocationListener {
     private fun adjustGpsSamplingRate(intervalMs: Long) {
         try {
             locationManager.removeUpdates(this)
+            val minDistance = if (isPowerSaveModeActive) 15.0f else 5.0f
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                 locationManager.requestLocationUpdates(
                     LocationManager.GPS_PROVIDER,
                     intervalMs,
-                    0.0f,
+                    minDistance,
                     this
                 )
-            }
-            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+            } else if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
                 locationManager.requestLocationUpdates(
                     LocationManager.NETWORK_PROVIDER,
                     intervalMs,
-                    0.0f,
+                    minDistance,
                     this
                 )
             }

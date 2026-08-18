@@ -60,9 +60,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
     final textColor = theme.colorScheme.onSurface;
-    final cardBg = theme.colorScheme.surface;
+    final cardBg = theme.cardColor;
     final accentColor = _settings.accentColor.color;
 
     return AnimatedBuilder(
@@ -79,18 +78,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10.0),
               children: [
                 // 1. DISPLAY THEMES & NIGHT MODE
-                _buildSectionHeader('DISPLAY & NIGHT MODE', Icons.palette_outlined, textColor),
+                _buildSectionHeader('DISPLAY & THEMES', Icons.palette_outlined, textColor),
                 Container(
                   padding: const EdgeInsets.all(16.0),
                   decoration: BoxDecoration(
                     color: cardBg,
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: textColor.withValues(alpha: 0.1), width: 1.2),
+                    border: Border.all(color: textColor.withValues(alpha: 0.12), width: 1.2),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('THEME STYLE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.6))),
+                      Text('THEME PREFERENCE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.6))),
                       const SizedBox(height: 10),
                       _buildThemeOption(
                         title: 'Soft Night Mode (Recommended)',
@@ -102,9 +101,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const SizedBox(height: 8),
                       _buildThemeOption(
+                        title: 'High Contrast Daylight (Solar)',
+                        subtitle: 'Pure white background with bold high-visibility black text',
+                        mode: AppThemeMode.highContrastDaylight,
+                        icon: Icons.sunny,
+                        textColor: textColor,
+                        accentColor: accentColor,
+                      ),
+                      const SizedBox(height: 8),
+                      _buildThemeOption(
                         title: 'High Contrast OLED',
-                        subtitle: 'True deep black (#000000) with neon markers',
-                        mode: AppThemeMode.highContrast,
+                        subtitle: 'True deep black (#000000) with ultra-bright neon markers',
+                        mode: AppThemeMode.highContrastOled,
                         icon: Icons.contrast,
                         textColor: textColor,
                         accentColor: accentColor,
@@ -112,7 +120,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const SizedBox(height: 8),
                       _buildThemeOption(
                         title: 'Daylight Bright',
-                        subtitle: 'Clean white background for direct sunlight visibility',
+                        subtitle: 'Clean white layout for daytime visibility',
                         mode: AppThemeMode.light,
                         icon: Icons.wb_sunny_outlined,
                         textColor: textColor,
@@ -161,19 +169,191 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           );
                         }).toList(),
                       ),
+
+                      const SizedBox(height: 20),
+                      Text('MEASUREMENT UNITS & COORDINATES', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.6))),
+                      const SizedBox(height: 10),
+                      _buildToggleRow(
+                        title: 'Coordinate Format',
+                        subtitle: _settings.coordFormat == CoordFormat.decimal ? 'Decimal Degrees (e.g. 12.9716° N, 77.5946° E)' : 'DMS (e.g. 12°58\'17"N, 77°35\'40"E)',
+                        trailing: DropdownButton<CoordFormat>(
+                          value: _settings.coordFormat,
+                          dropdownColor: cardBg,
+                          underline: const SizedBox(),
+                          items: const [
+                            DropdownMenuItem(value: CoordFormat.decimal, child: Text('Decimal (°)')),
+                            DropdownMenuItem(value: CoordFormat.dms, child: Text('DMS (° \' ")')),
+                          ],
+                          onChanged: (val) {
+                            if (val != null) _settings.setCoordFormat(val);
+                          },
+                        ),
+                        textColor: textColor,
+                      ),
+                      const Divider(height: 16),
+                      _buildToggleRow(
+                        title: 'Default X-Axis for Charts',
+                        subtitle: _settings.chartXAxis == ChartXAxis.distance ? 'Distance (Kilometers)' : 'Duration (Seconds / Minutes)',
+                        trailing: DropdownButton<ChartXAxis>(
+                          value: _settings.chartXAxis,
+                          dropdownColor: cardBg,
+                          underline: const SizedBox(),
+                          items: const [
+                            DropdownMenuItem(value: ChartXAxis.distance, child: Text('Distance')),
+                            DropdownMenuItem(value: ChartXAxis.duration, child: Text('Duration')),
+                          ],
+                          onChanged: (val) {
+                            if (val != null) _settings.setChartXAxis(val);
+                          },
+                        ),
+                        textColor: textColor,
+                      ),
+                      const Divider(height: 16),
+                      _buildSwitchRow(
+                        title: 'Imperial Units (Miles / Feet)',
+                        subtitle: _settings.useImperialUnits ? 'Miles, Feet, mph' : 'Kilometers, Meters, km/h',
+                        value: _settings.useImperialUnits,
+                        onChanged: (v) => _settings.setUseImperialUnits(v),
+                        textColor: textColor,
+                        accentColor: accentColor,
+                      ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 24),
 
-                // 2. OFFLINE MAP & OSM ASSETS
-                _buildSectionHeader('MAP ASSETS & CACHE', Icons.map_outlined, textColor),
+                // 2. RECORDING PROFILES & GPS (Geo Tracker Inspired)
+                _buildSectionHeader('RECORD PROFILE & GPS', Icons.gps_fixed, textColor),
                 Container(
                   padding: const EdgeInsets.all(16.0),
                   decoration: BoxDecoration(
                     color: cardBg,
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: textColor.withValues(alpha: 0.1), width: 1.2),
+                    border: Border.all(color: textColor.withValues(alpha: 0.12), width: 1.2),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('RECORD PROFILE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.6))),
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: textColor.withValues(alpha: 0.15)),
+                        ),
+                        child: DropdownButton<RecordProfile>(
+                          value: _settings.recordProfile,
+                          isExpanded: true,
+                          dropdownColor: cardBg,
+                          underline: const SizedBox(),
+                          items: RecordProfile.values.map((p) {
+                            return DropdownMenuItem(
+                              value: p,
+                              child: Text(
+                                '${p.label} (${p.intervalMs ~/ 1000}s, ${p.minDistanceMeters.toInt()}m min dist)',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: textColor),
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (p) {
+                            if (p != null) _settings.setRecordProfile(p);
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      Text('GPS PARAMETERS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.6))),
+                      const SizedBox(height: 10),
+                      _buildToggleRow(
+                        title: 'Record Frequency',
+                        subtitle: 'GPS update interval',
+                        trailing: DropdownButton<int>(
+                          value: _settings.gpsSamplingRateMs,
+                          dropdownColor: cardBg,
+                          underline: const SizedBox(),
+                          items: const [
+                            DropdownMenuItem(value: 1000, child: Text('1 sec')),
+                            DropdownMenuItem(value: 2000, child: Text('2 sec')),
+                            DropdownMenuItem(value: 5000, child: Text('5 sec')),
+                            DropdownMenuItem(value: 15000, child: Text('15 sec')),
+                          ],
+                          onChanged: (val) {
+                            if (val != null) _settings.setGpsSamplingRate(val);
+                          },
+                        ),
+                        textColor: textColor,
+                      ),
+                      const Divider(height: 16),
+                      _buildToggleRow(
+                        title: 'Min Distance between points',
+                        subtitle: 'Filters stationary jitter',
+                        trailing: DropdownButton<double>(
+                          value: _settings.minDistanceFilter,
+                          dropdownColor: cardBg,
+                          underline: const SizedBox(),
+                          items: const [
+                            DropdownMenuItem(value: 5.0, child: Text('5 m')),
+                            DropdownMenuItem(value: 10.0, child: Text('10 m')),
+                            DropdownMenuItem(value: 20.0, child: Text('20 m')),
+                            DropdownMenuItem(value: 50.0, child: Text('50 m')),
+                          ],
+                          onChanged: (val) {
+                            if (val != null) _settings.setMinDistanceFilter(val);
+                          },
+                        ),
+                        textColor: textColor,
+                      ),
+                      const Divider(height: 16),
+                      _buildToggleRow(
+                        title: 'Max GPS Accuracy Tolerance',
+                        subtitle: 'Discard points worse than accuracy threshold',
+                        trailing: DropdownButton<double>(
+                          value: _settings.maxAccuracyFilter,
+                          dropdownColor: cardBg,
+                          underline: const SizedBox(),
+                          items: const [
+                            DropdownMenuItem(value: 25.0, child: Text('25 m')),
+                            DropdownMenuItem(value: 50.0, child: Text('50 m')),
+                            DropdownMenuItem(value: 100.0, child: Text('100 m')),
+                          ],
+                          onChanged: (val) {
+                            if (val != null) _settings.setMaxAccuracyFilter(val);
+                          },
+                        ),
+                        textColor: textColor,
+                      ),
+                      const Divider(height: 16),
+                      _buildSwitchRow(
+                        title: 'Extra Kalman & RDP Filtering',
+                        subtitle: 'Smoothes speed spikes and noisy GPS drift',
+                        value: _settings.extraFiltering,
+                        onChanged: (v) => _settings.setExtraFiltering(v),
+                        textColor: textColor,
+                        accentColor: accentColor,
+                      ),
+                      const Divider(height: 16),
+                      _buildSwitchRow(
+                        title: 'Stop Recording with Confirmation',
+                        subtitle: 'Ask for confirmation before finishing track',
+                        value: _settings.confirmStopRecording,
+                        onChanged: (v) => _settings.setConfirmStopRecording(v),
+                        textColor: textColor,
+                        accentColor: accentColor,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // 3. OFFLINE MAP & OSM ASSETS
+                _buildSectionHeader('MAP TILES & OSM ASSETS', Icons.map_outlined, textColor),
+                Container(
+                  padding: const EdgeInsets.all(16.0),
+                  decoration: BoxDecoration(
+                    color: cardBg,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: textColor.withValues(alpha: 0.12), width: 1.2),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -208,48 +388,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const SizedBox(height: 24),
 
-                // 3. GPS ACCURACY & POWER PROFILES
-                _buildSectionHeader('GPS & PERFORMANCE', Icons.gps_fixed, textColor),
-                Container(
-                  padding: const EdgeInsets.all(16.0),
-                  decoration: BoxDecoration(
-                    color: cardBg,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: textColor.withValues(alpha: 0.1), width: 1.2),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('SAMPLING RATE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.6))),
-                      const SizedBox(height: 10),
-                      _buildGpsOption(
-                        title: '1s - High Precision Track',
-                        subtitle: 'Best for running and cycling turn-back precision',
-                        ms: 1000,
-                        textColor: textColor,
-                        accentColor: accentColor,
-                      ),
-                      const SizedBox(height: 8),
-                      _buildGpsOption(
-                        title: '5s - Balanced Outdoor Mode',
-                        subtitle: 'Recommended for longer trail activities',
-                        ms: 5000,
-                        textColor: textColor,
-                        accentColor: accentColor,
-                      ),
-                      const SizedBox(height: 8),
-                      _buildGpsOption(
-                        title: '15s - Ultra Battery Saver',
-                        subtitle: 'Extends battery life for full-day hikes',
-                        ms: 15000,
-                        textColor: textColor,
-                        accentColor: accentColor,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 24),
-
                 // 4. BACKUP & DATABASE MANAGEMENT
                 _buildSectionHeader('DATABASE & ARCHIVE', Icons.inventory_2_outlined, textColor),
                 Container(
@@ -257,7 +395,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   decoration: BoxDecoration(
                     color: cardBg,
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: textColor.withValues(alpha: 0.1), width: 1.2),
+                    border: Border.all(color: textColor.withValues(alpha: 0.12), width: 1.2),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -291,35 +429,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           _isBackingUp ? 'GENERATING ARCHIVE...' : 'EXPORT LIFETIME BACKUP (.ZIP)',
                           style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 0.8),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 24),
-
-                // 5. ARCHITECTURE & SIZE FOOTPRINT EXPLAINED
-                _buildSectionHeader('BUILD FOOTPRINT & PERFORMANCE', Icons.memory, textColor),
-                Container(
-                  padding: const EdgeInsets.all(16.0),
-                  decoration: BoxDecoration(
-                    color: isDark ? const Color(0xFF13181F) : const Color(0xFFEFF6FF),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: const Color(0xFF3B82F6).withValues(alpha: 0.3)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Row(
-                        children: [
-                          Icon(Icons.info_outline, color: Color(0xFF3B82F6), size: 18),
-                          SizedBox(width: 8),
-                          Text('Why Debug APK was 157 MB vs Release', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: Color(0xFF3B82F6))),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'During development (`flutter run`), the app bundles all 4 CPU architectures (arm64-v8a, armeabi-v7a, x86_64, x86), unstripped debug symbols, Impeller shader profilers, and the Dart JIT VM. \n\nA production release APK built with `--release --split-per-abi` drops down to ~14–18 MB with zero unneeded overhead.',
-                        style: TextStyle(fontSize: 11, color: textColor.withValues(alpha: 0.8), height: 1.4),
                       ),
                     ],
                   ),
@@ -427,45 +536,60 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildGpsOption({
+  Widget _buildToggleRow({
     required String title,
     required String subtitle,
-    required int ms,
+    required Widget trailing,
+    required Color textColor,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: textColor)),
+              const SizedBox(height: 2),
+              Text(subtitle, style: TextStyle(fontSize: 11, color: textColor.withValues(alpha: 0.6))),
+            ],
+          ),
+        ),
+        trailing,
+      ],
+    );
+  }
+
+  Widget _buildSwitchRow({
+    required String title,
+    required String subtitle,
+    required bool value,
+    required ValueChanged<bool> onChanged,
     required Color textColor,
     required Color accentColor,
   }) {
-    final isSelected = _settings.gpsSamplingRateMs == ms;
-    return InkWell(
-      onTap: () {
-        HapticFeedback.selectionClick();
-        _settings.setGpsSamplingRate(ms);
-      },
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: isSelected ? accentColor.withValues(alpha: 0.12) : Colors.transparent,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: isSelected ? accentColor : textColor.withValues(alpha: 0.08)),
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: textColor)),
+              const SizedBox(height: 2),
+              Text(subtitle, style: TextStyle(fontSize: 11, color: textColor.withValues(alpha: 0.6))),
+            ],
+          ),
         ),
-        child: Row(
-          children: [
-            Icon(Icons.radar, color: isSelected ? accentColor : textColor.withValues(alpha: 0.5), size: 20),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: textColor)),
-                  const SizedBox(height: 2),
-                  Text(subtitle, style: TextStyle(fontSize: 11, color: textColor.withValues(alpha: 0.6))),
-                ],
-              ),
-            ),
-            if (isSelected) Icon(Icons.check_circle_rounded, color: accentColor, size: 20),
-          ],
+        Switch(
+          value: value,
+          activeTrackColor: accentColor,
+          onChanged: (v) {
+            HapticFeedback.selectionClick();
+            onChanged(v);
+          },
         ),
-      ),
+      ],
     );
   }
 }

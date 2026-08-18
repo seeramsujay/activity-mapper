@@ -178,3 +178,93 @@ class BreadcrumbPainter extends CustomPainter {
     return oldDelegate.points.length != points.length || oldDelegate.brightness != brightness;
   }
 }
+
+/// A custom painter that draws a GPS breadcrumb polyline aligned with an OSM raster tile grid.
+class TileBreadcrumbPainter extends CustomPainter {
+  final List<Point<double>> points;
+  final int zoom;
+  final int startX;
+  final int startY;
+  final int xCount;
+  final int yCount;
+  final Brightness brightness;
+
+  TileBreadcrumbPainter({
+    required this.points,
+    required this.zoom,
+    required this.startX,
+    required this.startY,
+    required this.xCount,
+    required this.yCount,
+    required this.brightness,
+  });
+
+  double _lon2tileX(double lon, int zoom) {
+    return (lon + 180.0) / 360.0 * (1 << zoom);
+  }
+
+  double _lat2tileY(double lat, int zoom) {
+    final latRad = lat * pi / 180.0;
+    return (1.0 - log(tan(latRad) + 1.0 / cos(latRad)) / pi) / 2.0 * (1 << zoom);
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (points.isEmpty || xCount <= 0 || yCount <= 0) return;
+
+    final double tileWidthPx = size.width / xCount;
+    final double tileHeightPx = size.height / yCount;
+
+    Offset toPixelOffset(Point<double> p) {
+      final double tileX = _lon2tileX(p.y, zoom);
+      final double tileY = _lat2tileY(p.x, zoom);
+      final double px = (tileX - startX) * tileWidthPx;
+      final double py = (tileY - startY) * tileHeightPx;
+      return Offset(px, py);
+    }
+
+    final Paint glowPaint = Paint()
+      ..color = const Color(0xFFFF5722).withValues(alpha: 0.35)
+      ..strokeWidth = 6.0
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    final Paint linePaint = Paint()
+      ..color = const Color(0xFFFF4500)
+      ..strokeWidth = 3.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    final Path path = Path();
+    final firstOff = toPixelOffset(points.first);
+    path.moveTo(firstOff.dx, firstOff.dy);
+
+    for (int i = 1; i < points.length; i++) {
+      final off = toPixelOffset(points[i]);
+      path.lineTo(off.dx, off.dy);
+    }
+
+    canvas.drawPath(path, glowPaint);
+    canvas.drawPath(path, linePaint);
+
+    // Start circle
+    canvas.drawCircle(firstOff, 6.0, Paint()..color = const Color(0xFF10B981));
+    canvas.drawCircle(firstOff, 3.0, Paint()..color = Colors.white);
+
+    // Current position circle
+    final lastOff = toPixelOffset(points.last);
+    canvas.drawCircle(lastOff, 12.0, Paint()..color = const Color(0xFFFF5722).withValues(alpha: 0.25));
+    canvas.drawCircle(lastOff, 7.0, Paint()..color = Colors.white);
+    canvas.drawCircle(lastOff, 4.0, Paint()..color = const Color(0xFFFF5722));
+  }
+
+  @override
+  bool shouldRepaint(covariant TileBreadcrumbPainter oldDelegate) {
+    return oldDelegate.points.length != points.length ||
+        oldDelegate.zoom != zoom ||
+        oldDelegate.startX != startX ||
+        oldDelegate.startY != startY;
+  }
+}

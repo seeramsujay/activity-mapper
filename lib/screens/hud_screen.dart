@@ -5,36 +5,18 @@ import 'package:flutter/services.dart';
 import '../services/db_service.dart';
 import '../services/platform_service.dart';
 import '../services/rally_service.dart';
+import '../services/settings_service.dart';
 import '../widgets/osm_map_view.dart';
+import '../widgets/telemetry_chart.dart';
 
 /// Ultra-high performance HUD Activity Screen.
-///
-/// Layout:
-/// - Deterministic 2x3 Bike Computer Grid (OpenTracks / Track-Your-Walk inspired)
-///   * Top Left: Big Pace/Speed (Auto-switching unit min/km vs km/h)
-///   * Top Right: Remaining Countdown / 54% Target
-///   * Mid Left: Total Distance
-///   * Mid Right: Current Elevation / Total Gain
-///   * Bottom Row: Compact Vector Breadcrumb Polyline (sub-millisecond CustomPainter)
-/// - Encapsulated in RepaintBoundary for maximum frame-rate and lowest CPU/RAM consumption
-/// - Tactile haptic feedback on state changes
 class HudScreen extends StatefulWidget {
-  /// The SQLite session ID of the current active run.
   final int sessionId;
-
-  /// The total time allocated for the entire workout.
   final Duration targetDuration;
-
-  /// The safety buffer percentage used for turn-back alert checks.
   final double safetyBufferPct;
-
-  /// The activity type category (e.g. run, ride, kayak).
   final String activityType;
-
-  /// Optional session ID of a past completed run to use as a guidance route.
   final int? referenceSessionId;
 
-  /// Creates a new [HudScreen] instance.
   const HudScreen({
     super.key,
     required this.sessionId,
@@ -51,6 +33,7 @@ class HudScreen extends StatefulWidget {
 class _HudScreenState extends State<HudScreen> {
   // Telemetry list
   final List<Point<double>> _points = [];
+  final List<TelemetrySample> _chartSamples = [];
 
   // Real-time metrics
   double _currentSpeed = 0.0; // m/s
@@ -88,7 +71,6 @@ class _HudScreenState extends State<HudScreen> {
   // Tracking control state
   bool _isPaused = false;
   bool _turnBackTriggered = false;
-  bool _confirmSaveState = false;
   int? _lastTimestamp;
 
   // Rally navigation state variables
@@ -137,8 +119,19 @@ class _HudScreenState extends State<HudScreen> {
         _startTime = DateTime.fromMillisecondsSinceEpoch(storedStartTime);
         _turnBackTriggered = storedTurnBackTriggered;
         _points.clear();
+        _chartSamples.clear();
         for (final p in storedPoints) {
-          _points.add(Point(p['lat'] as double, p['lng'] as double));
+          final lat = ((p['lat'] ?? 0.0) as num).toDouble();
+          final lng = ((p['lng'] ?? 0.0) as num).toDouble();
+          final spd = ((p['speed'] ?? 0.0) as num).toDouble();
+          final alt = ((p['altitude'] ?? 0.0) as num).toDouble();
+          _points.add(Point(lat, lng));
+          _chartSamples.add(TelemetrySample(
+            distanceKm: _distanceKm,
+            elapsedSeconds: _elapsed.inSeconds.toDouble(),
+            speedKmh: spd * 3.6,
+            altitudeMeters: alt,
+          ));
         }
         _calculateSummaryMetrics(storedPoints);
       });
@@ -254,6 +247,13 @@ class _HudScreenState extends State<HudScreen> {
         _altitude = alt;
         _accuracy = acc;
         _prevAltitude = alt;
+
+        _chartSamples.add(TelemetrySample(
+          distanceKm: _distanceKm,
+          elapsedSeconds: _elapsed.inSeconds.toDouble(),
+          speedKmh: speed * 3.6,
+          altitudeMeters: alt,
+        ));
 
         if (speed > _maxSpeed) _maxSpeed = speed;
         if (alt < _minAltitude) _minAltitude = alt;
@@ -373,7 +373,7 @@ class _HudScreenState extends State<HudScreen> {
     final Color cardBg = isDark ? const Color(0xFF14171C) : Colors.white;
     final Color surfaceBg = isDark ? const Color(0xFF1E232B) : const Color(0xFFF3F4F6);
     final Color borderColor = isDark ? const Color(0xFF2D333F) : const Color(0xFFE5E7EB);
-    final Color accentColor = const Color(0xFFFF5722);
+    final Color accentColor = SettingsService.instance.accentColor.color;
 
     final double outboundRatio = (100.0 - widget.safetyBufferPct) / 200.0;
     final int outboundLimitSeconds = (widget.targetDuration.inSeconds * outboundRatio).toInt();
@@ -563,7 +563,6 @@ class _HudScreenState extends State<HudScreen> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  // Progress Bar with rounded caps
                   ClipRRect(
                     borderRadius: BorderRadius.circular(4),
                     child: LinearProgressIndicator(
@@ -635,8 +634,9 @@ class _HudScreenState extends State<HudScreen> {
                 child: Row(
                   children: [
                     _buildTabPill(0, 'METRICS', textColor, surfaceBg, cardBg),
-                    _buildTabPill(1, 'MAP & TRAIL', textColor, surfaceBg, cardBg),
-                    _buildTabPill(2, 'STATS', textColor, surfaceBg, cardBg),
+                    _buildTabPill(1, 'MAP', textColor, surfaceBg, cardBg),
+                    _buildTabPill(2, 'CHART', textColor, surfaceBg, cardBg),
+                    _buildTabPill(3, 'STATS', textColor, surfaceBg, cardBg),
                   ],
                 ),
               ),
@@ -661,8 +661,45 @@ class _HudScreenState extends State<HudScreen> {
                   // TAB 1: Full Interactive Map
                   _buildFullMapTabPage(brightness: brightness, borderColor: borderColor),
 
-                  // TAB 2: Detailed Statistics
+                  // TAB 2: Live Speed & Elevation Chart
+                  _buildChartTabPage(textColor: textColor, cardBg: cardBg, borderColor: borderColor, accentColor: accentColor),
+
+                  // TAB 3: Detailed Statistics
                   _buildDetailedStatisticsPage(textColor, cardBg, borderColor),
+                ],
+              ),
+            ),
+
+            // Live GPS Coordinates Ticker Bar
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 5.0),
+              color: isDark ? Colors.black.withValues(alpha: 0.3) : const Color(0xFFF1F5F9),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      _points.isEmpty
+                          ? 'GPS: SEARCHING SATELLITES...'
+                          : 'GPS: ${SettingsService.instance.formatCoordinates(_points.last.x, _points.last.y)}',
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w700,
+                        fontFamily: 'monospace',
+                        color: textColor.withValues(alpha: 0.75),
+                      ),
+                    ),
+                  ),
+                  Text(
+                    'ALT: ${_altitude.toStringAsFixed(0)}m • ACC: ±${_accuracy.toStringAsFixed(0)}m • ${_points.length}pts',
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w700,
+                      fontFamily: 'monospace',
+                      color: textColor.withValues(alpha: 0.65),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -703,10 +740,10 @@ class _HudScreenState extends State<HudScreen> {
             title,
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 11,
+              fontSize: 10.5,
               fontWeight: FontWeight.w900,
               color: active ? textColor : textColor.withValues(alpha: 0.5),
-              letterSpacing: 0.5,
+              letterSpacing: 0.4,
             ),
           ),
         ),
@@ -879,6 +916,71 @@ class _HudScreenState extends State<HudScreen> {
     );
   }
 
+  // --------------------------------------------------------------------------
+  // TAB 2: LIVE SPEED & ELEVATION CHART
+  // --------------------------------------------------------------------------
+  Widget _buildChartTabPage({
+    required Color textColor,
+    required Color cardBg,
+    required Color borderColor,
+    required Color accentColor,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+      child: Container(
+        padding: const EdgeInsets.all(16.0),
+        decoration: BoxDecoration(
+          color: cardBg,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: borderColor, width: 1.5),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'REAL-TIME SPEED & ELEVATION PROFILE',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: textColor.withValues(alpha: 0.6), letterSpacing: 0.8),
+                ),
+                GestureDetector(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    final cur = SettingsService.instance.chartXAxis;
+                    SettingsService.instance.setChartXAxis(cur == ChartXAxis.distance ? ChartXAxis.duration : ChartXAxis.distance);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: accentColor.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      SettingsService.instance.chartXAxis == ChartXAxis.distance ? 'X: DISTANCE (KM)' : 'X: DURATION (TIME)',
+                      style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: accentColor),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: TelemetryChart(
+                samples: _chartSamples,
+                plotByDuration: SettingsService.instance.chartXAxis == ChartXAxis.duration,
+                speedColor: accentColor,
+                elevationColor: const Color(0xFF10B981),
+                textColor: textColor,
+                gridColor: borderColor.withValues(alpha: 0.6),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildMetricTile({
     required String label,
     required String value,
@@ -936,7 +1038,7 @@ class _HudScreenState extends State<HudScreen> {
   }
 
   // --------------------------------------------------------------------------
-  // TAB 2: DETAILED STATISTICS
+  // TAB 3: DETAILED STATISTICS
   // --------------------------------------------------------------------------
   Widget _buildDetailedStatisticsPage(Color textColor, Color cardBg, Color borderColor) {
     return SingleChildScrollView(
