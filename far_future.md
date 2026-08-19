@@ -7,14 +7,18 @@
    - **Zero Code Bloat**: Dart compiler tree-shaking drops all collaboration, Strava, and network code completely from the `offline` APK binary.
 
 2. **`colab` Flavor (Serverless P2P Group Tracking & Optional Cloud Sync)**:
-   - **Zero-Cloud End-to-End Encrypted (E2EE) P2P Protocol**:
-     * **Instant QR-Key Pairing**: Host creates a group session, generating a 256-bit symmetric session key (AES-256-GCM / ChaCha20-Poly1305) encoded into an offline QR code (`activitymapper://p2p?ch=<UUID>&key=<BASE64_KEY>`).
-     * **Zero-Knowledge Over-the-Air Mesh**: All location packets broadcast over local Wi-Fi Hotspot, multicast UDP (`239.255.255.250:8888`), or BLE are encrypted with AES-256-GCM using unique per-packet nonces.
-     * Only teammates who physically scanned the QR code possess the key to decrypt and plot teammate positions on their live map.
+   - **Zero-Cloud End-to-End Encrypted (E2EE) Mesh Protocol**:
+     * **Host Starts & Shows QR**: Session leader starts an activity (or selects a reference GPX route), generates a 256-bit symmetric session key (`AES-256-GCM`), and displays an in-app QR code:
+       `activitymapper://mesh?id=<SESSION_UUID>&key=<BASE64_KEY>&name=<SESSION_NAME>`
+     * **Joiner Scans & Sets Username**: Teammate scans the QR code with their camera, enters their custom display **Username** (e.g. "Alex"), and picks their distinctive map marker color.
+     * **Flexible GPX Linking**:
+       - *Option A*: Link their own existing local GPX route file to follow alongside the team.
+       - *Option B*: Start a brand new blank tracking session recorded in parallel.
+     * **Mesh QR-Chaining (Relay Joining)**: Because any joined teammate now holds the session key, they can display the QR code on their screen to onboard the next person — allowing viral, decentralized group onboarding without needing the host nearby!
    - **Serverless Live Team Tracking**:
-     * Zero central server required — operates directly in remote mountains/forests without cellular internet.
-     * Shows live teammates on the map with distinctive avatars, real-time pace, distance-to-peer, and breadcrumbs.
-     * Multi-track group GPX export: export individual GPX tracks for each teammate or a merged group activity file.
+     * Zero central server required — broadcasts encrypted UDP packets over local Wi-Fi Hotspot / multicast subnet (`239.255.255.250:8888`) or BLE mesh.
+     * Real-time map rendering: shows all active teammates as color-coded pulsing avatars with username tags, live speed, distance-to-peer (e.g., "Alex • 320m ahead"), and live breadcrumbs.
+     * Multi-track group GPX export: export your individual track, any teammate's track, or a combined Multi-Track GPX bundle.
    - **Strava Direct Upload Integration**:
      * Optional 1-tap OAuth2 upload of `.tcx` or `.gpx` tracks directly to Strava Activity API.
    - **Relive 3D Aerial Route Video Bridge**:
