@@ -7,17 +7,21 @@
    - **Zero Code Bloat**: Dart compiler tree-shaking drops all collaboration, Strava, and network code completely from the `offline` APK binary.
 
 2. **`colab` Flavor (Serverless P2P Group Tracking & Optional Cloud Sync)**:
-   - **Zero-Cloud End-to-End Encrypted (E2EE) Mesh Protocol**:
-     * **Host Starts & Shows QR**: Session leader starts an activity (or selects a reference GPX route), generates a 256-bit symmetric session key (`AES-256-GCM`), and displays an in-app QR code:
-       `activitymapper://mesh?id=<SESSION_UUID>&key=<BASE64_KEY>&name=<SESSION_NAME>`
+   - **Wide-Area Direct Encrypted Tunneling (Zero Cloud Storage)**:
+     * **The Range Problem Solved**: Local Wi-Fi disconnects after 30–50 meters. Real-world outdoor rides and runs spread athletes out across hundreds of meters or kilometers.
+     * **Direct E2EE P2P Tunnel**: Uses direct UDP hole punching (via standard public STUN NAT traversal e.g. `stun.l.google.com`) or WebRTC DataChannels to establish a direct point-to-point encrypted UDP tunnel over cellular data between riders' phones.
+     * **Zero Cloud Storage**: No cloud backend ever receives or logs GPS coordinates. The STUN rendezvous only assists NAT traversal; all location data flows strictly peer-to-peer over the direct encrypted tunnel with negligible cellular data usage (~500 bytes/min).
+     * **Tailscale / WireGuard Overlay Compatible**: Automatically binds to Tailscale/ZeroTier virtual interfaces (`100.x.y.z`) if active, enabling private VPN mesh tracking.
+   - **QR-Key Handshake & Mesh Chaining**:
+     * **Host Starts & Shows QR**: Session leader starts an activity (or selects a reference GPX route), generates a 256-bit symmetric session key (`AES-256-GCM`) + Rendezvous Channel ID, and displays an in-app QR code:
+       `activitymapper://mesh?id=<TUNNEL_UUID>&key=<BASE64_KEY>&name=<SESSION_NAME>`
      * **Joiner Scans & Sets Username**: Teammate scans the QR code with their camera, enters their custom display **Username** (e.g. "Alex"), and picks their distinctive map marker color.
      * **Flexible GPX Linking**:
        - *Option A*: Link their own existing local GPX route file to follow alongside the team.
        - *Option B*: Start a brand new blank tracking session recorded in parallel.
-     * **Mesh QR-Chaining (Relay Joining)**: Because any joined teammate now holds the session key, they can display the QR code on their screen to onboard the next person — allowing viral, decentralized group onboarding without needing the host nearby!
-   - **Serverless Live Team Tracking**:
-     * Zero central server required — broadcasts encrypted UDP packets over local Wi-Fi Hotspot / multicast subnet (`239.255.255.250:8888`) or BLE mesh.
-     * Real-time map rendering: shows all active teammates as color-coded pulsing avatars with username tags, live speed, distance-to-peer (e.g., "Alex • 320m ahead"), and live breadcrumbs.
+     * **Mesh QR-Chaining (Relay Joining)**: Any joined teammate holding the session key can display the QR code on their screen to onboard additional riders into the same tunnel mesh.
+   - **Serverless Live Team Tracking Across Kilometers**:
+     * Real-time map rendering: shows all active teammates as color-coded pulsing avatars with username tags, live speed, distance-to-peer (e.g., "Alex • 1.2 km ahead • 28 km/h"), and live breadcrumb trails.
      * Multi-track group GPX export: export your individual track, any teammate's track, or a combined Multi-Track GPX bundle.
    - **Strava Direct Upload Integration**:
      * Optional 1-tap OAuth2 upload of `.tcx` or `.gpx` tracks directly to Strava Activity API.
