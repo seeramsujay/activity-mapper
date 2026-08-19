@@ -852,19 +852,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark ? Colors.white : const Color(0xFF111827);
     final cardBg = isDark ? const Color(0xFF14171C) : Colors.white;
+    final borderColor = isDark ? const Color(0xFF242933) : const Color(0xFFE5E7EB);
     final accentColor = SettingsService.instance.accentColor.color;
 
     double selectedRadiusKm = 5.0;
+    final nameController = TextEditingController(text: 'My Workout Area');
 
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: cardBg,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setModalState) {
+            final metrics = TileCacheService.estimateAreaMetrics(selectedRadiusKm, const [13, 14, 15, 16]);
+            final estimatedTiles = metrics['tileCount'] as int;
+            final estimatedMb = (metrics['estimatedMb'] as double).toStringAsFixed(1);
+
             return Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 20.0),
+              padding: EdgeInsets.only(
+                left: 20.0,
+                right: 20.0,
+                top: 20.0,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 24.0,
+              ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -880,30 +892,107 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  Text(
-                    'DOWNLOAD OFFLINE MAP AREA',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: textColor, letterSpacing: 0.8),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: accentColor.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(Icons.offline_pin_rounded, color: accentColor, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'DOWNLOAD OFFLINE MAP',
+                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: textColor, letterSpacing: 0.8),
+                            ),
+                            Text(
+                              'Google Maps-style full offline navigation',
+                              style: TextStyle(fontSize: 11, color: textColor.withValues(alpha: 0.6)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Downloads full zoom street & topographic tiles for true offline navigation without cellular network.',
-                    style: TextStyle(fontSize: 12, color: textColor.withValues(alpha: 0.65), height: 1.4),
+                  const SizedBox(height: 16),
+
+                  // Area Name Field
+                  TextField(
+                    controller: nameController,
+                    style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.bold),
+                    decoration: InputDecoration(
+                      labelText: 'AREA NAME',
+                      labelStyle: TextStyle(color: textColor.withValues(alpha: 0.6), fontSize: 11, fontWeight: FontWeight.bold),
+                      prefixIcon: Icon(Icons.label_outline, color: accentColor, size: 18),
+                      filled: true,
+                      fillColor: isDark ? const Color(0xFF1E232B) : const Color(0xFFF9FAFB),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: borderColor)),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: borderColor)),
+                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: accentColor, width: 1.5)),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Radius Slider & Metrics Preview Card
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF1E232B) : const Color(0xFFF9FAFB),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: borderColor),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'DOWNLOAD RADIUS: ${selectedRadiusKm.toInt()} KM',
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: accentColor),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: accentColor.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                '~$estimatedTiles TILES • ~$estimatedMb MB',
+                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: accentColor),
+                              ),
+                            ),
+                          ],
+                        ),
+                        Slider(
+                          value: selectedRadiusKm,
+                          min: 2.0,
+                          max: 20.0,
+                          divisions: 18,
+                          activeColor: accentColor,
+                          label: '${selectedRadiusKm.toInt()} km (~$estimatedMb MB)',
+                          onChanged: (val) => setModalState(() => selectedRadiusKm = val),
+                        ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('2 km (Quick Trail)', style: TextStyle(fontSize: 9.5, color: textColor.withValues(alpha: 0.5))),
+                            Text('10 km (City/Park)', style: TextStyle(fontSize: 9.5, color: textColor.withValues(alpha: 0.5))),
+                            Text('20 km (Region)', style: TextStyle(fontSize: 9.5, color: textColor.withValues(alpha: 0.5))),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 18),
-                  Text(
-                    'COVERAGE RADIUS: ${selectedRadiusKm.toInt()} KM',
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: accentColor),
-                  ),
-                  Slider(
-                    value: selectedRadiusKm,
-                    min: 2.0,
-                    max: 15.0,
-                    divisions: 13,
-                    activeColor: accentColor,
-                    label: '${selectedRadiusKm.toInt()} km',
-                    onChanged: (val) => setModalState(() => selectedRadiusKm = val),
-                  ),
-                  const SizedBox(height: 14),
+
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: accentColor,
@@ -917,10 +1006,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       setState(() {
                         _isDownloadingTiles = true;
                         _downloadProgress = 0.0;
-                        _downloadStatus = 'Starting tile downloader...';
+                        _downloadStatus = 'Preparing offline map download...';
                       });
 
-                      // Default to latest known track or city center coordinates
+                      // Default to latest known track coordinates or city center
                       double centerLat = 37.7749;
                       double centerLng = -122.4194;
 
@@ -937,7 +1026,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         centerLat: centerLat,
                         centerLng: centerLng,
                         radiusKm: selectedRadiusKm,
-                        zoomLevels: [13, 14, 15, 16],
+                        zoomLevels: const [13, 14, 15, 16],
                         tileUrlTemplate: SettingsService.instance.mapTileSource,
                       );
 
@@ -956,7 +1045,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       await _loadTileCacheStats();
                     },
                     icon: const Icon(Icons.cloud_download_rounded, size: 20),
-                    label: const Text('START OFFLINE PRE-CACHE', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.8)),
+                    label: const Text('DOWNLOAD OFFLINE MAP', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.8)),
                   ),
                 ],
               ),

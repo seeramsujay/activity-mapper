@@ -217,6 +217,67 @@ class TileCacheService {
       isDone: true,
     );
   }
+
+  /// Calculates estimated tile count and approximate download size in MB for given radius and zoom levels.
+  static Map<String, dynamic> estimateAreaMetrics(double radiusKm, List<int> zoomLevels) {
+    int totalTiles = 0;
+    for (final z in zoomLevels) {
+      final double latDelta = radiusKm / 110.574;
+      final double lngDelta = radiusKm / 111.320;
+      final int countX = max(1, (lngDelta * 2 / 360.0 * (1 << z)).ceil());
+      final int countY = max(1, (latDelta * 2 / 180.0 * (1 << z)).ceil());
+      totalTiles += (countX * countY);
+    }
+    final double estimatedMb = (totalTiles * 25.0) / 1024.0; // approx 25KB per PNG tile
+    return {
+      'tileCount': totalTiles,
+      'estimatedMb': estimatedMb.clamp(0.1, 999.0),
+    };
+  }
+}
+
+class OfflineMapArea {
+  final String id;
+  final String name;
+  final double centerLat;
+  final double centerLng;
+  final double radiusKm;
+  final int tileCount;
+  final double sizeMb;
+  final DateTime downloadedAt;
+
+  const OfflineMapArea({
+    required this.id,
+    required this.name,
+    required this.centerLat,
+    required this.centerLng,
+    required this.radiusKm,
+    required this.tileCount,
+    required this.sizeMb,
+    required this.downloadedAt,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'centerLat': centerLat,
+    'centerLng': centerLng,
+    'radiusKm': radiusKm,
+    'tileCount': tileCount,
+    'sizeMb': sizeMb,
+    'downloadedAt': downloadedAt.toIso8601String(),
+  };
+
+  factory OfflineMapArea.fromJson(Map<String, dynamic> json) => OfflineMapArea(
+    id: json['id'] as String,
+    name: json['name'] as String,
+    centerLat: (json['centerLat'] as num).toDouble(),
+    centerLng: (json['centerLng'] as num).toDouble(),
+    radiusKm: (json['radiusKm'] as num).toDouble(),
+    tileCount: json['tileCount'] as int,
+    sizeMb: (json['sizeMb'] as num).toDouble(),
+    downloadedAt: DateTime.parse(json['downloadedAt'] as String),
+  );
 }
 
 class MapDownloadProgress {
@@ -234,3 +295,4 @@ class MapDownloadProgress {
 
   double get progressRatio => total > 0 ? (completed / total).clamp(0.0, 1.0) : 1.0;
 }
+
