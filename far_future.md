@@ -1,43 +1,80 @@
-I have a Flutter application that I want to structure into two distinct build flavors within the same repository:
-1. `offline`: Purely local/offline execution with zero cloud/sync dependencies and minimal footprint.
-2. `colab`: Adds collaboration, cloud sync, and network hooks on top of the shared offline base.
+# Future Architecture & Build Flavors Specification
 
-I develop on a dual-core 2017 MacBook Air (8GB RAM, 256GB SSD) and test exclusively on a physical ARMv8 (64-bit ARM / `android-arm64`) device. I need build efficiency, fast iteration times, and no redundant compilation steps.
+## Core Philosophy: Strict Flavor Isolation
+1. **`offline` Flavor (Pure Local Tracker)**:
+   - **100% Offline & Isolated**: Zero network requests, zero telemetry uploads, zero third-party auth tokens or external cloud services.
+   - **Pure Local Execution**: Local SQLite database with WAL mode, offline vector canvas rendering, pre-cached local OSM tiles, and direct `.gpx`/`.kml`/`.tcx`/`.csv` file exports to the device.
+   - **Zero Code Bloat**: Dart compiler tree-shaking drops all collaboration, Strava, and network code completely from the `offline` APK binary.
 
-Please implement the following architecture:
+2. **`colab` Flavor (Serverless P2P Group Tracking & Optional Cloud Sync)**:
+   - **Zero-Cloud End-to-End Encrypted (E2EE) P2P Protocol**:
+     * **Instant QR-Key Pairing**: Host creates a group session, generating a 256-bit symmetric session key (AES-256-GCM / ChaCha20-Poly1305) encoded into an offline QR code (`activitymapper://p2p?ch=<UUID>&key=<BASE64_KEY>`).
+     * **Zero-Knowledge Over-the-Air Mesh**: All location packets broadcast over local Wi-Fi Hotspot, multicast UDP (`239.255.255.250:8888`), or BLE are encrypted with AES-256-GCM using unique per-packet nonces.
+     * Only teammates who physically scanned the QR code possess the key to decrypt and plot teammate positions on their live map.
+   - **Serverless Live Team Tracking**:
+     * Zero central server required — operates directly in remote mountains/forests without cellular internet.
+     * Shows live teammates on the map with distinctive avatars, real-time pace, distance-to-peer, and breadcrumbs.
+     * Multi-track group GPX export: export individual GPX tracks for each teammate or a merged group activity file.
+   - **Strava Direct Upload Integration**:
+     * Optional 1-tap OAuth2 upload of `.tcx` or `.gpx` tracks directly to Strava Activity API.
+   - **Relive 3D Aerial Route Video Bridge**:
+     * Relive-formatted GPX export with Kalman-smoothed elevations and waypoint tags for 3D flyover video generation.
 
-### 1. Flutter Multi-Entrypoint Architecture
-- Create `lib/main_offline.dart` (entrypoint for the Offline flavor) and `lib/main_colab.dart` (entrypoint for the Colab flavor).
-- Structure the dependency injection or app configuration such that Dart compiler tree-shaking drops all Colab/network dependencies when compiling `main_offline.dart`.
-- Use deferred loading (`deferred as`) or conditional adapter injection for heavy collaboration modules in `main_colab.dart`.
+---
 
-### 2. Android Product Flavors Configuration (`android/app/build.gradle`)
-- Configure `flavorDimensions "default"` (or `"mode"`).
-- Define two product flavors:
-  - `offline`:
-    - `applicationId`: `com.app.offline`
-    - `manifestPlaceholders = [appName: "App (Offline)"]`
-    - `versionNameSuffix "-offline"`
-  - `colab`:
-    - `applicationId`: `com.app.colab`
-    - `manifestPlaceholders = [appName: "App (Colab)"]`
-    - `versionNameSuffix "-colab"`
-- Ensure both APKs can be installed side-by-side on the same physical phone.
+## 🛠️ Low-Spec Developer Environment (2017 Dual-Core Mac, 8GB RAM)
 
-### 3. Build & Memory Tuning for Dual-Core / 8GB RAM Mac
-- Configure `android/gradle.properties` optimized for a dual-core CPU and limited RAM:
-  - Cap JVM heap (`org.gradle.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=384m -XX:+UseG1GC`).
-  - Restrict workers (`org.gradle.workers.max=2`).
-  - Enable caching (`org.gradle.caching=true`) and disable parallel tasks (`org.gradle.parallel=false`).
-- Ensure debug configurations use `minSdkVersion 21+` to enable instant native multidex and prevent legacy dex compilation overhead.
+- **Target Device**: Physical ARMv8 64-bit (`android-arm64`).
+- **Single-ABI Compilation**: Eliminate fat universal APKs by targeting `--target-platform android-arm64` to speed up compile times by ~300%.
+- **Gradle & JVM Capping**:
+  * `org.gradle.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=384m -XX:+UseG1GC`
+  * `org.gradle.workers.max=2`
+  * `org.gradle.caching=true`
+  * `org.gradle.parallel=false`
+  * Debug `minSdkVersion 21+` to eliminate legacy pre-dexing bottlenecks.
 
-### 4. Fast CLI Build/Run Commands & Scripts
-Provide exact CLI commands and a lightweight helper script / Makefile / aliases for:
-- Fast debug running on the connected phone targeting only ARMv8 (`--target-platform android-arm64`):
-  - `flutter run -t lib/main_offline.dart --flavor offline --target-platform android-arm64`
-  - `flutter run -t lib/main_colab.dart --flavor colab --target-platform android-arm64`
-- Building release single-ABI APKs:
-  - `flutter build apk -t lib/main_offline.dart --flavor offline --target-platform android-arm64`
-  - `flutter build apk -t lib/main_colab.dart --flavor colab --target-platform android-arm64`
+---
 
-Generate the complete configuration files, file directory structure, and boilerplate code to implement this setup immediately.
+## 📦 Android Product Flavors Configuration (`android/app/build.gradle`)
+
+```groovy
+flavorDimensions "mode"
+
+productFlavors {
+    offline {
+        dimension "mode"
+        applicationId "org.opensource.tracker.offline"
+        manifestPlaceholders = [appName: "TurnBack (Offline)"]
+        versionNameSuffix "-offline"
+    }
+    colab {
+        dimension "mode"
+        applicationId "org.opensource.tracker.colab"
+        manifestPlaceholders = [appName: "TurnBack (Colab)"]
+        versionNameSuffix "-colab"
+    }
+}
+```
+*Both APKs can be installed side-by-side simultaneously on the same device.*
+
+---
+
+## ⚡ Fast CLI Commands & Helper Script
+
+### Fast Debug Run on Physical Phone:
+```bash
+# Pure Offline Flavor
+flutter run -t lib/main_offline.dart --flavor offline --target-platform android-arm64
+
+# Colab / P2P Flavor
+flutter run -t lib/main_colab.dart --flavor colab --target-platform android-arm64
+```
+
+### Release Single-ABI APK Build:
+```bash
+# Pure Offline Release APK
+flutter build apk -t lib/main_offline.dart --flavor offline --target-platform android-arm64
+
+# Colab Release APK
+flutter build apk -t lib/main_colab.dart --flavor colab --target-platform android-arm64
+```
