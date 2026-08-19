@@ -11,6 +11,12 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
+import android.view.KeyEvent
+import android.view.WindowManager
+
 class MainActivity : FlutterActivity() {
 
     private val CONTROL_CHANNEL = "org.opensource.tracker/control"
@@ -57,10 +63,42 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun dispatchMediaKey(keyCode: Int): Boolean {
+        val audioManager = getSystemService(AUDIO_SERVICE) as? AudioManager ?: return false
+        val downEvent = KeyEvent(KeyEvent.ACTION_DOWN, keyCode)
+        val upEvent = KeyEvent(KeyEvent.ACTION_UP, keyCode)
+        audioManager.dispatchMediaKeyEvent(downEvent)
+        audioManager.dispatchMediaKeyEvent(upEvent)
+        return true
+    }
+
+    private fun setAdaptiveRefreshRate(targetFps: Float) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.attributes.preferredRefreshRate = targetFps
+            window.attributes = window.attributes
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val display = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                display
+            } else {
+                @Suppress("DEPRECATION")
+                windowManager.defaultDisplay
+            }
+            val modes = display?.supportedModes
+            if (modes != null) {
+                val matchedMode = modes.minByOrNull { kotlin.math.abs(it.refreshRate - targetFps) }
+                if (matchedMode != null) {
+                    val params = window.attributes
+                    params.preferredDisplayModeId = matchedMode.modeId
+                    window.attributes = params
+                }
+            }
+        }
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        // MethodChannel: Start and Stop Tracking Control
+        // MethodChannel: Start/Stop Tracking, Media Control, and Hardware Power Management
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CONTROL_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "checkPermissions" -> {
@@ -110,6 +148,39 @@ class MainActivity : FlutterActivity() {
                     val serviceIntent = Intent(this, GpsLoggingService::class.java)
                     val stopped = stopService(serviceIntent)
                     result.success(stopped)
+                }
+                "sendMediaAction" -> {
+                    val action = call.argument<String>("action") ?: ""
+                    val success = when (action) {
+                        "play_pause", "toggle" -> dispatchMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+                        "play" -> dispatchMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY)
+                        "pause" -> dispatchMediaKey(KeyEvent.KEYCODE_MEDIA_PAUSE)
+                        "next" -> dispatchMediaKey(KeyEvent.KEYCODE_MEDIA_NEXT)
+                        "previous" -> dispatchMediaKey(KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+                        "volume_up" -> {
+                            val audioManager = getSystemService(AUDIO_SERVICE) as? AudioManager
+                            audioManager?.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
+                            true
+                        }
+                        "volume_down" -> {
+                            val audioManager = getSystemService(AUDIO_SERVICE) as? AudioManager
+                            audioManager?.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
+                            true
+                        }
+                        else -> false
+                    }
+                    result.success(success)
+                }
+                "setPowerSaveDisplay" -> {
+                    val enable = call.argument<Boolean>("enable") ?: false
+                    // Clamps to 30Hz or lowest supported mode when power saver is active, 0f restores default
+                    val targetFps = if (enable) 30f else 0f
+                    try {
+                        setAdaptiveRefreshRate(targetFps)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
                 }
                 else -> result.notImplemented()
             }

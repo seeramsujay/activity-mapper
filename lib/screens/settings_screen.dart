@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/settings_service.dart';
 import '../services/backup_service.dart';
+import '../services/ble_sensor_service.dart';
 import '../services/db_service.dart';
 import '../services/platform_service.dart';
+import '../services/tile_cache_service.dart';
 
 /// Comprehensive application settings, themes, and map customization screen.
 class SettingsScreen extends StatefulWidget {
@@ -18,10 +20,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isBackingUp = false;
   int _pointCount = 0;
 
+  int _cachedTileCount = 0;
+  int _cachedTileBytes = 0;
+  bool _isDownloadingTiles = false;
+  double _downloadProgress = 0.0;
+  String _downloadStatus = '';
+
   @override
   void initState() {
     super.initState();
     _loadDbStats();
+    _loadTileCacheStats();
+  }
+
+  Future<void> _loadTileCacheStats() async {
+    final metrics = await TileCacheService.instance.getCacheMetrics();
+    if (mounted) {
+      setState(() {
+        _cachedTileCount = metrics['count'] ?? 0;
+        _cachedTileBytes = metrics['sizeBytes'] ?? 0;
+      });
+    }
   }
 
   Future<void> _loadDbStats() async {
@@ -348,7 +367,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 24),
 
                 // 3. OFFLINE MAP & OSM ASSETS
-                _buildSectionHeader('MAP TILES & OSM ASSETS', Icons.map_outlined, textColor),
+                _buildSectionHeader('MAP TILES & OFFLINE CACHE', Icons.map_outlined, textColor),
                 Container(
                   padding: const EdgeInsets.all(16.0),
                   decoration: BoxDecoration(
@@ -383,6 +402,151 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         icon: Icons.dark_mode_outlined,
                         textColor: textColor,
                         accentColor: accentColor,
+                      ),
+                      const SizedBox(height: 16),
+
+                      const Divider(height: 1),
+                      const SizedBox(height: 14),
+
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('LOCAL OFFLINE TILE STORAGE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.6))),
+                          Text('$_cachedTileCount tiles (${(_cachedTileBytes / (1024 * 1024)).toStringAsFixed(1)} MB)',
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: accentColor)),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Pre-cache full-resolution OpenStreetMap tiles around your workout area for 100% offline navigation in the backcountry with zero data lag.',
+                        style: TextStyle(fontSize: 12, color: textColor.withValues(alpha: 0.7), height: 1.4),
+                      ),
+                      const SizedBox(height: 14),
+
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: accentColor,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                elevation: 0,
+                              ),
+                              onPressed: _isDownloadingTiles ? null : _showDownloadRegionDialog,
+                              icon: const Icon(Icons.download_rounded, size: 18),
+                              label: const Text(
+                                'DOWNLOAD AREA TILES',
+                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 0.6),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: textColor,
+                              side: BorderSide(color: textColor.withValues(alpha: 0.2)),
+                              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            onPressed: _cachedTileCount == 0
+                                ? null
+                                : () async {
+                                    HapticFeedback.mediumImpact();
+                                    await TileCacheService.instance.clearCache();
+                                    await _loadTileCacheStats();
+                                    if (mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Offline Map Tile Cache Cleared')),
+                                      );
+                                    }
+                                  },
+                            icon: const Icon(Icons.delete_outline, size: 18),
+                            label: const Text('CLEAR', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
+                          ),
+                        ],
+                      ),
+
+                      if (_isDownloadingTiles) ...[
+                        const SizedBox(height: 12),
+                        LinearProgressIndicator(value: _downloadProgress, color: accentColor),
+                        const SizedBox(height: 6),
+                        Text(_downloadStatus, style: TextStyle(fontSize: 11, color: textColor.withValues(alpha: 0.7))),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // 4. BLE SENSORS & WEARABLES
+                _buildSectionHeader('BLE SENSORS & WEARABLES', Icons.bluetooth_searching, textColor),
+                Container(
+                  padding: const EdgeInsets.all(16.0),
+                  decoration: BoxDecoration(
+                    color: cardBg,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: textColor.withValues(alpha: 0.12), width: 1.2),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('BLUETOOTH SMART SENSORS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.6))),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: BleSensorService.instance.isConnected ? const Color(0xFF10B981).withValues(alpha: 0.15) : Colors.grey.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              BleSensorService.instance.isConnected ? 'CONNECTED' : 'DISCONNECTED',
+                              style: TextStyle(
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w900,
+                                color: BleSensorService.instance.isConnected ? const Color(0xFF10B981) : textColor.withValues(alpha: 0.5),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Connect standard Heart Rate Straps (0x180D) and Cycling Cadence / Speed meters (0x1816) for real-time in-HUD telemetry.',
+                        style: TextStyle(fontSize: 12, color: textColor.withValues(alpha: 0.7), height: 1.4),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: BleSensorService.instance.isConnected ? const Color(0xFFDC2626) : accentColor,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                elevation: 0,
+                              ),
+                              onPressed: () {
+                                HapticFeedback.selectionClick();
+                                setState(() {
+                                  if (BleSensorService.instance.isConnected) {
+                                    BleSensorService.instance.disconnect();
+                                  } else {
+                                    BleSensorService.instance.startSimulation();
+                                  }
+                                });
+                              },
+                              icon: Icon(BleSensorService.instance.isConnected ? Icons.bluetooth_disabled : Icons.bluetooth_connected, size: 18),
+                              label: Text(
+                                BleSensorService.instance.isConnected ? 'DISCONNECT SENSORS' : 'PAIR / SIMULATE SENSOR',
+                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 0.6),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -682,4 +846,125 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ],
     );
   }
+
+  void _showDownloadRegionDialog() {
+    HapticFeedback.selectionClick();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : const Color(0xFF111827);
+    final cardBg = isDark ? const Color(0xFF14171C) : Colors.white;
+    final accentColor = SettingsService.instance.accentColor.color;
+
+    double selectedRadiusKm = 5.0;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: cardBg,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 20.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: textColor.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'DOWNLOAD OFFLINE MAP AREA',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: textColor, letterSpacing: 0.8),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Downloads full zoom street & topographic tiles for true offline navigation without cellular network.',
+                    style: TextStyle(fontSize: 12, color: textColor.withValues(alpha: 0.65), height: 1.4),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    'COVERAGE RADIUS: ${selectedRadiusKm.toInt()} KM',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: accentColor),
+                  ),
+                  Slider(
+                    value: selectedRadiusKm,
+                    min: 2.0,
+                    max: 15.0,
+                    divisions: 13,
+                    activeColor: accentColor,
+                    label: '${selectedRadiusKm.toInt()} km',
+                    onChanged: (val) => setModalState(() => selectedRadiusKm = val),
+                  ),
+                  const SizedBox(height: 14),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: accentColor,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      elevation: 0,
+                    ),
+                    onPressed: () async {
+                      Navigator.pop(ctx);
+                      setState(() {
+                        _isDownloadingTiles = true;
+                        _downloadProgress = 0.0;
+                        _downloadStatus = 'Starting tile downloader...';
+                      });
+
+                      // Default to latest known track or city center coordinates
+                      double centerLat = 37.7749;
+                      double centerLng = -122.4194;
+
+                      final latestSession = await DbService.instance.getCompletedSessions();
+                      if (latestSession.isNotEmpty) {
+                        final points = await DbService.instance.getPoints(latestSession.first['id'] as int);
+                        if (points.isNotEmpty) {
+                          centerLat = points.last['lat'] as double;
+                          centerLng = points.last['lng'] as double;
+                        }
+                      }
+
+                      final stream = TileCacheService.instance.downloadOfflineRegion(
+                        centerLat: centerLat,
+                        centerLng: centerLng,
+                        radiusKm: selectedRadiusKm,
+                        zoomLevels: [13, 14, 15, 16],
+                        tileUrlTemplate: SettingsService.instance.mapTileSource,
+                      );
+
+                      await for (final progress in stream) {
+                        if (mounted) {
+                          setState(() {
+                            _downloadProgress = progress.progressRatio;
+                            _downloadStatus = progress.status;
+                            if (progress.isDone) {
+                              _isDownloadingTiles = false;
+                            }
+                          });
+                        }
+                      }
+
+                      await _loadTileCacheStats();
+                    },
+                    icon: const Icon(Icons.cloud_download_rounded, size: 20),
+                    label: const Text('START OFFLINE PRE-CACHE', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.8)),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 }
+

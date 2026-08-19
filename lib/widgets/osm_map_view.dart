@@ -1,8 +1,11 @@
+import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'breadcrumb_painter.dart';
 import '../services/settings_service.dart';
+import '../services/tile_cache_service.dart';
+
 
 /// Interactive, 60-120 FPS Pan-and-Zoom Map & Vector Trail Visualizer.
 ///
@@ -229,20 +232,13 @@ class _OsmMapViewState extends State<OsmMapView> {
 
                         return RepaintBoundary(
                           key: ValueKey(url),
-                          child: Image(
-                            image: ResizeImage(
-                              NetworkImage(url),
-                              width: 256,
-                              height: 256,
-                            ),
-                            fit: BoxFit.cover,
-                            gaplessPlayback: true,
-                            errorBuilder: (context, err, stack) => Container(
-                              color: isDark ? const Color(0xFF1E232B) : const Color(0xFFE2E8F0),
-                              child: Center(
-                                child: Icon(Icons.wifi_off, size: 20, color: textColor.withValues(alpha: 0.2)),
-                              ),
-                            ),
+                          child: _CachedTileImage(
+                            zoom: zoom,
+                            tileX: tileX,
+                            tileY: tileY,
+                            url: url,
+                            isDark: isDark,
+                            textColor: textColor,
                           ),
                         );
                       },
@@ -419,3 +415,118 @@ class _OsmMapViewState extends State<OsmMapView> {
     );
   }
 }
+
+class _CachedTileImage extends StatefulWidget {
+  final int zoom;
+  final int tileX;
+  final int tileY;
+  final String url;
+  final bool isDark;
+  final Color textColor;
+
+  const _CachedTileImage({
+    required this.zoom,
+    required this.tileX,
+    required this.tileY,
+    required this.url,
+    required this.isDark,
+    required this.textColor,
+  });
+
+  @override
+  State<_CachedTileImage> createState() => _CachedTileImageState();
+}
+
+class _CachedTileImageState extends State<_CachedTileImage> {
+  File? _localFile;
+  bool _checkedCache = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkCache();
+  }
+
+  @override
+  void didUpdateWidget(covariant _CachedTileImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.zoom != widget.zoom || oldWidget.tileX != widget.tileX || oldWidget.tileY != widget.tileY) {
+      _checkedCache = false;
+      _localFile = null;
+      _checkCache();
+    }
+  }
+
+  Future<void> _checkCache() async {
+    final file = await TileCacheService.instance.getLocalTileFile(widget.zoom, widget.tileX, widget.tileY);
+    if (mounted) {
+      setState(() {
+        _localFile = file;
+        _checkedCache = true;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_checkedCache) {
+      return Container(
+        color: widget.isDark ? const Color(0xFF1E232B) : const Color(0xFFE2E8F0),
+      );
+    }
+
+    if (_localFile != null) {
+      return Image.file(
+        _localFile!,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        errorBuilder: (context, err, stack) => _buildPlaceholder(),
+      );
+    }
+
+    return Image(
+      image: ResizeImage(
+        NetworkImage(widget.url),
+        width: 256,
+        height: 256,
+      ),
+      fit: BoxFit.cover,
+      gaplessPlayback: true,
+      frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+        if (frame != null && wasSynchronouslyLoaded == false) {
+          // Asynchronously trigger caching for network tiles
+          _cacheNetworkTile();
+        }
+        return child;
+      },
+      errorBuilder: (context, err, stack) => _buildPlaceholder(),
+    );
+  }
+
+  void _cacheNetworkTile() async {
+    try {
+      final client = HttpClient();
+      client.userAgent = 'ActivityMapper/1.0.0 (Offline Tracker)';
+      final request = await client.getUrl(Uri.parse(widget.url));
+      final response = await request.close();
+      if (response.statusCode == 200) {
+        final bytesBuilder = BytesBuilder();
+        await for (final chunk in response) {
+          bytesBuilder.add(chunk);
+        }
+        await TileCacheService.instance.saveTileBytes(widget.zoom, widget.tileX, widget.tileY, bytesBuilder.toBytes());
+      }
+      client.close();
+    } catch (_) {}
+  }
+
+  Widget _buildPlaceholder() {
+    return Container(
+      color: widget.isDark ? const Color(0xFF1E232B) : const Color(0xFFE2E8F0),
+      child: Center(
+        child: Icon(Icons.wifi_off, size: 20, color: widget.textColor.withValues(alpha: 0.2)),
+      ),
+    );
+  }
+}
+

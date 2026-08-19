@@ -2,6 +2,8 @@ import 'dart:io';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'db_service.dart';
+import 'elevation_filter_service.dart';
+
 
 /// Service responsible for serializing active session data into GPX XML formatted files.
 class GpxService {
@@ -32,10 +34,14 @@ class GpxService {
     buffer.writeln('    <name>$activityName</name>');
     buffer.writeln('    <trkseg>');
 
-    for (final point in points) {
+    final rawAltitudes = points.map((p) => ((p['altitude'] as num?)?.toDouble()) ?? 0.0).toList();
+    final smoothedAltitudes = ElevationFilterService.instance.filterFullElevationProfile(rawAltitudes);
+
+    for (int i = 0; i < points.length; i++) {
+      final point = points[i];
       final lat = point['lat'];
       final lng = point['lng'];
-      final altitude = point['altitude'];
+      final altitude = smoothedAltitudes[i].toStringAsFixed(1);
       final speed = point['speed'];
       final timeStr = DateTime.fromMillisecondsSinceEpoch(point['timestamp'] as int).toUtc().toIso8601String();
 

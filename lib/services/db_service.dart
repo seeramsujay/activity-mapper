@@ -140,6 +140,18 @@ class DbService {
     );
   }
 
+  /// Returns a specific tracking session by ID.
+  Future<Map<String, dynamic>?> getSession(int sessionId) async {
+    final db = await database;
+    final res = await db.query(
+      'sessions',
+      where: 'id = ?',
+      whereArgs: [sessionId],
+      limit: 1,
+    );
+    return res.isNotEmpty ? res.first : null;
+  }
+
   /// Returns a list of all tracking sessions ordered by start time descending.
   Future<List<Map<String, dynamic>>> getSessions() async {
     final db = await database;

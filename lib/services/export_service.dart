@@ -304,11 +304,84 @@ class ExportService {
     return await backupFile.writeAsBytes(zipData, flush: true);
   }
 
-  /// Exports an individual single format file (GPX, KML, GeoJSON, or CSV).
+  /// Generates a Garmin/Wahoo Training Center Database (TCX) XML file string.
+  Future<String> generateTcxString(int sessionId, String activityName) async {
+    final points = await DbService.instance.getPoints(sessionId);
+
+    final buffer = StringBuffer();
+    final startTime = points.isNotEmpty
+        ? DateTime.fromMillisecondsSinceEpoch(points.first['timestamp'] as int).toUtc().toIso8601String()
+        : DateTime.now().toUtc().toIso8601String();
+
+    int totalSeconds = 0;
+    if (points.length >= 2) {
+      final first = points.first['timestamp'] as int;
+      final last = points.last['timestamp'] as int;
+      totalSeconds = ((last - first) / 1000).round();
+    }
+
+    double maxSpeedMs = 0.0;
+    for (final p in points) {
+      final spdKmh = ((p['speed'] as num?)?.toDouble()) ?? 0.0;
+      final ms = spdKmh / 3.6;
+      if (ms > maxSpeedMs) maxSpeedMs = ms;
+    }
+
+    buffer.writeln('<?xml version="1.0" encoding="UTF-8"?>');
+    buffer.writeln('<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2" '
+        'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+        'xsi:schemaLocation="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2 http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd">');
+    buffer.writeln('  <Activities>');
+    buffer.writeln('    <Activity Sport="Running">');
+    buffer.writeln('      <Id>$startTime</Id>');
+    buffer.writeln('      <Lap StartTime="$startTime">');
+    buffer.writeln('        <TotalTimeSeconds>$totalSeconds</TotalTimeSeconds>');
+    buffer.writeln('        <MaximumSpeed>${maxSpeedMs.toStringAsFixed(2)}</MaximumSpeed>');
+    buffer.writeln('        <Calories>0</Calories>');
+    buffer.writeln('        <Intensity>Active</Intensity>');
+    buffer.writeln('        <TriggerMethod>Manual</TriggerMethod>');
+    buffer.writeln('        <Track>');
+
+    double runningDistance = 0.0;
+    for (int i = 0; i < points.length; i++) {
+      final point = points[i];
+      final lat = point['lat'];
+      final lng = point['lng'];
+      final altitude = point['altitude'] ?? 0.0;
+      final speedKmh = ((point['speed'] as num?)?.toDouble()) ?? 0.0;
+      final speedMs = speedKmh / 3.6;
+      final timestamp = point['timestamp'] as int;
+      final timeStr = DateTime.fromMillisecondsSinceEpoch(timestamp).toUtc().toIso8601String();
+
+      buffer.writeln('          <Trackpoint>');
+      buffer.writeln('            <Time>$timeStr</Time>');
+      buffer.writeln('            <Position>');
+      buffer.writeln('              <LatitudeDegrees>$lat</LatitudeDegrees>');
+      buffer.writeln('              <LongitudeDegrees>$lng</LongitudeDegrees>');
+      buffer.writeln('            </Position>');
+      buffer.writeln('            <AltitudeMeters>$altitude</AltitudeMeters>');
+      buffer.writeln('            <Extensions>');
+      buffer.writeln('              <TPX xmlns="http://www.garmin.com/xmlschemas/ActivityExtension/v2">');
+      buffer.writeln('                <Speed>${speedMs.toStringAsFixed(2)}</Speed>');
+      buffer.writeln('              </TPX>');
+      buffer.writeln('            </Extensions>');
+      buffer.writeln('          </Trackpoint>');
+    }
+
+    buffer.writeln('        </Track>');
+    buffer.writeln('      </Lap>');
+    buffer.writeln('    </Activity>');
+    buffer.writeln('  </Activities>');
+    buffer.writeln('</TrainingCenterDatabase>');
+
+    return buffer.toString();
+  }
+
+  /// Exports an individual single format file (GPX, TCX, KML, GeoJSON, or CSV).
   Future<File> exportSingleFormat({
     required int sessionId,
     required String activityName,
-    required String format, // 'gpx', 'kml', 'geojson', 'csv'
+    required String format, // 'gpx', 'tcx', 'kml', 'geojson', 'csv'
   }) async {
     final sanitized = _sanitizeFilename(activityName);
     final outDir = await _getExportDirectory();
@@ -316,6 +389,10 @@ class ExportService {
     String ext;
 
     switch (format.toLowerCase()) {
+      case 'tcx':
+        content = await generateTcxString(sessionId, activityName);
+        ext = 'tcx';
+        break;
       case 'kml':
         content = await generateKmlString(sessionId, activityName);
         ext = 'kml';

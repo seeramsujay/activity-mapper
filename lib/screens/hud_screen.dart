@@ -2,12 +2,16 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../services/ble_sensor_service.dart';
 import '../services/db_service.dart';
+import '../services/elevation_filter_service.dart';
 import '../services/platform_service.dart';
 import '../services/rally_service.dart';
 import '../services/settings_service.dart';
+import '../widgets/hud_media_controller.dart';
 import '../widgets/osm_map_view.dart';
 import '../widgets/telemetry_chart.dart';
+
 
 /// Ultra-high performance HUD Activity Screen.
 class HudScreen extends StatefulWidget {
@@ -84,6 +88,24 @@ class _HudScreenState extends State<HudScreen> {
 
   late Duration _activeTargetDuration;
 
+  // BLE Sensor State & OLED Power Saving
+  BleSensorData _sensorData = const BleSensorData();
+  StreamSubscription<BleSensorData>? _bleSensorSub;
+  bool _isOledDimmed = false;
+  Timer? _inactivityTimer;
+
+  void _resetInactivityTimer() {
+    _inactivityTimer?.cancel();
+    if (_isOledDimmed) {
+      setState(() => _isOledDimmed = false);
+    }
+    _inactivityTimer = Timer(const Duration(seconds: 25), () {
+      if (mounted && !_isPaused) {
+        setState(() => _isOledDimmed = true);
+      }
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -91,6 +113,18 @@ class _HudScreenState extends State<HudScreen> {
     _startTime = DateTime.now();
     _isSpeedMode = widget.activityType == 'ride';
 
+    // Clamp display refresh rate to 30Hz or lowest hardware mode for ultra-low battery drain
+    PlatformService.instance.setPowerSaveDisplay(true);
+
+    // Listen to BLE heart rate and cadence sensors
+    _sensorData = BleSensorService.instance.currentData;
+    _bleSensorSub = BleSensorService.instance.sensorStream.listen((data) {
+      if (mounted) {
+        setState(() => _sensorData = data);
+      }
+    });
+
+    _resetInactivityTimer();
     _loadExistingData();
     _loadReferenceRoute();
     _startTimer();
@@ -598,6 +632,9 @@ class _HudScreenState extends State<HudScreen> {
 
   @override
   void dispose() {
+    PlatformService.instance.setPowerSaveDisplay(false);
+    _bleSensorSub?.cancel();
+    _inactivityTimer?.cancel();
     _timer?.cancel();
     _flashTimer?.cancel();
     _telemetrySub?.cancel();
@@ -830,19 +867,28 @@ class _HudScreenState extends State<HudScreen> {
     // ------------------------------------------------------------------------
     return Scaffold(
       backgroundColor: scaffoldBg,
-      body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+      body: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: _resetInactivityTimer,
+        onPanDown: (_) => _resetInactivityTimer(),
+        child: Stack(
           children: [
-            // Top App Bar & Status
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
-              child: Row(
-                children: [
-                  IconButton(
-                    icon: Icon(Icons.arrow_back_ios_new, size: 16, color: textColor),
-                    onPressed: () => Navigator.pop(context),
-                  ),
+            AnimatedOpacity(
+              opacity: _isOledDimmed ? 0.35 : 1.0,
+              duration: const Duration(milliseconds: 250),
+              child: SafeArea(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Top App Bar & Status
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+                      child: Row(
+                        children: [
+                          IconButton(
+                            icon: Icon(Icons.arrow_back_ios_new, size: 16, color: textColor),
+                            onPressed: () => Navigator.pop(context),
+                          ),
                   const SizedBox(width: 2),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1105,8 +1151,39 @@ class _HudScreenState extends State<HudScreen> {
           ],
         ),
       ),
-    );
-  }
+    ),
+    if (_isOledDimmed)
+      Positioned(
+        top: 16,
+        left: 0,
+        right: 0,
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.85),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.white24, width: 1),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.energy_savings_leaf, size: 14, color: Color(0xFF10B981)),
+                SizedBox(width: 6),
+                Text(
+                  'OLED BATTERY SAVER (Tap to wake)',
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+  ],
+),
+),
+);
+}
 
   Widget _buildTabPill(int idx, String title, Color textColor, Color surfaceBg, Color cardBg) {
     final active = _currentPageIndex == idx;
@@ -1554,18 +1631,94 @@ class _HudScreenState extends State<HudScreen> {
   }
 
   // --------------------------------------------------------------------------
-  // BOTTOM ACTION BAR (Pause / Resume / Finish & Save)
+  // BOTTOM ACTION BAR (Media Player, BLE Sensors, Pause / Resume / Finish)
   // --------------------------------------------------------------------------
   Widget _buildBottomControlBar(Color textColor, Color scaffoldBg, Color cardBg, Color borderColor, Color accentColor) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
       decoration: BoxDecoration(
         color: cardBg,
         borderRadius: const BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
         border: Border(top: BorderSide(color: borderColor, width: 1.0)),
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
+          // Workout Media & BLE Sensor Floating Header
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // In-HUD Glove-friendly Media Controller
+                HudMediaController(
+                  brightness: Theme.of(context).brightness,
+                  accentColor: accentColor,
+                ),
+
+                // BLE Heart Rate & Cadence Pill
+                GestureDetector(
+                  onTap: () {
+                    HapticFeedback.selectionClick();
+                    if (BleSensorService.instance.isConnected) {
+                      BleSensorService.instance.disconnect();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('BLE Sensors Disconnected')),
+                      );
+                    } else {
+                      BleSensorService.instance.startSimulation();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('BLE Sensors Connected (Polar H10 Simulated)')),
+                      );
+                    }
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: (Theme.of(context).brightness == Brightness.dark ? const Color(0xFF1E232B) : const Color(0xFFF3F4F6)),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: _sensorData.isConnected ? const Color(0xFFEF4444) : borderColor,
+                        width: _sensorData.isConnected ? 1.4 : 1.0,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.favorite,
+                          size: 13,
+                          color: _sensorData.isConnected ? const Color(0xFFEF4444) : textColor.withValues(alpha: 0.4),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _sensorData.isConnected ? '${_sensorData.heartRateBpm} BPM' : 'BLE SENSOR',
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w900,
+                            color: _sensorData.isConnected ? const Color(0xFFEF4444) : textColor.withValues(alpha: 0.6),
+                          ),
+                        ),
+                        if (_sensorData.isConnected && _sensorData.cadenceRpm > 0) ...[
+                          const SizedBox(width: 6),
+                          Text('•', style: TextStyle(fontSize: 10, color: borderColor)),
+                          const SizedBox(width: 6),
+                          Text(
+                            '${_sensorData.cadenceRpm} RPM',
+                            style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w900, color: accentColor),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Main Action Buttons
+          Row(
+            children: [
           // Pause / Resume Button
           Expanded(
             child: OutlinedButton.icon(
@@ -1610,6 +1763,8 @@ class _HudScreenState extends State<HudScreen> {
               onPressed: _showFinishConfirmDialog,
             ),
           ),
+        ],
+      ),
         ],
       ),
     );

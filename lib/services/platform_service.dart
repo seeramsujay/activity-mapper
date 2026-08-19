@@ -74,10 +74,35 @@ class PlatformService {
     }
   }
 
+  /// Dispatches media control key events (play/pause, next, prev, volume) to system audio players.
+  Future<bool> sendMediaAction(String action) async {
+    try {
+      final bool? success = await _controlChannel.invokeMethod<bool>('sendMediaAction', {
+        'action': action,
+      });
+      return success ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  /// Clamps display refresh rate to 30 Hz or lower for battery optimization during tracking HUD.
+  Future<bool> setPowerSaveDisplay(bool enable) async {
+    try {
+      final bool? success = await _controlChannel.invokeMethod<bool>('setPowerSaveDisplay', {
+        'enable': enable,
+      });
+      return success ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
   /// Exposes a broadcast stream to receive real-time location coordinate updates from the native GPS service.
   Stream<dynamic> get telemetryStream {
     _telemetryStream ??= _telemetryChannel.receiveBroadcastStream();
     return _telemetryStream!;
   }
 }
+
 
