@@ -5,6 +5,7 @@ import '../services/db_service.dart';
 import '../services/export_service.dart';
 import '../services/platform_service.dart';
 import '../widgets/breadcrumb_painter.dart';
+import '../widgets/strava_upload_dialog.dart';
 import 'editor_screen.dart';
 import 'hud_screen.dart';
 
@@ -641,6 +642,49 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           _exportSingleFormat(sessionId, activityType, 'csv');
                         },
                         child: const Text('CSV', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.tealAccent.shade400,
+                          side: BorderSide(color: Colors.tealAccent.shade400),
+                          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                        ),
+                        icon: const Icon(Icons.video_camera_back, size: 16),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _exportSingleFormat(sessionId, activityType, 'relive');
+                        },
+                        label: const Text('Relive 3D GPX', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFC4C02),
+                          foregroundColor: Colors.white,
+                          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                        ),
+                        icon: const Icon(Icons.cloud_upload, size: 16),
+                        onPressed: () {
+                          Navigator.pop(context);
+                          showDialog(
+                            context: context,
+                            builder: (dCtx) => StravaUploadDialog(
+                              sessionId: sessionId,
+                              activityName: activityType,
+                              activityType: activityType,
+                            ),
+                          );
+                        },
+                        label: const Text('Strava Upload', style: TextStyle(fontWeight: FontWeight.bold)),
                       ),
                     ),
                   ],

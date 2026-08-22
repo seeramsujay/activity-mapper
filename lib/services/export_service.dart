@@ -5,6 +5,9 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import 'db_service.dart';
+import 'relive_service.dart';
+import 'p2p_mesh_service.dart';
+import '../models/location_point.dart';
 
 /// Comprehensive multi-format telemetry exporter and ZIP packaging service.
 ///
@@ -377,11 +380,24 @@ class ExportService {
     return buffer.toString();
   }
 
-  /// Exports an individual single format file (GPX, TCX, KML, GeoJSON, or CSV).
+  /// Generates a Relive 3D compliant GPX file string with Kalman-smoothed elevations and waypoints.
+  Future<String> generateReliveGpxString(int sessionId, String activityName) async {
+    final points = await DbService.instance.getPoints(sessionId);
+    final session = await DbService.instance.getSession(sessionId);
+    final turnBackTriggeredAt = session?['turn_back_triggered_at'] as int?;
+
+    return ReliveService.instance.generateReliveGpx(
+      activityName: activityName,
+      rawPoints: points,
+      turnBackTriggeredAt: turnBackTriggeredAt,
+    );
+  }
+
+  /// Exports an individual single format file (GPX, TCX, KML, GeoJSON, CSV, or Relive 3D GPX).
   Future<File> exportSingleFormat({
     required int sessionId,
     required String activityName,
-    required String format, // 'gpx', 'tcx', 'kml', 'geojson', 'csv'
+    required String format, // 'gpx', 'tcx', 'kml', 'geojson', 'csv', 'relive'
   }) async {
     final sanitized = _sanitizeFilename(activityName);
     final outDir = await _getExportDirectory();
@@ -389,6 +405,10 @@ class ExportService {
     String ext;
 
     switch (format.toLowerCase()) {
+      case 'relive':
+        content = await generateReliveGpxString(sessionId, activityName);
+        ext = 'relive.gpx';
+        break;
       case 'tcx':
         content = await generateTcxString(sessionId, activityName);
         ext = 'tcx';

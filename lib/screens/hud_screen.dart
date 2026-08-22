@@ -8,9 +8,13 @@ import '../services/elevation_filter_service.dart';
 import '../services/platform_service.dart';
 import '../services/rally_service.dart';
 import '../services/settings_service.dart';
+import '../services/p2p_mesh_service.dart';
 import '../widgets/hud_media_controller.dart';
 import '../widgets/osm_map_view.dart';
 import '../widgets/telemetry_chart.dart';
+import '../widgets/mesh_radar_widget.dart';
+import '../widgets/mesh_qr_widget.dart';
+import '../widgets/strava_upload_dialog.dart';
 
 
 /// Ultra-high performance HUD Activity Screen.
@@ -592,6 +596,14 @@ class _HudScreenState extends State<HudScreen> {
           _rallyState = _rallyEngine!.updateNavigation(lat, lng);
         }
 
+        // P2P Mesh Telemetry Broadcast
+        P2pMeshService.instance.updateLocalPosition(
+          lat: lat,
+          lng: lng,
+          speedKmh: speed * 3.6,
+          altitude: alt,
+        );
+
         // 54% Outbound Limit trigger
         final double outboundRatio = (100.0 - widget.safetyBufferPct) / 200.0;
         final int outboundLimitSeconds = (_activeTargetDuration.inSeconds * outboundRatio).toInt();
@@ -1152,6 +1164,7 @@ class _HudScreenState extends State<HudScreen> {
         ),
       ),
     ),
+    const MeshRadarHudWidget(),
     if (_isOledDimmed)
       Positioned(
         top: 16,

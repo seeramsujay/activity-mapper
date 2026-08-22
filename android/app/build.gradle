@@ -39,6 +39,24 @@ android {
         targetSdk 35
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
+        manifestPlaceholders = [appName: "TurnBack"]
+    }
+
+    flavorDimensions "mode"
+
+    productFlavors {
+        offline {
+            dimension "mode"
+            applicationId "org.opensource.tracker.offline"
+            manifestPlaceholders = [appName: "TurnBack (Offline)"]
+            versionNameSuffix "-offline"
+        }
+        colab {
+            dimension "mode"
+            applicationId "org.opensource.tracker.colab"
+            manifestPlaceholders = [appName: "TurnBack (Colab)"]
+            versionNameSuffix "-colab"
+        }
     }
 
     buildTypes {

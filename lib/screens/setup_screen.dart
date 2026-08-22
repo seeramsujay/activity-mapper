@@ -10,7 +10,9 @@ import '../services/platform_service.dart';
 import '../services/gpx_service.dart';
 import '../services/backup_service.dart';
 import '../services/settings_service.dart';
+import '../services/p2p_mesh_service.dart';
 import '../widgets/breadcrumb_painter.dart';
+import '../widgets/mesh_qr_widget.dart';
 import 'editor_screen.dart';
 import 'hud_screen.dart';
 
@@ -22,8 +24,10 @@ import 'hud_screen.dart';
 /// - Offers session launchers via sliding widgets to configure activity parameters.
 /// - Shows active session notifications and progress bars if tracking is running in the background.
 class SetupScreen extends StatefulWidget {
+  final bool isOfflineOnly;
+
   /// Creates a new [SetupScreen] instance.
-  const SetupScreen({super.key});
+  const SetupScreen({super.key, this.isOfflineOnly = false});
 
   @override
   State<SetupScreen> createState() => _SetupScreenState();
@@ -809,6 +813,208 @@ class _SetupScreenState extends State<SetupScreen> {
     }
   }
 
+  void _showMeshSessionDialog(BuildContext context) {
+    final theme = Theme.of(context);
+    final nameCtrl = TextEditingController(text: 'Team Out-and-Back');
+    final userCtrl = TextEditingController(text: 'Rider');
+    final uriCtrl = TextEditingController();
+    int selectedColor = 0xFFFF5722; // Ember Orange
+
+    showDialog(
+      context: context,
+      builder: (dCtx) {
+        return StatefulBuilder(
+          builder: (sCtx, setModalState) {
+            return DefaultTabController(
+              length: 2,
+              child: AlertDialog(
+                backgroundColor: theme.scaffoldBackgroundColor,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                title: const TabBar(
+                  tabs: [
+                    Tab(text: 'Host Mesh'),
+                    Tab(text: 'Join Mesh'),
+                  ],
+                ),
+                content: SizedBox(
+                  width: double.maxFinite,
+                  child: TabBarView(
+                    children: [
+                      // HOST TAB
+                      SingleChildScrollView(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: nameCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Session Name',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: userCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Your Display Username',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            const Text('Marker Color:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 6),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: [
+                                0xFFFF5722, // Orange
+                                0xFF2563EB, // Blue
+                                0xFF10B981, // Green
+                                0xFF8B5CF6, // Purple
+                                0xFFF59E0B, // Gold
+                              ].map((c) => GestureDetector(
+                                onTap: () => setModalState(() => selectedColor = c),
+                                child: CircleAvatar(
+                                  radius: 14,
+                                  backgroundColor: Color(c),
+                                  child: selectedColor == c ? const Icon(Icons.check, size: 16, color: Colors.white) : null,
+                                ),
+                              )).toList(),
+                            ),
+                            const SizedBox(height: 16),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                icon: const Icon(Icons.wifi_tethering, size: 18),
+                                label: const Text('Host Session & Show QR', style: TextStyle(fontWeight: FontWeight.bold)),
+                                style: ElevatedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                                onPressed: () async {
+                                  final config = await P2pMeshService.instance.startHostSession(
+                                    sessionName: nameCtrl.text.trim(),
+                                    username: userCtrl.text.trim(),
+                                    colorValue: selectedColor,
+                                  );
+
+                                  if (dCtx.mounted) {
+                                    Navigator.pop(dCtx);
+                                    // Show QR Code dialog
+                                    showDialog(
+                                      context: context,
+                                      builder: (qrCtx) => MeshQrDisplayDialog(config: config),
+                                    );
+                                  }
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // JOIN TAB
+                      SingleChildScrollView(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: uriCtrl,
+                              maxLines: 2,
+                              decoration: const InputDecoration(
+                                labelText: 'Paste Mesh URI (activitymapper://...)',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: userCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Your Display Username',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            const Text('Marker Color:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 6),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: [
+                                0xFFFF5722,
+                                0xFF2563EB,
+                                0xFF10B981,
+                                0xFF8B5CF6,
+                                0xFFF59E0B,
+                              ].map((c) => GestureDetector(
+                                onTap: () => setModalState(() => selectedColor = c),
+                                child: CircleAvatar(
+                                  radius: 14,
+                                  backgroundColor: Color(c),
+                                  child: selectedColor == c ? const Icon(Icons.check, size: 16, color: Colors.white) : null,
+                                ),
+                              )).toList(),
+                            ),
+                            const SizedBox(height: 16),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                icon: const Icon(Icons.qr_code_scanner, size: 18),
+                                label: const Text('Join Mesh Session', style: TextStyle(fontWeight: FontWeight.bold)),
+                                style: ElevatedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                                onPressed: () async {
+                                  final config = MeshSessionConfig.fromUri(uriCtrl.text.trim());
+                                  if (config == null) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Invalid activitymapper:// mesh URI')),
+                                    );
+                                    return;
+                                  }
+
+                                  await P2pMeshService.instance.joinSession(
+                                    config: config,
+                                    username: userCtrl.text.trim(),
+                                    colorValue: selectedColor,
+                                  );
+
+                                  if (dCtx.mounted) {
+                                    Navigator.pop(dCtx);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('Joined ${config.sessionName} mesh!')),
+                                    );
+                                  }
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dCtx),
+                    child: const Text('Cancel'),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   String _formatDuration(Duration d) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
     final hours = d.inHours;
@@ -1040,6 +1246,20 @@ class _SetupScreenState extends State<SetupScreen> {
         elevation: 0,
         centerTitle: false,
         actions: [
+          if (!widget.isOfflineOnly)
+            IconButton(
+              icon: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.green.withOpacity(0.3)),
+                ),
+                child: const Icon(Icons.wifi_tethering, size: 20, color: Colors.greenAccent),
+              ),
+              tooltip: 'P2P Mesh Group Ride',
+              onPressed: () => _showMeshSessionDialog(context),
+            ),
           IconButton(
             icon: Container(
               padding: const EdgeInsets.all(8),
