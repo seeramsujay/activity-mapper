@@ -21,7 +21,7 @@ class MeshRadarHudWidget extends StatelessWidget {
         final count = activeTeammates.length;
 
         return Positioned(
-          top: 100,
+          top: 80,
           right: 16,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -30,17 +30,17 @@ class MeshRadarHudWidget extends StatelessWidget {
               GestureDetector(
                 onTap: () => _showMeshTeammatesSheet(context),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.85),
+                    color: Colors.black.withValues(alpha: 0.85),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: count > 0 ? Colors.green : Colors.amber,
-                      width: 1.5,
+                      color: count > 0 ? const Color(0xFF10B981) : Colors.amber,
+                      width: 1.2,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withOpacity(0.3),
+                        color: Colors.black.withValues(alpha: 0.25),
                         blurRadius: 6,
                       ),
                     ],
@@ -49,55 +49,56 @@ class MeshRadarHudWidget extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Container(
-                        width: 8,
-                        height: 8,
+                        width: 7,
+                        height: 7,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: count > 0 ? Colors.greenAccent : Colors.amberAccent,
+                          color: count > 0 ? const Color(0xFF10B981) : Colors.amber,
                         ),
                       ),
-                      const SizedBox(width: 6),
+                      const SizedBox(width: 5),
                       Text(
-                        count > 0 ? '$count Active Teammate${count > 1 ? 's' : ''}' : 'Mesh Ready (0 Peers)',
+                        count > 0 ? '$count Online' : 'P2P Ready',
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 11,
+                          fontSize: 10.5,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                       const SizedBox(width: 4),
-                      const Icon(Icons.group, size: 14, color: Colors.white70),
+                      const Icon(Icons.people_alt_rounded, size: 13, color: Colors.white70),
                     ],
                   ),
                 ),
               ),
-              const SizedBox(height: 6),
-              // Live Teammate Status Chips
-              ...activeTeammates.take(3).map((t) => Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.75),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: t.color.withOpacity(0.8), width: 1.2),
+              if (count > 0 && count <= 2) ...[
+                const SizedBox(height: 4),
+                ...activeTeammates.map((t) => Padding(
+                  padding: const EdgeInsets.only(bottom: 3),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.75),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: t.color.withValues(alpha: 0.8), width: 1.0),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircleAvatar(
+                          radius: 4,
+                          backgroundColor: t.color,
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          t.username.isNotEmpty ? t.username : t.displayTag,
+                          style: const TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircleAvatar(
-                        radius: 5,
-                        backgroundColor: t.color,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        t.displayTag,
-                        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w600),
-                      ),
-                    ],
-                  ),
-                ),
-              )),
+                )),
+              ],
             ],
           ),
         );

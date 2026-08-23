@@ -194,7 +194,7 @@ class TileCacheService {
     );
 
     final client = HttpClient();
-    client.userAgent = 'ActivityMapper/1.0.0 (Offline Tracker; OpenSource)';
+    client.userAgent = 'TurnBack-ActivityMapper/1.0.0 (Android; org.opensource.tracker; contact@turnback.app)';
     client.connectionTimeout = const Duration(seconds: 10);
 
     final baseDir = await cacheDirectory;

@@ -910,11 +910,10 @@ class _HudScreenState extends State<HudScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Top App Bar: Minimalist Back & Map Layer Switch (Leaves maximum vertical space)
+                    // Top App Bar: Minimalist Back, Active Run Indicator & Map Layer Switch
                     Padding(
                       padding: const EdgeInsets.only(left: 14.0, right: 14.0, top: 4.0, bottom: 2.0),
                       child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           IconButton(
                             padding: EdgeInsets.zero,
@@ -922,26 +921,43 @@ class _HudScreenState extends State<HudScreen> {
                             icon: Icon(Icons.arrow_back_ios_new, size: 16, color: textColor),
                             onPressed: () => Navigator.pop(context),
                           ),
-                          if (_isPaused)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: Colors.amber.withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
-                              ),
-                              child: const Row(
-                                mainAxisSize: MainAxisSize.min,
+                          const SizedBox(width: 8),
+                          // Active Run Status Indicator
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Row(
                                 children: [
-                                  Icon(Icons.pause_circle_filled, size: 12, color: Colors.amber),
-                                  SizedBox(width: 4),
+                                  Container(
+                                    width: 7,
+                                    height: 7,
+                                    decoration: BoxDecoration(
+                                      color: _isPaused ? Colors.amber : const Color(0xFF10B981),
+                                      shape: BoxShape.circle,
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: (_isPaused ? Colors.amber : const Color(0xFF10B981)).withValues(alpha: 0.5),
+                                          blurRadius: 4,
+                                          spreadRadius: 1,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
                                   Text(
-                                    'SESSION PAUSED',
-                                    style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w900, color: Colors.amber, letterSpacing: 0.5),
+                                    '${widget.activityType.toUpperCase()} #${widget.sessionId}',
+                                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12.5, color: textColor, letterSpacing: 0.8),
                                   ),
                                 ],
                               ),
-                            ),
+                              Text(
+                                _isPaused ? 'PAUSED' : 'LIVE GPS ACTIVE',
+                                style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5)),
+                              ),
+                            ],
+                          ),
+                          const Spacer(),
                           // Map layer toggle
                           IconButton(
                             padding: EdgeInsets.zero,
@@ -1476,80 +1492,122 @@ class _HudScreenState extends State<HudScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 2x2 Metric Grid
-          Expanded(
-            flex: 5,
+          // Single-Row Primary Metric Strip (Pace/Speed + Avg Speed + Total Distance)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14.0, vertical: 8.0),
+            decoration: BoxDecoration(
+              color: cardBg,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: borderColor, width: 1.2),
+            ),
             child: Row(
               children: [
-                // Column 1: Speed/Pace + Total Distance
+                // Left: Pace / Current Speed + Avg Speed below
                 Expanded(
+                  flex: 5,
+                  child: GestureDetector(
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() => _isSpeedMode = !_isSpeedMode);
+                    },
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(Icons.speed_rounded, size: 12, color: accentColor),
+                            const SizedBox(width: 4),
+                            Text(
+                              _isSpeedMode ? 'SPEED [TAP]' : 'PACE [TAP]',
+                              style: TextStyle(
+                                fontSize: 8.5,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.5,
+                                color: textColor.withValues(alpha: 0.55),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            _formatSpeedOrPace(_currentSpeed),
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                              color: textColor,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 1),
+                        Text(
+                          _isSpeedMode
+                              ? 'AVG: ${(_avgSpeed * 3.6).toStringAsFixed(1)} km/h'
+                              : 'AVG: ${_formatSpeedOrPace(_avgSpeed)}',
+                          style: TextStyle(
+                            fontSize: 10.0,
+                            fontWeight: FontWeight.w800,
+                            color: accentColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // Vertical Divider
+                Container(
+                  height: 44,
+                  width: 1.0,
+                  margin: const EdgeInsets.symmetric(horizontal: 10),
+                  color: borderColor,
+                ),
+
+                // Right: Total Distance
+                Expanded(
+                  flex: 4,
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Speed/Pace
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            setState(() => _isSpeedMode = !_isSpeedMode);
-                          },
-                          child: _buildMetricTile(
-                            label: _isSpeedMode ? 'SPEED (KM/H) [TAP]' : 'PACE (MIN/KM) [TAP]',
-                            value: _formatSpeedOrPace(_currentSpeed),
-                            icon: Icons.speed,
-                            textColor: textColor,
-                            cardBg: cardBg,
-                            borderColor: borderColor,
-                            accentColor: accentColor,
+                      Row(
+                        children: [
+                          const Icon(Icons.straighten_rounded, size: 12, color: Color(0xFF3B82F6)),
+                          const SizedBox(width: 4),
+                          Text(
+                            'DISTANCE',
+                            style: TextStyle(
+                              fontSize: 8.5,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.5,
+                              color: textColor.withValues(alpha: 0.55),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          '${_distanceKm.toStringAsFixed(2)} km',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                            color: textColor,
                           ),
                         ),
                       ),
-                      const SizedBox(height: 6),
-                      // Distance
-                      Expanded(
-                        child: _buildMetricTile(
-                          label: 'TOTAL DISTANCE',
-                          value: '${_distanceKm.toStringAsFixed(2)} km',
-                          icon: Icons.straighten,
-                          textColor: textColor,
-                          cardBg: cardBg,
-                          borderColor: borderColor,
-                          accentColor: const Color(0xFF3B82F6),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 6),
-
-                // Column 2: Elevation + Average Pace
-                Expanded(
-                  child: Column(
-                    children: [
-                      // Elevation / Gain
-                      Expanded(
-                        child: _buildMetricTile(
-                          label: 'ALTITUDE / GAIN',
-                          value: '${_altitude.toStringAsFixed(0)}m (+${_totalAscent.toStringAsFixed(0)}m)',
-                          icon: Icons.terrain,
-                          textColor: textColor,
-                          cardBg: cardBg,
-                          borderColor: borderColor,
-                          accentColor: const Color(0xFF10B981),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      // Average Pace / Speed
-                      Expanded(
-                        child: _buildMetricTile(
-                          label: _isSpeedMode ? 'AVG SPEED' : 'AVG PACE',
-                          value: _isSpeedMode
-                              ? '${(_avgSpeed * 3.6).toStringAsFixed(1)} km/h'
-                              : _formatSpeedOrPace(_avgSpeed),
-                          icon: Icons.trending_up,
-                          textColor: textColor,
-                          cardBg: cardBg,
-                          borderColor: borderColor,
-                          accentColor: const Color(0xFF8B5CF6),
+                      const SizedBox(height: 1),
+                      Text(
+                        'ACTIVE MOVING',
+                        style: TextStyle(
+                          fontSize: 9.0,
+                          fontWeight: FontWeight.w700,
+                          color: textColor.withValues(alpha: 0.5),
                         ),
                       ),
                     ],
@@ -1560,9 +1618,8 @@ class _HudScreenState extends State<HudScreen> {
           ),
           const SizedBox(height: 6),
 
-          // Mini Map Container with Expand to Fullscreen Action
+          // Mini Map Container (Expands into remaining vertical space)
           Expanded(
-            flex: 4,
             child: Container(
               decoration: BoxDecoration(
                 color: cardBg,

@@ -524,7 +524,12 @@ class _CachedTileImageState extends State<_CachedTileImage> {
 
     return Image(
       image: ResizeImage(
-        NetworkImage(widget.url),
+        NetworkImage(
+          widget.url,
+          headers: const {
+            'User-Agent': 'TurnBack-ActivityMapper/1.0.0 (Android; org.opensource.tracker; contact@turnback.app)',
+          },
+        ),
         width: 256,
         height: 256,
       ),
@@ -544,7 +549,7 @@ class _CachedTileImageState extends State<_CachedTileImage> {
   void _cacheNetworkTile() async {
     try {
       final client = HttpClient();
-      client.userAgent = 'ActivityMapper/1.0.0 (Offline Tracker)';
+      client.userAgent = 'TurnBack-ActivityMapper/1.0.0 (Android; org.opensource.tracker; contact@turnback.app)';
       final request = await client.getUrl(Uri.parse(widget.url));
       final response = await request.close();
       if (response.statusCode == 200) {
