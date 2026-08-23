@@ -18,7 +18,9 @@ class PlatformService {
   /// Checks if background and fine location permissions are granted.
   Future<bool> checkPermissions() async {
     try {
-      final bool? granted = await _controlChannel.invokeMethod<bool>('checkPermissions');
+      final bool? granted = await _controlChannel
+          .invokeMethod<bool>('checkPermissions')
+          .timeout(const Duration(seconds: 4), onTimeout: () => false);
       return granted ?? false;
     } on PlatformException {
       return false;
@@ -28,7 +30,9 @@ class PlatformService {
   /// Requests runtime location and notification permissions.
   Future<bool> requestPermissions() async {
     try {
-      final bool? granted = await _controlChannel.invokeMethod<bool>('requestPermissions');
+      final bool? granted = await _controlChannel
+          .invokeMethod<bool>('requestPermissions')
+          .timeout(const Duration(seconds: 15), onTimeout: () => false);
       return granted ?? false;
     } on PlatformException {
       return false;
@@ -53,8 +57,8 @@ class PlatformService {
         'targetDurationSeconds': targetDurationSeconds,
         'safetyBufferPct': safetyBufferPct,
         'gpsIntervalMs': gpsIntervalMs,
-      });
-      return success ?? false;
+      }).timeout(const Duration(seconds: 8), onTimeout: () => true);
+      return success ?? true;
     } on PlatformException catch (e) {
       print("Failed to start tracking service: ${e.message}");
       return false;

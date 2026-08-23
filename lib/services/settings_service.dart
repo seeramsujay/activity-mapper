@@ -1,4 +1,7 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 
 enum AppThemeMode {
   softNight,
@@ -87,23 +90,127 @@ class SettingsService extends ChangeNotifier {
   bool get showHudMediaController => _showHudMediaController;
   bool get autoPauseCyclingMusic => _autoPauseCyclingMusic;
 
+  Future<File> _getSettingsFile() async {
+    final dir = await getApplicationDocumentsDirectory();
+    return File('${dir.path}/settings.json');
+  }
+
+  /// Loads persisted settings from disk on app launch.
+  Future<void> loadSettings() async {
+    try {
+      final file = await _getSettingsFile();
+      if (await file.exists()) {
+        final content = await file.readAsString();
+        final map = jsonDecode(content) as Map<String, dynamic>;
+        if (map.containsKey('themeMode')) {
+          _themeMode = AppThemeMode.values.firstWhere(
+            (e) => e.name == map['themeMode'],
+            orElse: () => AppThemeMode.softNight,
+          );
+        }
+        if (map.containsKey('accentColor')) {
+          _accentColor = AccentColorChoice.values.firstWhere(
+            (e) => e.name == map['accentColor'],
+            orElse: () => AccentColorChoice.emberOrange,
+          );
+        }
+        if (map.containsKey('recordProfile')) {
+          _recordProfile = RecordProfile.values.firstWhere(
+            (e) => e.name == map['recordProfile'],
+            orElse: () => RecordProfile.general,
+          );
+        }
+        if (map.containsKey('coordFormat')) {
+          _coordFormat = CoordFormat.values.firstWhere(
+            (e) => e.name == map['coordFormat'],
+            orElse: () => CoordFormat.decimal,
+          );
+        }
+        if (map.containsKey('chartXAxis')) {
+          _chartXAxis = ChartXAxis.values.firstWhere(
+            (e) => e.name == map['chartXAxis'],
+            orElse: () => ChartXAxis.distance,
+          );
+        }
+        _gpsSamplingRateMs = map['gpsSamplingRateMs'] ?? _gpsSamplingRateMs;
+        _minDistanceFilter = (map['minDistanceFilter'] as num?)?.toDouble() ?? _minDistanceFilter;
+        _maxAccuracyFilter = (map['maxAccuracyFilter'] as num?)?.toDouble() ?? _maxAccuracyFilter;
+        _extraFiltering = map['extraFiltering'] ?? _extraFiltering;
+        _autoMarkStops = map['autoMarkStops'] ?? _autoMarkStops;
+        _confirmStopRecording = map['confirmStopRecording'] ?? _confirmStopRecording;
+        _hapticsEnabled = map['hapticsEnabled'] ?? _hapticsEnabled;
+        _audioAlarmsEnabled = map['audioAlarmsEnabled'] ?? _audioAlarmsEnabled;
+        _useImperialUnits = map['useImperialUnits'] ?? _useImperialUnits;
+        _mapTileSource = map['mapTileSource'] ?? _mapTileSource;
+        _showHudMediaController = map['showHudMediaController'] ?? _showHudMediaController;
+        _autoPauseCyclingMusic = map['autoPauseCyclingMusic'] ?? _autoPauseCyclingMusic;
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint("Error loading settings: $e");
+    }
+  }
+
+  Future<void> _saveSettings() async {
+    try {
+      final file = await _getSettingsFile();
+      final map = {
+        'themeMode': _themeMode.name,
+        'accentColor': _accentColor.name,
+        'recordProfile': _recordProfile.name,
+        'coordFormat': _coordFormat.name,
+        'chartXAxis': _chartXAxis.name,
+        'gpsSamplingRateMs': _gpsSamplingRateMs,
+        'minDistanceFilter': _minDistanceFilter,
+        'maxAccuracyFilter': _maxAccuracyFilter,
+        'extraFiltering': _extraFiltering,
+        'autoMarkStops': _autoMarkStops,
+        'confirmStopRecording': _confirmStopRecording,
+        'hapticsEnabled': _hapticsEnabled,
+        'audioAlarmsEnabled': _audioAlarmsEnabled,
+        'useImperialUnits': _useImperialUnits,
+        'mapTileSource': _mapTileSource,
+        'showHudMediaController': _showHudMediaController,
+        'autoPauseCyclingMusic': _autoPauseCyclingMusic,
+      };
+      await file.writeAsString(jsonEncode(map), flush: true);
+    } catch (e) {
+      debugPrint("Error saving settings: $e");
+    }
+  }
+
+  bool isLightMode(BuildContext context) {
+    if (_themeMode == AppThemeMode.light || _themeMode == AppThemeMode.highContrastDaylight) {
+      return true;
+    }
+    if (_themeMode == AppThemeMode.system) {
+      final Brightness systemBrightness = MediaQuery.maybeOf(context)?.platformBrightness ?? Brightness.dark;
+      return systemBrightness == Brightness.light;
+    }
+    return false;
+  }
+
   void setShowHudMediaController(bool enabled) {
     _showHudMediaController = enabled;
+    _saveSettings();
     notifyListeners();
   }
 
   void setAutoPauseCyclingMusic(bool enabled) {
     _autoPauseCyclingMusic = enabled;
+    _saveSettings();
     notifyListeners();
   }
 
   void setThemeMode(AppThemeMode mode) {
     _themeMode = mode;
+    _saveSettings();
     notifyListeners();
   }
 
   void setAccentColor(AccentColorChoice choice) {
     _accentColor = choice;
+    _saveSettings();
     notifyListeners();
   }
 
@@ -112,66 +219,79 @@ class SettingsService extends ChangeNotifier {
     _gpsSamplingRateMs = profile.intervalMs;
     _minDistanceFilter = profile.minDistanceMeters;
     _maxAccuracyFilter = profile.maxAccuracyMeters;
+    _saveSettings();
     notifyListeners();
   }
 
   void setCoordFormat(CoordFormat format) {
     _coordFormat = format;
+    _saveSettings();
     notifyListeners();
   }
 
   void setChartXAxis(ChartXAxis axis) {
     _chartXAxis = axis;
+    _saveSettings();
     notifyListeners();
   }
 
   void setGpsSamplingRate(int ms) {
     _gpsSamplingRateMs = ms;
+    _saveSettings();
     notifyListeners();
   }
 
   void setMinDistanceFilter(double meters) {
     _minDistanceFilter = meters;
+    _saveSettings();
     notifyListeners();
   }
 
   void setMaxAccuracyFilter(double meters) {
     _maxAccuracyFilter = meters;
+    _saveSettings();
     notifyListeners();
   }
 
   void setExtraFiltering(bool enabled) {
     _extraFiltering = enabled;
+    _saveSettings();
     notifyListeners();
   }
 
   void setAutoMarkStops(bool enabled) {
     _autoMarkStops = enabled;
+    _saveSettings();
     notifyListeners();
   }
 
   void setConfirmStopRecording(bool enabled) {
     _confirmStopRecording = enabled;
+    _saveSettings();
     notifyListeners();
   }
 
   void setHapticsEnabled(bool enabled) {
     _hapticsEnabled = enabled;
+    _saveSettings();
     notifyListeners();
   }
 
   void setAudioAlarmsEnabled(bool enabled) {
     _audioAlarmsEnabled = enabled;
+    _saveSettings();
     notifyListeners();
   }
 
   void setUseImperialUnits(bool imperial) {
     _useImperialUnits = imperial;
+    _saveSettings();
     notifyListeners();
   }
 
   void setMapTileSource(String url) {
     _mapTileSource = url;
+    _saveSettings();
     notifyListeners();
   }
 

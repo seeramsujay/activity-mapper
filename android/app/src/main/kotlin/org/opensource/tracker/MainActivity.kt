@@ -33,12 +33,7 @@ class MainActivity : FlutterActivity() {
     private fun hasLocationPermissions(): Boolean {
         val fineLocation = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val coarseLocation = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        val notification = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        } else {
-            true
-        }
-        return (fineLocation || coarseLocation) && notification
+        return fineLocation || coarseLocation
     }
 
     private fun requestRequiredPermissions() {
@@ -47,7 +42,10 @@ class MainActivity : FlutterActivity() {
             Manifest.permission.ACCESS_COARSE_LOCATION
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+            val notifGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            if (!notifGranted) {
+                permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
         }
         ActivityCompat.requestPermissions(this, permissions.toTypedArray(), PERMISSION_REQUEST_CODE)
     }
@@ -55,8 +53,8 @@ class MainActivity : FlutterActivity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == PERMISSION_REQUEST_CODE) {
-            val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
-            if (granted) {
+            val locationGranted = hasLocationPermissions()
+            if (locationGranted) {
                 pendingStartTrackingCall?.invoke()
             } else {
                 pendingResult?.error("PERMISSION_DENIED", "Location permissions are required for GPS tracking", null)

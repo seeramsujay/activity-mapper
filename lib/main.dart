@@ -11,11 +11,12 @@ void main() async {
   
   Map<String, dynamic>? activeSession;
   try {
+    await SettingsService.instance.loadSettings();
     final dbHelper = DbService.instance;
     await dbHelper.database;
     activeSession = await dbHelper.getActiveSession();
   } catch (e, stack) {
-    debugPrint("Startup DB initialization error: $e\n$stack");
+    debugPrint("Startup initialization error: $e\n$stack");
   }
   
   runApp(TurnBackApp(recoveredSession: activeSession));
@@ -33,11 +34,13 @@ class TurnBackApp extends StatelessWidget {
       animation: SettingsService.instance,
       builder: (context, _) {
         final currentTheme = SettingsService.instance.getThemeData(context);
+        final isLight = SettingsService.instance.isLightMode(context);
+
         return MaterialApp(
           title: 'TurnBack',
           theme: currentTheme,
           darkTheme: currentTheme,
-          themeMode: ThemeMode.dark,
+          themeMode: isLight ? ThemeMode.light : ThemeMode.dark,
           home: const SetupScreen(),
           routes: {
             '/setup': (context) => const SetupScreen(),

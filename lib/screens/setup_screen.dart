@@ -833,18 +833,40 @@ class _SetupScreenState extends State<SetupScreen> {
     setState(() => _isLaunching = true);
 
     try {
+      // 1. Verify Location Permissions
+      final hasPermission = await PlatformService.instance.checkPermissions();
+      if (!hasPermission) {
+        final granted = await PlatformService.instance.requestPermissions();
+        if (!granted) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Location permission is required for GPS tracking.'),
+                backgroundColor: Color(0xFFEF4444),
+              ),
+            );
+          }
+          return;
+        }
+      }
+
+      // 2. Dismiss modal bottom sheet
+      if (Navigator.canPop(modalContext)) {
+        Navigator.pop(modalContext);
+      }
+
       final dbHelper = DbService.instance;
       final bool isFreeRun = _activityType == 'freerun';
       final int targetSeconds = isFreeRun ? 0 : _targetDurationMinutes * 60;
       
-      // 1. Create SQLite Tracking Instance
+      // 3. Create SQLite Tracking Instance
       final int sessionId = await dbHelper.createSession(
         activityType: _activityType,
         targetDurationSeconds: targetSeconds,
         safetyBufferPct: _safetyBufferPct,
       );
 
-      // 2. Start Native Background Service Location Channel (Kotlin)
+      // 4. Start Native Background Service Location Channel (Kotlin)
       final bool startSuccess = await PlatformService.instance.startTracking(
         sessionId: sessionId,
         activityType: _activityType,
@@ -854,8 +876,6 @@ class _SetupScreenState extends State<SetupScreen> {
       );
 
       if (startSuccess && mounted) {
-        Navigator.pop(modalContext); // Close modal sheet
-        
         Navigator.push(
           context,
           MaterialPageRoute(
