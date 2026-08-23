@@ -761,7 +761,7 @@ class _SetupScreenState extends State<SetupScreen> {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                         elevation: 0,
                       ),
-                      onPressed: _isLaunching ? null : () => _launchSession(context),
+                      onPressed: _isLaunching ? null : () => _launchSession(context, setModalState),
                       child: _isLaunching
                           ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5))
                           : const Row(
@@ -829,11 +829,17 @@ class _SetupScreenState extends State<SetupScreen> {
     );
   }
 
-  Future<void> _launchSession(BuildContext modalContext) async {
+  Future<void> _launchSession(BuildContext modalContext, [StateSetter? setModalState]) async {
+    if (setModalState != null) setModalState(() => _isLaunching = true);
     setState(() => _isLaunching = true);
 
     try {
-      // 1. Verify Location Permissions
+      // 1. Dismiss modal bottom sheet FIRST so UI stays responsive
+      if (Navigator.canPop(modalContext)) {
+        Navigator.pop(modalContext);
+      }
+
+      // 2. Verify Location Permissions
       final hasPermission = await PlatformService.instance.checkPermissions();
       if (!hasPermission) {
         final granted = await PlatformService.instance.requestPermissions();
@@ -848,11 +854,6 @@ class _SetupScreenState extends State<SetupScreen> {
           }
           return;
         }
-      }
-
-      // 2. Dismiss modal bottom sheet
-      if (Navigator.canPop(modalContext)) {
-        Navigator.pop(modalContext);
       }
 
       final dbHelper = DbService.instance;
@@ -899,7 +900,10 @@ class _SetupScreenState extends State<SetupScreen> {
         );
       }
     } finally {
-      if (mounted) setState(() => _isLaunching = false);
+      if (mounted) {
+        if (setModalState != null) setModalState(() => _isLaunching = false);
+        setState(() => _isLaunching = false);
+      }
     }
   }
 

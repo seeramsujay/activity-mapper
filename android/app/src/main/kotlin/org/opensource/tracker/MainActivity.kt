@@ -55,7 +55,11 @@ class MainActivity : FlutterActivity() {
         if (requestCode == PERMISSION_REQUEST_CODE) {
             val locationGranted = hasLocationPermissions()
             if (locationGranted) {
-                pendingStartTrackingCall?.invoke()
+                if (pendingStartTrackingCall != null) {
+                    pendingStartTrackingCall?.invoke()
+                } else {
+                    pendingResult?.success(true)
+                }
             } else {
                 pendingResult?.error("PERMISSION_DENIED", "Location permissions are required for GPS tracking", null)
             }
