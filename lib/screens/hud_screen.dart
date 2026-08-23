@@ -1098,7 +1098,6 @@ class _HudScreenState extends State<HudScreen> {
                                   _activeTargetDuration = Duration(seconds: (_elapsed.inSeconds * 2.0).toInt());
                                   _turnBackTriggered = true;
                                 });
-                                PlatformService.instance.triggerTurnBackAlert(activityType: widget.activityType);
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
                                     content: Text('RETURN INITIATED! Inbound countdown active.'),
@@ -1476,13 +1475,13 @@ class _HudScreenState extends State<HudScreen> {
   }) {
     final isDark = brightness == Brightness.dark;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 2.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // 2x2 Metric Grid
           Expanded(
-            flex: 3,
+            flex: 5,
             child: Row(
               children: [
                 // Column 1: Speed/Pace + Total Distance
@@ -1507,7 +1506,7 @@ class _HudScreenState extends State<HudScreen> {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 6),
                       // Distance
                       Expanded(
                         child: _buildMetricTile(
@@ -1523,7 +1522,7 @@ class _HudScreenState extends State<HudScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
 
                 // Column 2: Elevation + Average Pace
                 Expanded(
@@ -1541,7 +1540,7 @@ class _HudScreenState extends State<HudScreen> {
                           accentColor: const Color(0xFF10B981),
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 6),
                       // Average Pace / Speed
                       Expanded(
                         child: _buildMetricTile(
@@ -1562,16 +1561,16 @@ class _HudScreenState extends State<HudScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
 
           // Mini Map Container with Expand to Fullscreen Action
           Expanded(
-            flex: 3,
+            flex: 4,
             child: Container(
               decoration: BoxDecoration(
                 color: cardBg,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: borderColor, width: 1.5),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: borderColor, width: 1.2),
               ),
               clipBehavior: Clip.antiAlias,
               child: Stack(
@@ -1582,7 +1581,7 @@ class _HudScreenState extends State<HudScreen> {
                     showOsmTiles: _showOsmTiles,
                     brightness: brightness,
                   ),
-                  // Fullscreen Trigger Button (Top Right)
+                  // Floating Fullscreen Expand Pill
                   Positioned(
                     top: 8,
                     right: 8,
@@ -1592,9 +1591,9 @@ class _HudScreenState extends State<HudScreen> {
                         setState(() => _isMapFullScreen = true);
                       },
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.9),
+                          color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.85),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: borderColor),
                         ),
@@ -1602,8 +1601,8 @@ class _HudScreenState extends State<HudScreen> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(Icons.fullscreen_rounded, size: 16),
-                            SizedBox(width: 4),
-                            Text('EXPAND', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 0.6)),
+                            SizedBox(width: 3),
+                            Text('EXPAND', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w900, letterSpacing: 0.5)),
                           ],
                         ),
                       ),
@@ -1756,43 +1755,49 @@ class _HudScreenState extends State<HudScreen> {
   }) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14.0),
+      padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 6.0),
       decoration: BoxDecoration(
         color: cardBg,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: borderColor, width: 1.5),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: borderColor, width: 1.2),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             children: [
-              Icon(icon, size: 12, color: accentColor),
+              Icon(icon, size: 11, color: accentColor),
               const SizedBox(width: 4),
               Expanded(
                 child: Text(
                   label,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 9,
+                    fontSize: 8.5,
                     fontWeight: FontWeight.w800,
-                    letterSpacing: 0.5,
+                    letterSpacing: 0.4,
                     color: textColor.withValues(alpha: 0.55),
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 4),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              value,
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.w900,
-                color: textColor,
+          const SizedBox(height: 2),
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                value,
+                maxLines: 1,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w900,
+                  color: textColor,
+                ),
               ),
             ),
           ),
@@ -1831,10 +1836,20 @@ class _HudScreenState extends State<HudScreen> {
                 _buildStatsRow('Max Speed Recorded', '${(_maxSpeed * 3.6).toStringAsFixed(1)} km/h', textColor),
                 const SizedBox(height: 16),
                 _buildStatsHeader('ELEVATION GAIN & PROFILE', textColor),
-                _buildStatsRow('Total Ascent (+)', '${_totalAscent.toStringAsFixed(1)} m', textColor),
-                _buildStatsRow('Total Descent (-)', '${_totalDescent.toStringAsFixed(1)} m', textColor),
-                _buildStatsRow('Max Elevation Height', _maxAltitude == -double.maxFinite ? '0.0 m' : '${_maxAltitude.toStringAsFixed(1)} m', textColor),
-                _buildStatsRow('Min Elevation Height', _minAltitude == double.maxFinite ? '0.0 m' : '${_minAltitude.toStringAsFixed(1)} m', textColor),
+                _buildStatsRow('Current Altitude', '${_altitude.toStringAsFixed(0)} m', textColor),
+                _buildStatsRow('Total Ascent Gain', '+${_totalAscent.toStringAsFixed(0)} m', textColor),
+                _buildStatsRow('Max Elevation Reached', '${_maxAltitude.toStringAsFixed(0)} m', textColor),
+                _buildStatsRow('Min Elevation Recorded', '${_minAltitude == 99999.0 ? 0 : _minAltitude.toStringAsFixed(0)} m', textColor),
+                const SizedBox(height: 16),
+                _buildStatsHeader('GPS TELEMETRY ACCURACY', textColor),
+                _buildStatsRow('Current Signal Accuracy', '±${_accuracy.toStringAsFixed(1)} m', textColor),
+                _buildStatsRow('Total Clean Breadcrumbs', '${_points.length} points', textColor),
+                _buildStatsRow('Sampling Rate Profile', '${SettingsService.instance.gpsSamplingRateMs} ms', textColor),
+                const SizedBox(height: 16),
+                _buildStatsHeader('OUT-AND-BACK TURNAROUND', textColor),
+                _buildStatsRow('Target Session Goal', widget.isFreeRun ? 'Free Run (Dynamic)' : '${widget.targetDuration.inMinutes} minutes', textColor),
+                _buildStatsRow('Safety Buffer Margin', '${widget.safetyBufferPct.toStringAsFixed(0)}%', textColor),
+                _buildStatsRow('Turn-Around Status', _turnBackTriggered ? 'TRIGGERED (Returning)' : 'Outbound Tracking', textColor),
               ],
             ),
           ),
@@ -1871,108 +1886,78 @@ class _HudScreenState extends State<HudScreen> {
   }
 
   // --------------------------------------------------------------------------
-  // BOTTOM ACTION BAR (Media Player, BLE Sensors, Pause / Resume / Finish)
+  // BOTTOM ACTION BAR (BLE Sensors, Pause / Resume / Finish)
   // --------------------------------------------------------------------------
   Widget _buildBottomControlBar(Color textColor, Color scaffoldBg, Color cardBg, Color borderColor, Color accentColor) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
       decoration: BoxDecoration(
         color: cardBg,
         borderRadius: const BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
         border: Border(top: BorderSide(color: borderColor, width: 1.0)),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
         children: [
-          // Workout Media & BLE Sensor Floating Header
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                // In-HUD Glove-friendly Media Controller
-                if (SettingsService.instance.showHudMediaController)
-                  HudMediaController(
-                    brightness: Theme.of(context).brightness,
-                    accentColor: accentColor,
-                  ),
-
-                // BLE Heart Rate & Cadence Pill
-                GestureDetector(
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    if (BleSensorService.instance.isConnected) {
-                      BleSensorService.instance.disconnect();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('BLE Sensors Disconnected')),
-                      );
-                    } else {
-                      BleSensorService.instance.startSimulation();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('BLE Sensors Connected (Polar H10 Simulated)')),
-                      );
-                    }
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: (Theme.of(context).brightness == Brightness.dark ? const Color(0xFF1E232B) : const Color(0xFFF3F4F6)),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: _sensorData.isConnected ? const Color(0xFFEF4444) : borderColor,
-                        width: _sensorData.isConnected ? 1.4 : 1.0,
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.favorite,
-                          size: 13,
-                          color: _sensorData.isConnected ? const Color(0xFFEF4444) : textColor.withValues(alpha: 0.4),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          _sensorData.isConnected ? '${_sensorData.heartRateBpm} BPM' : 'BLE SENSOR',
-                          style: TextStyle(
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w900,
-                            color: _sensorData.isConnected ? const Color(0xFFEF4444) : textColor.withValues(alpha: 0.6),
-                          ),
-                        ),
-                        if (_sensorData.isConnected && _sensorData.cadenceRpm > 0) ...[
-                          const SizedBox(width: 6),
-                          Text('•', style: TextStyle(fontSize: 10, color: borderColor)),
-                          const SizedBox(width: 6),
-                          Text(
-                            '${_sensorData.cadenceRpm} RPM',
-                            style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w900, color: accentColor),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
+          // BLE Heart Rate & Cadence Indicator Pill
+          GestureDetector(
+            onTap: () {
+              HapticFeedback.selectionClick();
+              if (BleSensorService.instance.isConnected) {
+                BleSensorService.instance.disconnect();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('BLE Sensors Disconnected')),
+                );
+              } else {
+                BleSensorService.instance.startSimulation();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('BLE Sensors Connected (Polar H10 Simulated)')),
+                );
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+              decoration: BoxDecoration(
+                color: (Theme.of(context).brightness == Brightness.dark ? const Color(0xFF1E232B) : const Color(0xFFF3F4F6)),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: _sensorData.isConnected ? const Color(0xFFEF4444) : borderColor,
+                  width: _sensorData.isConnected ? 1.4 : 1.0,
                 ),
-              ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.favorite,
+                    size: 13,
+                    color: _sensorData.isConnected ? const Color(0xFFEF4444) : textColor.withValues(alpha: 0.4),
+                  ),
+                  if (_sensorData.isConnected) ...[
+                    const SizedBox(width: 4),
+                    Text(
+                      '${_sensorData.heartRateBpm}',
+                      style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w900, color: Color(0xFFEF4444)),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
+          const SizedBox(width: 8),
 
-          // Main Action Buttons
-          Row(
-            children: [
           // Pause / Resume Button
           Expanded(
             child: OutlinedButton.icon(
-              icon: Icon(_isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded, size: 22),
+              icon: Icon(_isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded, size: 18),
               label: Text(
                 _isPaused ? 'RESUME' : 'PAUSE',
-                style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.8, fontSize: 13),
+                style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.8, fontSize: 12.5),
               ),
               style: OutlinedButton.styleFrom(
                 foregroundColor: textColor,
-                side: BorderSide(color: borderColor, width: 1.5),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                padding: const EdgeInsets.symmetric(vertical: 14),
+                side: BorderSide(color: borderColor, width: 1.4),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(vertical: 10),
               ),
               onPressed: () {
                 HapticFeedback.heavyImpact();
@@ -1984,28 +1969,26 @@ class _HudScreenState extends State<HudScreen> {
               },
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
 
           // Finish & Save Button
           Expanded(
             child: ElevatedButton.icon(
-              icon: const Icon(Icons.stop_rounded, size: 22),
+              icon: const Icon(Icons.stop_rounded, size: 18),
               label: const Text(
                 'FINISH',
-                style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.8, fontSize: 13),
+                style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.8, fontSize: 12.5),
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFDC2626),
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(vertical: 10),
                 elevation: 0,
               ),
               onPressed: _showFinishConfirmDialog,
             ),
           ),
-        ],
-      ),
         ],
       ),
     );

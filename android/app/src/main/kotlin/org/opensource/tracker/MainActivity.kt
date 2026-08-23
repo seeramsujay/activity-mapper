@@ -190,26 +190,26 @@ class MainActivity : FlutterActivity() {
                         }
                     }
 
-                    // 2. Audio Tone: small alarm for cycling/running, none for walking
+                    // 2. Audio Tone: small distinct chime for cycling/running, none for walking (350ms duration)
                     if (!isWalking) {
                         try {
-                            val toneGenerator = ToneGenerator(AudioManager.STREAM_ALARM, if (isCycling) 85 else 100)
+                            val toneGenerator = ToneGenerator(AudioManager.STREAM_ALARM, if (isCycling) 75 else 85)
                             toneGenerator.startTone(
-                                if (isCycling) ToneGenerator.TONE_PROP_BEEP2 else ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD,
-                                3500
+                                if (isCycling) ToneGenerator.TONE_PROP_BEEP2 else ToneGenerator.TONE_PROP_BEEP,
+                                350
                             )
                         } catch (e: Exception) {
                             e.printStackTrace()
                         }
                     }
 
-                    // 3. Vibration pattern for all activities
+                    // 3. Crisp vibration pattern (single distinct turn-back alert)
                     try {
                         val vibrator = getSystemService(VIBRATOR_SERVICE) as? Vibrator
                         val pattern = if (isWalking) {
-                            longArrayOf(0, 600, 300, 600)
+                            longArrayOf(0, 400, 200, 400)
                         } else {
-                            longArrayOf(0, 800, 200, 800, 200, 800)
+                            longArrayOf(0, 350, 150, 350)
                         }
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                             vibrator?.vibrate(VibrationEffect.createWaveform(pattern, -1))
