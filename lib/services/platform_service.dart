@@ -74,6 +74,30 @@ class PlatformService {
     }
   }
 
+  /// Triggers the native activity-specific turn-back alarm (vibration, cycling music pause, audio tone).
+  Future<bool> triggerTurnBackAlert({required String activityType}) async {
+    try {
+      final bool? success = await _controlChannel.invokeMethod<bool>('triggerTurnBackAlert', {
+        'activityType': activityType,
+      });
+      return success ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  /// Launches Musicolet (or default system music player).
+  Future<bool> launchMusicApp([String packageName = 'in.krosbits.musicolet']) async {
+    try {
+      final bool? success = await _controlChannel.invokeMethod<bool>('launchMusicApp', {
+        'packageName': packageName,
+      });
+      return success ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
   /// Dispatches media control key events (play/pause, next, prev, volume) to system audio players.
   Future<bool> sendMediaAction(String action) async {
     try {

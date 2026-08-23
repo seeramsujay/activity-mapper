@@ -154,16 +154,64 @@ class BreadcrumbPainter extends CustomPainter {
     final Paint startCenterPaint = Paint()..color = Colors.white;
     canvas.drawCircle(startOff, 3.5, startCenterPaint);
 
-    // Draw Current Position with pulsing radar halo
+    // Draw Current Position with Sleek Directional Navigation Vector Puck
     final currentOff = toCanvasOffset(_renderPoints.last);
+    
+    // Calculate heading vector angle
+    double headingRad = 0.0;
+    if (_renderPoints.length >= 2) {
+      final prevOff = toCanvasOffset(_renderPoints[_renderPoints.length - 2]);
+      final double dx = currentOff.dx - prevOff.dx;
+      final double dy = currentOff.dy - prevOff.dy;
+      if (dx != 0 || dy != 0) {
+        headingRad = atan2(dy, dx);
+      }
+    }
+
+    // Outer pulsating radar halo
     final Paint haloPaint = Paint()..color = const Color(0xFFFF5722).withValues(alpha: 0.25);
-    canvas.drawCircle(currentOff, 14.0, haloPaint);
+    canvas.drawCircle(currentOff, 18.0, haloPaint);
 
-    final Paint currentBgPaint = Paint()..color = isDark ? Colors.white : Colors.black;
-    canvas.drawCircle(currentOff, 7.5, currentBgPaint);
+    // Draw Directional Navigation Vector Arrow
+    canvas.save();
+    canvas.translate(currentOff.dx, currentOff.dy);
+    canvas.rotate(headingRad + (pi / 2));
 
-    final Paint currentCenterPaint = Paint()..color = const Color(0xFFFF5722);
-    canvas.drawCircle(currentOff, 4.5, currentCenterPaint);
+    // Vector Arrow Path (Sleek Garmin / Jet-style arrowhead)
+    final Path arrowPath = Path()
+      ..moveTo(0, -14) // Tip
+      ..lineTo(9, 10)  // Bottom right
+      ..lineTo(0, 5)   // Inner notch
+      ..lineTo(-9, 10) // Bottom left
+      ..close();
+
+    // Arrow shadow
+    canvas.drawPath(
+      arrowPath,
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.35)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+    );
+
+    // Arrow white border
+    canvas.drawPath(
+      arrowPath,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.0
+        ..strokeJoin = StrokeJoin.round,
+    );
+
+    // Arrow vibrant accent core
+    canvas.drawPath(
+      arrowPath,
+      Paint()
+        ..color = const Color(0xFFFF4500)
+        ..style = PaintingStyle.fill,
+    );
+
+    canvas.restore();
   }
 
   @override
@@ -251,11 +299,58 @@ class TileBreadcrumbPainter extends CustomPainter {
     canvas.drawCircle(firstOff, 6.0, Paint()..color = const Color(0xFF10B981));
     canvas.drawCircle(firstOff, 3.0, Paint()..color = Colors.white);
 
-    // Current position circle
+    // Current position directional vector puck
     final lastOff = toPixelOffset(points.last);
-    canvas.drawCircle(lastOff, 12.0, Paint()..color = const Color(0xFFFF5722).withValues(alpha: 0.25));
-    canvas.drawCircle(lastOff, 7.0, Paint()..color = Colors.white);
-    canvas.drawCircle(lastOff, 4.0, Paint()..color = const Color(0xFFFF5722));
+    
+    // Calculate heading angle
+    double headingRad = 0.0;
+    if (points.length >= 2) {
+      final prevOff = toPixelOffset(points[points.length - 2]);
+      final double dx = lastOff.dx - prevOff.dx;
+      final double dy = lastOff.dy - prevOff.dy;
+      if (dx != 0 || dy != 0) {
+        headingRad = atan2(dy, dx);
+      }
+    }
+
+    // Outer radar ring
+    canvas.drawCircle(lastOff, 18.0, Paint()..color = const Color(0xFFFF5722).withValues(alpha: 0.25));
+
+    // Draw Rotated Navigation Vector Arrow
+    canvas.save();
+    canvas.translate(lastOff.dx, lastOff.dy);
+    canvas.rotate(headingRad + (pi / 2));
+
+    final Path arrowPath = Path()
+      ..moveTo(0, -14)
+      ..lineTo(9, 10)
+      ..lineTo(0, 5)
+      ..lineTo(-9, 10)
+      ..close();
+
+    // Shadow & border
+    canvas.drawPath(
+      arrowPath,
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.35)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+    );
+    canvas.drawPath(
+      arrowPath,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.0
+        ..strokeJoin = StrokeJoin.round,
+    );
+    canvas.drawPath(
+      arrowPath,
+      Paint()
+        ..color = const Color(0xFFFF4500)
+        ..style = PaintingStyle.fill,
+    );
+
+    canvas.restore();
   }
 
   @override

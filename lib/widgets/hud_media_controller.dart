@@ -4,7 +4,8 @@ import '../services/platform_service.dart';
 
 /// Compact, glove-friendly in-HUD media controller for active workouts.
 ///
-/// Dispatches native Android `KeyEvent` actions to active media players (Spotify, Musicolet, etc.).
+/// Dispatches native Android `KeyEvent` actions to active media players (Spotify, Musicolet, etc.)
+/// and allows one-tap opening of Musicolet or default media player.
 class HudMediaController extends StatefulWidget {
   final Brightness brightness;
   final Color accentColor;
@@ -31,6 +32,16 @@ class _HudMediaControllerState extends State<HudMediaController> {
     }
   }
 
+  void _openMusicApp() async {
+    HapticFeedback.mediumImpact();
+    final launched = await PlatformService.instance.launchMusicApp();
+    if (mounted && !launched) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No active music player found')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = widget.brightness == Brightness.dark;
@@ -40,7 +51,7 @@ class _HudMediaControllerState extends State<HudMediaController> {
 
     return Container(
       decoration: BoxDecoration(
-        color: cardBg.withValues(alpha: 0.92),
+        color: cardBg.withValues(alpha: 0.94),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: borderColor, width: 1.2),
         boxShadow: [
@@ -55,22 +66,26 @@ class _HudMediaControllerState extends State<HudMediaController> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Music icon / Toggle expander
+          // Music icon / Toggle expander (Long press opens Musicolet/Music app)
           GestureDetector(
             onTap: () {
               HapticFeedback.selectionClick();
               setState(() => _isExpanded = !_isExpanded);
             },
-            child: Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: widget.accentColor.withValues(alpha: 0.15),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                _isExpanded ? Icons.music_note : Icons.headphones,
-                size: 16,
-                color: widget.accentColor,
+            onLongPress: _openMusicApp,
+            child: Tooltip(
+              message: 'Tap: expand, Long-press: open Musicolet',
+              child: Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: widget.accentColor.withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  _isExpanded ? Icons.music_note : Icons.headphones_rounded,
+                  size: 16,
+                  color: widget.accentColor,
+                ),
               ),
             ),
           ),
@@ -81,6 +96,7 @@ class _HudMediaControllerState extends State<HudMediaController> {
             icon: Icons.skip_previous_rounded,
             onTap: () => _handleAction('previous'),
             textColor: textColor,
+            tooltip: 'Previous track',
           ),
 
           // Play / Pause
@@ -90,6 +106,7 @@ class _HudMediaControllerState extends State<HudMediaController> {
             color: widget.accentColor,
             onTap: () => _handleAction('play_pause'),
             textColor: widget.accentColor,
+            tooltip: _isPlaying ? 'Pause' : 'Play',
           ),
 
           // Next Track
@@ -97,6 +114,7 @@ class _HudMediaControllerState extends State<HudMediaController> {
             icon: Icons.skip_next_rounded,
             onTap: () => _handleAction('next'),
             textColor: textColor,
+            tooltip: 'Next track',
           ),
 
           if (_isExpanded) ...[
@@ -111,12 +129,22 @@ class _HudMediaControllerState extends State<HudMediaController> {
               icon: Icons.volume_down_rounded,
               onTap: () => _handleAction('volume_down'),
               textColor: textColor.withValues(alpha: 0.7),
+              tooltip: 'Volume down',
             ),
             // Volume Up
             _buildButton(
               icon: Icons.volume_up_rounded,
               onTap: () => _handleAction('volume_up'),
               textColor: textColor.withValues(alpha: 0.7),
+              tooltip: 'Volume up',
+            ),
+            // Open App Button
+            _buildButton(
+              icon: Icons.open_in_new_rounded,
+              onTap: _openMusicApp,
+              iconSize: 16,
+              textColor: widget.accentColor,
+              tooltip: 'Open Musicolet/Music app',
             ),
           ],
         ],
@@ -130,8 +158,9 @@ class _HudMediaControllerState extends State<HudMediaController> {
     required Color textColor,
     double iconSize = 20,
     Color? color,
+    String? tooltip,
   }) {
-    return InkWell(
+    final btn = InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Padding(
@@ -139,5 +168,11 @@ class _HudMediaControllerState extends State<HudMediaController> {
         child: Icon(icon, size: iconSize, color: color ?? textColor),
       ),
     );
+
+    if (tooltip != null) {
+      return Tooltip(message: tooltip, child: btn);
+    }
+    return btn;
   }
 }
+

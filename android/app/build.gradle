@@ -39,7 +39,7 @@ android {
         targetSdk 35
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
-        manifestPlaceholders = [appName: "TurnBack"]
+        manifestPlaceholders = [appName: "TurnBack", applicationName: "io.flutter.app.FlutterApplication"]
     }
 
     flavorDimensions "mode"

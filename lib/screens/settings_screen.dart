@@ -6,6 +6,7 @@ import '../services/ble_sensor_service.dart';
 import '../services/db_service.dart';
 import '../services/platform_service.dart';
 import '../services/tile_cache_service.dart';
+import 'offline_maps_screen.dart';
 
 /// Comprehensive application settings, themes, and map customization screen.
 class SettingsScreen extends StatefulWidget {
@@ -411,75 +412,125 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text('LOCAL OFFLINE TILE STORAGE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.6))),
+                          Text('OFFLINE MAPS DOWNLOAD (GOOGLE MAPS STYLE)', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.6))),
                           Text('$_cachedTileCount tiles (${(_cachedTileBytes / (1024 * 1024)).toStringAsFixed(1)} MB)',
                               style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: accentColor)),
                         ],
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        'Pre-cache full-resolution OpenStreetMap tiles around your workout area for 100% offline navigation in the backcountry with zero data lag.',
+                        'Download and manage custom offline map regions for 100% offline navigation in the backcountry without data or GPS lag.',
                         style: TextStyle(fontSize: 12, color: textColor.withValues(alpha: 0.7), height: 1.4),
                       ),
                       const SizedBox(height: 14),
 
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: accentColor,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                elevation: 0,
-                              ),
-                              onPressed: _isDownloadingTiles ? null : _showDownloadRegionDialog,
-                              icon: const Icon(Icons.download_rounded, size: 18),
-                              label: const Text(
-                                'DOWNLOAD AREA TILES',
-                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 0.6),
-                              ),
-                            ),
+                      InkWell(
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => const OfflineMapsScreen()),
+                          ).then((_) => _loadTileCacheStats());
+                        },
+                        borderRadius: BorderRadius.circular(14),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: accentColor.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: accentColor.withValues(alpha: 0.3)),
                           ),
-                          const SizedBox(width: 8),
-                          OutlinedButton.icon(
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: textColor,
-                              side: BorderSide(color: textColor.withValues(alpha: 0.2)),
-                              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                            onPressed: _cachedTileCount == 0
-                                ? null
-                                : () async {
-                                    HapticFeedback.mediumImpact();
-                                    await TileCacheService.instance.clearCache();
-                                    await _loadTileCacheStats();
-                                    if (mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('Offline Map Tile Cache Cleared')),
-                                      );
-                                    }
-                                  },
-                            icon: const Icon(Icons.delete_outline, size: 18),
-                            label: const Text('CLEAR', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900)),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(Icons.download_for_offline_rounded, color: accentColor, size: 22),
+                                  const SizedBox(width: 10),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text('Manage & Download Offline Maps', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: textColor)),
+                                      Text('Select custom areas, view packs & manage storage', style: TextStyle(fontSize: 10, color: textColor.withValues(alpha: 0.6))),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              Icon(Icons.arrow_forward_ios_rounded, size: 14, color: accentColor),
+                            ],
                           ),
-                        ],
+                        ),
                       ),
-
-                      if (_isDownloadingTiles) ...[
-                        const SizedBox(height: 12),
-                        LinearProgressIndicator(value: _downloadProgress, color: accentColor),
-                        const SizedBox(height: 6),
-                        Text(_downloadStatus, style: TextStyle(fontSize: 11, color: textColor.withValues(alpha: 0.7))),
-                      ],
                     ],
                   ),
                 ),
                 const SizedBox(height: 24),
 
-                // 4. BLE SENSORS & WEARABLES
+                // 4. MUSIC & MEDIA CONTROLLER INTEGRATION
+                _buildSectionHeader('MUSIC & MEDIA INTEGRATION', Icons.headphones_rounded, textColor),
+                Container(
+                  padding: const EdgeInsets.all(16.0),
+                  decoration: BoxDecoration(
+                    color: cardBg,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: textColor.withValues(alpha: 0.12), width: 1.2),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('IN-HUD & AUTOMATION CONTROLS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.6))),
+                      const SizedBox(height: 10),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text('Show In-HUD Media Controller', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: textColor)),
+                        subtitle: Text('Glove-friendly overlay for play/pause, skip, prev, and volume controls during workouts.', style: TextStyle(fontSize: 11, color: textColor.withValues(alpha: 0.6))),
+                        value: _settings.showHudMediaController,
+                        activeColor: accentColor,
+                        onChanged: (val) {
+                          HapticFeedback.selectionClick();
+                          _settings.setShowHudMediaController(val);
+                        },
+                      ),
+                      const Divider(height: 1),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text('Auto-Pause Music on Cycling Turn-Back', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: textColor)),
+                        subtitle: Text('Automatically pauses Musicolet / active audio player and sounds an audible chime when turnaround is reached while cycling.', style: TextStyle(fontSize: 11, color: textColor.withValues(alpha: 0.6))),
+                        value: _settings.autoPauseCyclingMusic,
+                        activeColor: accentColor,
+                        onChanged: (val) {
+                          HapticFeedback.selectionClick();
+                          _settings.setAutoPauseCyclingMusic(val);
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: cardBg,
+                          foregroundColor: textColor,
+                          side: BorderSide(color: textColor.withValues(alpha: 0.15)),
+                          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          elevation: 0,
+                        ),
+                        onPressed: () async {
+                          HapticFeedback.lightImpact();
+                          final launched = await PlatformService.instance.launchMusicApp();
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(launched ? 'Opened Music Player' : 'Could not find music player')),
+                            );
+                          }
+                        },
+                        icon: Icon(Icons.open_in_new_rounded, size: 16, color: accentColor),
+                        label: const Text('LAUNCH MUSIC PLAYER (MUSICOLET / SYSTEM)', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // 5. BLE SENSORS & WEARABLES
                 _buildSectionHeader('BLE SENSORS & WEARABLES', Icons.bluetooth_searching, textColor),
                 Container(
                   padding: const EdgeInsets.all(16.0),

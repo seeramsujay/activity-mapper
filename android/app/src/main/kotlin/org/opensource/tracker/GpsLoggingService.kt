@@ -214,45 +214,80 @@ class GpsLoggingService : Service(), LocationListener {
         )
 
         // Safety-critical Turn-Back calculation (Active Moving Time vs Outbound Limit)
-        val outboundLimitSeconds = (targetDurationSeconds * (100.0 - safetyBufferPct) / 200.0).toLong()
-        val elapsedSeconds = totalActiveMovingTimeMs / 1000
+        // Note: In Free Run mode (targetDurationSeconds <= 0), turn-back is initiated manually by the user
+        if (targetDurationSeconds > 0) {
+            val outboundLimitSeconds = (targetDurationSeconds * (100.0 - safetyBufferPct) / 200.0).toLong()
+            val elapsedSeconds = totalActiveMovingTimeMs / 1000
 
-        if (elapsedSeconds >= outboundLimitSeconds && !turnBackAlerted) {
-            turnBackAlerted = true
-            
-            // 1. Persist state natively to database
-            dbHelper.markTurnBackTriggered(sessionId, System.currentTimeMillis())
+            if (elapsedSeconds >= outboundLimitSeconds && !turnBackAlerted) {
+                turnBackAlerted = true
+                
+                // 1. Persist state natively to database
+                dbHelper.markTurnBackTriggered(sessionId, System.currentTimeMillis())
 
-            // 2. Play loud alarm beep (system alarm stream, 5-second CDMA alert tone)
-            try {
-                val toneGenerator = ToneGenerator(AudioManager.STREAM_ALARM, 100)
-                toneGenerator.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 5000)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+                val type = activityType.lowercase()
+                val isWalking = type.contains("walk") || type.contains("hike")
+                val isCycling = type.contains("ride") || type.contains("cycle") || type.contains("bike")
 
-            // 3. Trigger haptic pattern (Vibrate, pause, repeat)
-            try {
-                val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 800, 200, 800, 200, 800), -1))
-                } else {
-                    @Suppress("DEPRECATION")
-                    vibrator.vibrate(longArrayOf(0, 800, 200, 800, 200, 800), -1)
+                // 2. Cycling: Automatically stop/pause active music player
+                if (isCycling) {
+                    try {
+                        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+                        val downEvent = android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE)
+                        val upEvent = android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_MEDIA_PAUSE)
+                        audioManager?.dispatchMediaKeyEvent(downEvent)
+                        audioManager?.dispatchMediaKeyEvent(upEvent)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
 
-            // 4. Update ongoing notification to high urgency state
-            updateNotification("TURN BACK NOW! Safety window reached.")
-        } else {
-            // Update ongoing tracking notification description
-            if (isPowerSaveModeActive) {
-                updateNotification("Power Save Active (Stationary). Limit: ${outboundLimitSeconds / 60}m")
+                // 3. Audible alarm: Small distinct chime/beep for cycling and running (omitted for walking)
+                if (!isWalking) {
+                    try {
+                        val toneGenerator = ToneGenerator(AudioManager.STREAM_ALARM, if (isCycling) 85 else 100)
+                        toneGenerator.startTone(
+                            if (isCycling) ToneGenerator.TONE_PROP_BEEP2 else ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD,
+                            3500
+                        )
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+
+                // 4. Haptic pattern: Vibration for all activities (walking, cycling, running)
+                try {
+                    val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                    val pattern = if (isWalking) {
+                        longArrayOf(0, 600, 300, 600)
+                    } else {
+                        longArrayOf(0, 800, 200, 800, 200, 800)
+                    }
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
+                    } else {
+                        @Suppress("DEPRECATION")
+                        vibrator.vibrate(pattern, -1)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+
+                // 5. Update ongoing notification to high urgency state
+                updateNotification("TURN BACK NOW! Turnaround window reached.")
             } else {
-                updateNotification("Tracking active. Elapsed: ${elapsedSeconds / 60}m / Limit: ${outboundLimitSeconds / 60}m")
+                // Update ongoing tracking notification description
+                if (isPowerSaveModeActive) {
+                    updateNotification("Power Save Active (Stationary). Limit: ${outboundLimitSeconds / 60}m")
+                } else {
+                    updateNotification("Tracking active. Elapsed: ${elapsedSeconds / 60}m / Limit: ${outboundLimitSeconds / 60}m")
+                }
             }
+        } else {
+            // Free Run Mode: Continuous tracking with real-time dynamic return prediction
+            val elapsedSeconds = totalActiveMovingTimeMs / 1000
+            val predReturnMinutes = (elapsedSeconds * (1.0 + (safetyBufferPct / 100.0)) / 60.0).toInt()
+            updateNotification("Free Run Active. Moving: ${elapsedSeconds / 60}m | Est. Return: +${predReturnMinutes}m")
         }
     }
 

@@ -65,6 +65,8 @@ class SettingsService extends ChangeNotifier {
   bool _audioAlarmsEnabled = true;
   bool _useImperialUnits = false;
   String _mapTileSource = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+  bool _showHudMediaController = true;
+  bool _autoPauseCyclingMusic = true;
 
   AppThemeMode get themeMode => _themeMode;
   AccentColorChoice get accentColor => _accentColor;
@@ -82,6 +84,18 @@ class SettingsService extends ChangeNotifier {
   bool get audioAlarmsEnabled => _audioAlarmsEnabled;
   bool get useImperialUnits => _useImperialUnits;
   String get mapTileSource => _mapTileSource;
+  bool get showHudMediaController => _showHudMediaController;
+  bool get autoPauseCyclingMusic => _autoPauseCyclingMusic;
+
+  void setShowHudMediaController(bool enabled) {
+    _showHudMediaController = enabled;
+    notifyListeners();
+  }
+
+  void setAutoPauseCyclingMusic(bool enabled) {
+    _autoPauseCyclingMusic = enabled;
+    notifyListeners();
+  }
 
   void setThemeMode(AppThemeMode mode) {
     _themeMode = mode;

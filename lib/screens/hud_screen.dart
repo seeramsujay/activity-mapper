@@ -10,6 +10,7 @@ import '../services/rally_service.dart';
 import '../services/settings_service.dart';
 import '../services/p2p_mesh_service.dart';
 import '../widgets/hud_media_controller.dart';
+import '../widgets/musicolet_4x1_widget.dart';
 import '../widgets/osm_map_view.dart';
 import '../widgets/telemetry_chart.dart';
 import '../widgets/mesh_radar_widget.dart';
@@ -23,6 +24,7 @@ class HudScreen extends StatefulWidget {
   final Duration targetDuration;
   final double safetyBufferPct;
   final String activityType;
+  final bool isFreeRun;
   final int? referenceSessionId;
 
   const HudScreen({
@@ -31,6 +33,7 @@ class HudScreen extends StatefulWidget {
     required this.targetDuration,
     required this.safetyBufferPct,
     required this.activityType,
+    this.isFreeRun = false,
     this.referenceSessionId,
   });
 
@@ -80,6 +83,8 @@ class _HudScreenState extends State<HudScreen> {
   // Tracking control state
   bool _isPaused = false;
   bool _turnBackTriggered = false;
+  bool _freeRunReturning = false;
+  Duration _outboundFreeRunDuration = Duration.zero;
   int? _lastTimestamp;
 
   // Rally navigation state variables
@@ -521,8 +526,19 @@ class _HudScreenState extends State<HudScreen> {
       if (!mounted) return;
       setState(() {
         _totalElapsed = DateTime.now().difference(_startTime);
-        if (!_isPaused && _currentSpeed > 0.2) {
+        if (!_isPaused) {
           _elapsed += const Duration(seconds: 1);
+        }
+
+        // Live Turn-Back Outbound Threshold Check (Foreground)
+        if (!widget.isFreeRun && !_turnBackTriggered && _activeTargetDuration.inSeconds > 0) {
+          final double outboundRatio = (100.0 - widget.safetyBufferPct) / 200.0;
+          final int outboundLimitSeconds = (_activeTargetDuration.inSeconds * outboundRatio).toInt();
+          if (_elapsed.inSeconds >= outboundLimitSeconds) {
+            _turnBackTriggered = true;
+            _startFlashingTimer();
+            PlatformService.instance.triggerTurnBackAlert(activityType: widget.activityType);
+          }
         }
       });
     });
@@ -579,12 +595,6 @@ class _HudScreenState extends State<HudScreen> {
         if (alt < _minAltitude) _minAltitude = alt;
         if (alt > _maxAltitude) _maxAltitude = alt;
 
-        if (_lastTimestamp != null && speed > 0.2) {
-          final delta = timestamp - _lastTimestamp!;
-          if (delta > 0 && delta < 15000) {
-            _elapsed += Duration(milliseconds: delta);
-          }
-        }
         _lastTimestamp = timestamp;
 
         if (_elapsed.inSeconds > 0) {
@@ -604,14 +614,15 @@ class _HudScreenState extends State<HudScreen> {
           altitude: alt,
         );
 
-        // 54% Outbound Limit trigger
-        final double outboundRatio = (100.0 - widget.safetyBufferPct) / 200.0;
-        final int outboundLimitSeconds = (_activeTargetDuration.inSeconds * outboundRatio).toInt();
-
-        if (_elapsed.inSeconds >= outboundLimitSeconds && !_turnBackTriggered) {
-          _turnBackTriggered = true;
-          _startFlashingTimer();
-          HapticFeedback.heavyImpact();
+        // Turn-back check on GPS point arrival
+        if (!widget.isFreeRun && !_turnBackTriggered && _activeTargetDuration.inSeconds > 0) {
+          final double outboundRatio = (100.0 - widget.safetyBufferPct) / 200.0;
+          final int outboundLimitSeconds = (_activeTargetDuration.inSeconds * outboundRatio).toInt();
+          if (_elapsed.inSeconds >= outboundLimitSeconds) {
+            _turnBackTriggered = true;
+            _startFlashingTimer();
+            PlatformService.instance.triggerTurnBackAlert(activityType: widget.activityType);
+          }
         }
 
         // Speed/Pace Hysteresis (5-second threshold at 18 km/h)
@@ -658,6 +669,13 @@ class _HudScreenState extends State<HudScreen> {
     final String minutes = twoDigits(d.inMinutes);
     final String seconds = twoDigits(d.inSeconds.remainder(60));
     return '$minutes:$seconds';
+  }
+
+  String _formatEta(DateTime dt) {
+    final hour = dt.hour == 0 ? 12 : (dt.hour > 12 ? dt.hour - 12 : dt.hour);
+    final minute = dt.minute.toString().padLeft(2, '0');
+    final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+    return '$hour:$minute $ampm';
   }
 
   String _formatSpeedOrPace(double mps) {
@@ -892,9 +910,9 @@ class _HudScreenState extends State<HudScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Top App Bar & Status
+                    // Top App Bar & Status (Punch-hole camera & rounded corners safe spacing)
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+                      padding: const EdgeInsets.only(left: 18.0, right: 18.0, top: 6.0, bottom: 4.0),
                       child: Row(
                         children: [
                           IconButton(
@@ -981,98 +999,296 @@ class _HudScreenState extends State<HudScreen> {
                 ),
               ),
 
-            // Compact Reverse Countdown & Duration Hero Header Card
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-              decoration: BoxDecoration(
-                color: cardBg,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                  color: _turnBackTriggered ? const Color(0xFFDC2626) : borderColor,
-                  width: _turnBackTriggered ? 2.0 : 1.2,
-                ),
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      // Workout Duration / Moving Time
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+            // Compact Reverse Countdown / Free Run Real-Time Prediction Hero Header Card
+            Builder(
+              builder: (context) {
+                // Free Run Real-time Prediction Calculations
+                if (widget.isFreeRun) {
+                  final int outboundSec = _freeRunReturning ? _outboundFreeRunDuration.inSeconds : _elapsed.inSeconds;
+                  final int predReturnSec = (outboundSec * (1.0 + (widget.safetyBufferPct / 100.0))).toInt();
+                  final Duration predReturnDuration = Duration(seconds: predReturnSec);
+                  final DateTime predictedEta = DateTime.now().add(predReturnDuration);
+                  final int returnElapsedSec = max(0, _elapsed.inSeconds - _outboundFreeRunDuration.inSeconds);
+                  final int remainingReturnSec = max(0, predReturnSec - returnElapsedSec);
+
+                  if (!_freeRunReturning) {
+                    // Free Run Outbound: Real-time Return ETA and Return Now Button
+                    return Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                      decoration: BoxDecoration(
+                        color: cardBg,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: accentColor.withValues(alpha: 0.5), width: 1.4),
+                      ),
+                      child: Column(
                         children: [
                           Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Icon(Icons.timer_outlined, size: 12, color: textColor.withValues(alpha: 0.5)),
-                              const SizedBox(width: 4),
-                              Text('WORKOUT DURATION', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: textColor.withValues(alpha: 0.5), letterSpacing: 0.5)),
+                              // Moving / Outbound Time
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(Icons.bolt_rounded, size: 13, color: accentColor),
+                                      const SizedBox(width: 4),
+                                      Text('FREE RUN (OUTBOUND)', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: accentColor, letterSpacing: 0.6)),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    _formatDuration(_elapsed),
+                                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: textColor),
+                                  ),
+                                  Text(
+                                    'Total: ${_formatDuration(_totalElapsed)}',
+                                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5)),
+                                  ),
+                                ],
+                              ),
+
+                              // Real-Time Return Prediction ETA
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(Icons.auto_mode_rounded, size: 12, color: accentColor),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        'PREDICTED RETURN ETA',
+                                        style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: accentColor, letterSpacing: 0.5),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    _formatEta(predictedEta),
+                                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: accentColor),
+                                  ),
+                                  Text(
+                                    'Est. Return: +${_formatDuration(predReturnDuration)}',
+                                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.6)),
+                                  ),
+                                ],
+                              ),
                             ],
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            _formatDuration(_totalElapsed),
-                            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: textColor),
-                          ),
-                          Text(
-                            'Moving: ${_formatDuration(_elapsed)}',
-                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5)),
+                          const SizedBox(height: 10),
+
+                          // Prominent Interactive "RETURN NOW" Button
+                          SizedBox(
+                            width: double.infinity,
+                            height: 38,
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: accentColor,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 14),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                elevation: 0,
+                              ),
+                              onPressed: () {
+                                HapticFeedback.heavyImpact();
+                                setState(() {
+                                  _freeRunReturning = true;
+                                  _outboundFreeRunDuration = _elapsed;
+                                  _activeTargetDuration = Duration(seconds: (_elapsed.inSeconds * 2.0).toInt());
+                                  _turnBackTriggered = true;
+                                });
+                                PlatformService.instance.triggerTurnBackAlert(activityType: widget.activityType);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('RETURN INITIATED! Inbound countdown active.'),
+                                    backgroundColor: Color(0xFF10B981),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.u_turn_left_rounded, size: 18),
+                              label: const Text(
+                                'TURN AROUND / RETURN NOW',
+                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 0.8),
+                              ),
+                            ),
                           ),
                         ],
                       ),
-
-                      // Dedicated Reverse Countdown Timer
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
+                    );
+                  } else {
+                    // Free Run Inbound: Return Countdown
+                    final double returnRatio = predReturnSec > 0 ? (returnElapsedSec / predReturnSec).clamp(0.0, 1.0) : 1.0;
+                    return Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                      decoration: BoxDecoration(
+                        color: cardBg,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: const Color(0xFF10B981), width: 1.6),
+                      ),
+                      child: Column(
                         children: [
                           Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Icon(
-                                _turnBackTriggered ? Icons.run_circle : Icons.hourglass_top_rounded,
-                                size: 12,
-                                color: _turnBackTriggered ? const Color(0xFFDC2626) : const Color(0xFF3B82F6),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.flag_rounded, size: 12, color: Color(0xFF10B981)),
+                                      const SizedBox(width: 4),
+                                      Text('RETURN LEG (INBOUND)', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: const Color(0xFF10B981), letterSpacing: 0.5)),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    _formatDuration(_elapsed),
+                                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: textColor),
+                                  ),
+                                  Text(
+                                    'Outbound: ${_formatDuration(_outboundFreeRunDuration)}',
+                                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5)),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(width: 4),
-                              Text(
-                                _turnBackTriggered ? 'RETURN LIMIT' : 'TIME TO TURN BACK',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w900,
-                                  color: _turnBackTriggered ? const Color(0xFFDC2626) : const Color(0xFF3B82F6),
-                                  letterSpacing: 0.5,
-                                ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.timer_outlined, size: 12, color: Color(0xFF10B981)),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        'COUNTDOWN TO START',
+                                        style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: const Color(0xFF10B981), letterSpacing: 0.5),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    _formatDuration(Duration(seconds: remainingReturnSec)),
+                                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Color(0xFF10B981)),
+                                  ),
+                                  Text(
+                                    'Return Limit: ${_formatDuration(predReturnDuration)}',
+                                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5)),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            _turnBackTriggered ? _formatDuration(Duration(seconds: remainingTotalSeconds)) : _formatDuration(Duration(seconds: remainingOutboundSeconds)),
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w900,
-                              color: _turnBackTriggered ? const Color(0xFFDC2626) : const Color(0xFF3B82F6),
+                          const SizedBox(height: 8),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: LinearProgressIndicator(
+                              value: returnRatio,
+                              backgroundColor: textColor.withValues(alpha: 0.08),
+                              color: const Color(0xFF10B981),
+                              minHeight: 5.0,
                             ),
                           ),
-                          Text(
-                            _turnBackTriggered ? 'Target: ${widget.targetDuration.inMinutes}m' : 'Outbound: ${outboundLimitSeconds ~/ 60}m',
-                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5)),
+                        ],
+                      ),
+                    );
+                  }
+                }
+
+                // Standard Out-and-Back Dynamic Countdown Card
+                return Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                  decoration: BoxDecoration(
+                    color: cardBg,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: _turnBackTriggered ? const Color(0xFFDC2626) : borderColor,
+                      width: _turnBackTriggered ? 2.0 : 1.2,
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          // Workout Duration / Moving Time
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(Icons.timer_outlined, size: 12, color: textColor.withValues(alpha: 0.5)),
+                                  const SizedBox(width: 4),
+                                  Text('WORKOUT DURATION', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: textColor.withValues(alpha: 0.5), letterSpacing: 0.5)),
+                                ],
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _formatDuration(_totalElapsed),
+                                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: textColor),
+                              ),
+                              Text(
+                                'Moving: ${_formatDuration(_elapsed)}',
+                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5)),
+                              ),
+                            ],
+                          ),
+
+                          // Dedicated Reverse Countdown Timer (Smooth 1s updates)
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    _turnBackTriggered ? Icons.run_circle : Icons.hourglass_top_rounded,
+                                    size: 12,
+                                    color: _turnBackTriggered ? const Color(0xFFDC2626) : const Color(0xFF3B82F6),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    _turnBackTriggered ? 'COUNTDOWN TO FINISH' : 'COUNTDOWN TO TURN BACK',
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w900,
+                                      color: _turnBackTriggered ? const Color(0xFFDC2626) : const Color(0xFF3B82F6),
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _turnBackTriggered ? _formatDuration(Duration(seconds: remainingTotalSeconds)) : _formatDuration(Duration(seconds: remainingOutboundSeconds)),
+                                style: TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w900,
+                                  color: _turnBackTriggered ? const Color(0xFFDC2626) : const Color(0xFF3B82F6),
+                                ),
+                              ),
+                              Text(
+                                _turnBackTriggered ? 'Target: ${widget.targetDuration.inMinutes}m' : 'Outbound: ${outboundLimitSeconds ~/ 60}m',
+                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5)),
+                              ),
+                            ],
                           ),
                         ],
+                      ),
+                      const SizedBox(height: 8),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: outboundLimitSeconds > 0 ? min(1.0, _elapsed.inSeconds / outboundLimitSeconds) : 1.0,
+                          backgroundColor: textColor.withValues(alpha: 0.08),
+                          color: _turnBackTriggered ? const Color(0xFFDC2626) : const Color(0xFF3B82F6),
+                          minHeight: 5.0,
+                        ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: min(1.0, _elapsed.inSeconds / outboundLimitSeconds),
-                      backgroundColor: textColor.withValues(alpha: 0.08),
-                      color: _turnBackTriggered ? const Color(0xFFDC2626) : const Color(0xFF3B82F6),
-                      minHeight: 5.0,
-                    ),
-                  ),
-                ],
-              ),
+                );
+              },
             ),
 
             // Segmented Navigation Tab Control (Smooth explicit tab switcher)
@@ -1158,6 +1374,17 @@ class _HudScreenState extends State<HudScreen> {
               ),
             ),
 
+            // Dedicated 4x1 Modular Widget Space (Default: Musicolet 4x1 Media Player Widget)
+            Modular4x1WidgetSpace(
+              brightness: brightness,
+              accentColor: accentColor,
+              currentSpeedKmh: _currentSpeed * 3.6,
+              currentAltitudeMeters: _altitude,
+              heartRateBpm: _sensorData.heartRateBpm,
+              cadenceRpm: _sensorData.cadenceRpm,
+              elapsed: _elapsed,
+            ),
+
             // Bottom Action Bar
             _buildBottomControlBar(textColor, scaffoldBg, cardBg, borderColor, accentColor),
           ],
@@ -1167,7 +1394,7 @@ class _HudScreenState extends State<HudScreen> {
     const MeshRadarHudWidget(),
     if (_isOledDimmed)
       Positioned(
-        top: 16,
+        top: MediaQuery.of(context).padding.top + 12,
         left: 0,
         right: 0,
         child: Center(
@@ -1664,10 +1891,11 @@ class _HudScreenState extends State<HudScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 // In-HUD Glove-friendly Media Controller
-                HudMediaController(
-                  brightness: Theme.of(context).brightness,
-                  accentColor: accentColor,
-                ),
+                if (SettingsService.instance.showHudMediaController)
+                  HudMediaController(
+                    brightness: Theme.of(context).brightness,
+                    accentColor: accentColor,
+                  ),
 
                 // BLE Heart Rate & Cadence Pill
                 GestureDetector(

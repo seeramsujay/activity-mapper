@@ -424,141 +424,208 @@ class _SetupScreenState extends State<SetupScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Activity Selector Pills
+                    // Activity Selector Chips (Run, Ride, Walk, Hike, Free Run)
                     Text(
-                      'ACTIVITY',
+                      'ACTIVITY TYPE',
                       style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: textColor.withValues(alpha: 0.6), letterSpacing: 0.8),
                     ),
                     const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        _buildActivityChip(
-                          label: 'RUN',
-                          icon: Icons.directions_run,
-                          selected: _activityType == 'run',
-                          onTap: () {
-                            setModalState(() => _activityType = 'run');
-                            setState(() => _activityType = 'run');
-                          },
-                          isDark: isDark,
-                        ),
-                        const SizedBox(width: 8),
-                        _buildActivityChip(
-                          label: 'RIDE',
-                          icon: Icons.directions_bike,
-                          selected: _activityType == 'ride',
-                          onTap: () {
-                            setModalState(() => _activityType = 'ride');
-                            setState(() => _activityType = 'ride');
-                          },
-                          isDark: isDark,
-                        ),
-                        const SizedBox(width: 8),
-                        _buildActivityChip(
-                          label: 'HIKE',
-                          icon: Icons.hiking,
-                          selected: _activityType == 'hike',
-                          onTap: () {
-                            setModalState(() => _activityType = 'hike');
-                            setState(() => _activityType = 'hike');
-                          },
-                          isDark: isDark,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Target Duration with Type + Quick Presets + Slider
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Text(
-                          'TOTAL WORKOUT DURATION',
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: textColor.withValues(alpha: 0.6), letterSpacing: 0.8),
-                        ),
-                        // Numeric Direct Typing Field
-                        Container(
-                          width: 88,
-                          height: 38,
-                          decoration: BoxDecoration(
-                            color: surfaceBg,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: borderColor),
-                          ),
-                          child: TextField(
-                            controller: durationController,
-                            keyboardType: TextInputType.number,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: textColor),
-                            decoration: const InputDecoration(
-                              contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-                              border: InputBorder.none,
-                              suffixText: 'm',
-                              suffixStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                            ),
-                            onChanged: (val) {
-                              final parsed = int.tryParse(val);
-                              if (parsed != null && parsed >= 5 && parsed <= 360) {
-                                setModalState(() => _targetDurationMinutes = parsed);
-                                setState(() => _targetDurationMinutes = parsed);
-                              }
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-
-                    // Quick duration chips
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: Row(
-                        children: [30, 45, 60, 90, 120, 150].map((mins) {
-                          final isSelected = _targetDurationMinutes == mins;
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 8.0),
-                            child: ChoiceChip(
-                              label: Text('${mins}m', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : textColor)),
-                              selected: isSelected,
-                              selectedColor: accentColor,
-                              backgroundColor: surfaceBg,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: isSelected ? accentColor : borderColor)),
-                              showCheckmark: false,
-                              onSelected: (_) {
-                                durationController.text = '$mins';
-                                setModalState(() => _targetDurationMinutes = mins);
-                                setState(() => _targetDurationMinutes = mins);
+                        children: [
+                          _buildActivityChip(
+                            label: 'RUN',
+                            icon: Icons.directions_run,
+                            selected: _activityType == 'run',
+                            onTap: () {
+                              setModalState(() => _activityType = 'run');
+                              setState(() => _activityType = 'run');
+                            },
+                            isDark: isDark,
+                          ),
+                          const SizedBox(width: 8),
+                          _buildActivityChip(
+                            label: 'RIDE',
+                            icon: Icons.directions_bike,
+                            selected: _activityType == 'ride',
+                            onTap: () {
+                              setModalState(() => _activityType = 'ride');
+                              setState(() => _activityType = 'ride');
+                            },
+                            isDark: isDark,
+                          ),
+                          const SizedBox(width: 8),
+                          _buildActivityChip(
+                            label: 'WALK',
+                            icon: Icons.directions_walk,
+                            selected: _activityType == 'walk',
+                            onTap: () {
+                              setModalState(() => _activityType = 'walk');
+                              setState(() => _activityType = 'walk');
+                            },
+                            isDark: isDark,
+                          ),
+                          const SizedBox(width: 8),
+                          _buildActivityChip(
+                            label: 'HIKE',
+                            icon: Icons.hiking,
+                            selected: _activityType == 'hike',
+                            onTap: () {
+                              setModalState(() => _activityType = 'hike');
+                              setState(() => _activityType = 'hike');
+                            },
+                            isDark: isDark,
+                          ),
+                          const SizedBox(width: 8),
+                          _buildActivityChip(
+                            label: 'FREE RUN',
+                            icon: Icons.bolt_rounded,
+                            selected: _activityType == 'freerun',
+                            onTap: () {
+                              setModalState(() => _activityType = 'freerun');
+                              setState(() => _activityType = 'freerun');
+                            },
+                            isDark: isDark,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    if (_activityType == 'freerun') ...[
+                      // Free Run Dynamic Real-Time Banner
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: accentColor.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: accentColor.withValues(alpha: 0.3), width: 1.2),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: accentColor.withValues(alpha: 0.2),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(Icons.auto_mode_rounded, color: accentColor, size: 20),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'FREE RUN (REAL-TIME PREDICTION)',
+                                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: textColor, letterSpacing: 0.5),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Run as far and long as you want. The HUD will continuously calculate your predicted return time and finish ETA. When you tap "RETURN NOW", the return countdown begins.',
+                                    style: TextStyle(fontSize: 11, color: textColor.withValues(alpha: 0.75), height: 1.35),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ] else ...[
+                      // Target Duration with Type + Quick Presets + Slider
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Text(
+                            'TOTAL WORKOUT DURATION',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: textColor.withValues(alpha: 0.6), letterSpacing: 0.8),
+                          ),
+                          // Numeric Direct Typing Field
+                          Container(
+                            width: 88,
+                            height: 38,
+                            decoration: BoxDecoration(
+                              color: surfaceBg,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: borderColor),
+                            ),
+                            child: TextField(
+                              controller: durationController,
+                              keyboardType: TextInputType.number,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: textColor),
+                              decoration: const InputDecoration(
+                                contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                                border: InputBorder.none,
+                                suffixText: 'm',
+                                suffixStyle: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                              ),
+                              onChanged: (val) {
+                                final parsed = int.tryParse(val);
+                                if (parsed != null && parsed >= 5 && parsed <= 360) {
+                                  setModalState(() => _targetDurationMinutes = parsed);
+                                  setState(() => _targetDurationMinutes = parsed);
+                                }
                               },
                             ),
-                          );
-                        }).toList(),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: 6),
+                      const SizedBox(height: 10),
 
-                    // Synced Slider
-                    SliderTheme(
-                      data: SliderThemeData(
-                        trackHeight: 6,
-                        activeTrackColor: accentColor,
-                        inactiveTrackColor: textColor.withValues(alpha: 0.1),
-                        thumbColor: accentColor,
-                        overlayColor: accentColor.withValues(alpha: 0.2),
+                      // Quick duration chips
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [30, 45, 60, 90, 120, 150].map((mins) {
+                            final isSelected = _targetDurationMinutes == mins;
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 8.0),
+                              child: ChoiceChip(
+                                label: Text('${mins}m', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: isSelected ? Colors.white : textColor)),
+                                selected: isSelected,
+                                selectedColor: accentColor,
+                                backgroundColor: surfaceBg,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: isSelected ? accentColor : borderColor)),
+                                showCheckmark: false,
+                                onSelected: (_) {
+                                  durationController.text = '$mins';
+                                  setModalState(() => _targetDurationMinutes = mins);
+                                  setState(() => _targetDurationMinutes = mins);
+                                },
+                              ),
+                            );
+                          }).toList(),
+                        ),
                       ),
-                      child: Slider(
-                        value: _targetDurationMinutes.clamp(10, 240).toDouble(),
-                        min: 10,
-                        max: 240,
-                        divisions: 46,
-                        onChanged: (val) {
-                          final mins = val.toInt();
-                          durationController.text = '$mins';
-                          setModalState(() => _targetDurationMinutes = mins);
-                          setState(() => _targetDurationMinutes = mins);
-                        },
+                      const SizedBox(height: 6),
+
+                      // Synced Slider
+                      SliderTheme(
+                        data: SliderThemeData(
+                          trackHeight: 6,
+                          activeTrackColor: accentColor,
+                          inactiveTrackColor: textColor.withValues(alpha: 0.1),
+                          thumbColor: accentColor,
+                          overlayColor: accentColor.withValues(alpha: 0.2),
+                        ),
+                        child: Slider(
+                          value: _targetDurationMinutes.clamp(10, 240).toDouble(),
+                          min: 10,
+                          max: 240,
+                          divisions: 46,
+                          onChanged: (val) {
+                            final mins = val.toInt();
+                            durationController.text = '$mins';
+                            setModalState(() => _targetDurationMinutes = mins);
+                            setState(() => _targetDurationMinutes = mins);
+                          },
+                        ),
                       ),
-                    ),
+                    ],
                     const SizedBox(height: 12),
 
                     // Live Mathematical Breakdown Card
@@ -767,11 +834,13 @@ class _SetupScreenState extends State<SetupScreen> {
 
     try {
       final dbHelper = DbService.instance;
+      final bool isFreeRun = _activityType == 'freerun';
+      final int targetSeconds = isFreeRun ? 0 : _targetDurationMinutes * 60;
       
       // 1. Create SQLite Tracking Instance
       final int sessionId = await dbHelper.createSession(
         activityType: _activityType,
-        targetDurationSeconds: _targetDurationMinutes * 60,
+        targetDurationSeconds: targetSeconds,
         safetyBufferPct: _safetyBufferPct,
       );
 
@@ -779,7 +848,7 @@ class _SetupScreenState extends State<SetupScreen> {
       final bool startSuccess = await PlatformService.instance.startTracking(
         sessionId: sessionId,
         activityType: _activityType,
-        targetDurationSeconds: _targetDurationMinutes * 60,
+        targetDurationSeconds: targetSeconds,
         safetyBufferPct: _safetyBufferPct,
         gpsIntervalMs: _gpsIntervalMs,
       );
@@ -792,9 +861,10 @@ class _SetupScreenState extends State<SetupScreen> {
           MaterialPageRoute(
             builder: (context) => HudScreen(
               sessionId: sessionId,
-              targetDuration: Duration(minutes: _targetDurationMinutes),
+              targetDuration: Duration(seconds: targetSeconds),
               safetyBufferPct: _safetyBufferPct,
               activityType: _activityType,
+              isFreeRun: isFreeRun,
               referenceSessionId: _selectedReferenceSessionId,
             ),
           ),
@@ -1202,6 +1272,7 @@ class _SetupScreenState extends State<SetupScreen> {
                           targetDuration: Duration(seconds: targetSec),
                           safetyBufferPct: buffer,
                           activityType: type.toLowerCase(),
+                          isFreeRun: type.toLowerCase() == 'freerun',
                         ),
                       ),
                     ).then((_) => _loadDashboardData());
@@ -1650,6 +1721,7 @@ class _SetupScreenState extends State<SetupScreen> {
             targetDuration: Duration(seconds: targetSec),
             safetyBufferPct: buffer,
             activityType: activityType.toLowerCase(),
+            isFreeRun: activityType.toLowerCase() == 'freerun',
           ),
         ),
       ).then((_) => _loadDashboardData());

@@ -525,6 +525,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             targetDuration: Duration(seconds: targetSec),
             safetyBufferPct: buffer,
             activityType: activityType.toLowerCase(),
+            isFreeRun: activityType.toLowerCase() == 'freerun',
           ),
         ),
       ).then((_) => _loadSessions());

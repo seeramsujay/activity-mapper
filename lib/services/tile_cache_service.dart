@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
@@ -29,6 +30,47 @@ class TileCacheService {
     }
     _cacheDir = dir;
     return dir;
+  }
+
+  File _getMetadataFile(Directory baseDir) {
+    return File('${baseDir.path}/offline_areas.json');
+  }
+
+  /// Retrieves list of saved offline map areas.
+  Future<List<OfflineMapArea>> getSavedOfflineAreas() async {
+    try {
+      final baseDir = await cacheDirectory;
+      final file = _getMetadataFile(baseDir);
+      if (await file.exists()) {
+        final content = await file.readAsString();
+        final List<dynamic> jsonList = jsonDecode(content);
+        return jsonList.map((e) => OfflineMapArea.fromJson(e as Map<String, dynamic>)).toList();
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  /// Saves or updates an offline map area record.
+  Future<void> saveOfflineArea(OfflineMapArea area) async {
+    try {
+      final baseDir = await cacheDirectory;
+      final areas = await getSavedOfflineAreas();
+      areas.removeWhere((a) => a.id == area.id);
+      areas.insert(0, area);
+      final file = _getMetadataFile(baseDir);
+      await file.writeAsString(jsonEncode(areas.map((e) => e.toJson()).toList()), flush: true);
+    } catch (_) {}
+  }
+
+  /// Deletes a saved offline area by ID.
+  Future<void> deleteOfflineArea(String id) async {
+    try {
+      final baseDir = await cacheDirectory;
+      final areas = await getSavedOfflineAreas();
+      areas.removeWhere((a) => a.id == id);
+      final file = _getMetadataFile(baseDir);
+      await file.writeAsString(jsonEncode(areas.map((e) => e.toJson()).toList()), flush: true);
+    } catch (_) {}
   }
 
   /// Returns the local cached [File] for a tile if it exists on disk, or `null`.

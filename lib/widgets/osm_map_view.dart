@@ -273,18 +273,25 @@ class _OsmMapViewState extends State<OsmMapView> {
                 ),
               ],
 
-              // Top Status Indicator Tag & Pan Status
+              // Top-Left Status Pill & Intuitive Recenter Vector Chip (16dp corner padding)
               Positioned(
-                top: 12,
-                left: 12,
+                top: 16,
+                left: 16,
                 child: Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                       decoration: BoxDecoration(
-                        color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.85),
+                        color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.88),
                         borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: borderColor, width: 1),
+                        border: Border.all(color: borderColor, width: 1.2),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.15),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -311,22 +318,34 @@ class _OsmMapViewState extends State<OsmMapView> {
                       ),
                     ),
                     if (_isFreePanning) ...[
-                      const SizedBox(width: 6),
+                      const SizedBox(width: 8),
                       GestureDetector(
                         onTap: _recenter,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                           decoration: BoxDecoration(
-                            color: accentColor,
+                            gradient: LinearGradient(
+                              colors: [accentColor, accentColor.withValues(alpha: 0.85)],
+                            ),
                             borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(
+                                color: accentColor.withValues(alpha: 0.4),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
                           ),
-                          child: const Row(
+                          child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.gps_fixed, size: 11, color: Colors.white),
-                              SizedBox(width: 4),
-                              Text(
-                                'RECENTER',
+                              Transform.rotate(
+                                angle: atan2(-_userPanOffset.dy, -_userPanOffset.dx) - (pi / 2),
+                                child: const Icon(Icons.navigation_rounded, size: 13, color: Colors.white),
+                              ),
+                              const SizedBox(width: 6),
+                              const Text(
+                                'RECENTER TO GPS',
                                 style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 0.8),
                               ),
                             ],
@@ -338,10 +357,10 @@ class _OsmMapViewState extends State<OsmMapView> {
                 ),
               ),
 
-              // Floating Controls (Zoom & Recenter)
+              // Floating Controls (Zoom & Directional Recenter Vector) (16dp corner padding)
               Positioned(
-                bottom: 12,
-                right: 12,
+                bottom: 16,
+                right: 16,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -358,7 +377,7 @@ class _OsmMapViewState extends State<OsmMapView> {
                       textColor: textColor,
                       borderColor: borderColor,
                     ),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 8),
                     _buildMapButton(
                       icon: Icons.remove,
                       onPressed: () {
@@ -372,13 +391,32 @@ class _OsmMapViewState extends State<OsmMapView> {
                       textColor: textColor,
                       borderColor: borderColor,
                     ),
-                    const SizedBox(height: 6),
-                    _buildMapButton(
-                      icon: Icons.my_location,
-                      onPressed: _recenter,
-                      isDark: isDark,
-                      textColor: _isFreePanning ? accentColor : textColor.withValues(alpha: 0.5),
-                      borderColor: _isFreePanning ? accentColor : borderColor,
+                    const SizedBox(height: 8),
+                    // Intuitive GPS Vector Recenter Button
+                    Material(
+                      color: (_isFreePanning ? accentColor : (isDark ? Colors.black : Colors.white)).withValues(alpha: 0.9),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(color: _isFreePanning ? accentColor : borderColor, width: 1.4),
+                      ),
+                      elevation: _isFreePanning ? 4 : 0,
+                      shadowColor: accentColor.withValues(alpha: 0.4),
+                      child: InkWell(
+                        onTap: _recenter,
+                        borderRadius: BorderRadius.circular(12),
+                        child: SizedBox(
+                          width: 38,
+                          height: 38,
+                          child: Center(
+                            child: _isFreePanning
+                                ? Transform.rotate(
+                                    angle: atan2(-_userPanOffset.dy, -_userPanOffset.dx) - (pi / 2),
+                                    child: const Icon(Icons.navigation_rounded, size: 20, color: Colors.white),
+                                  )
+                                : Icon(Icons.my_location_rounded, size: 18, color: textColor.withValues(alpha: 0.6)),
+                          ),
+                        ),
+                      ),
                     ),
                   ],
                 ),
