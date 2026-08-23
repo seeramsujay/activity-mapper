@@ -910,63 +910,60 @@ class _HudScreenState extends State<HudScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Top App Bar & Status (Punch-hole camera & rounded corners safe spacing)
+                    // Top App Bar: Minimalist Back & Map Layer Switch (Leaves maximum vertical space)
                     Padding(
-                      padding: const EdgeInsets.only(left: 18.0, right: 18.0, top: 6.0, bottom: 4.0),
+                      padding: const EdgeInsets.only(left: 14.0, right: 14.0, top: 4.0, bottom: 2.0),
                       child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           IconButton(
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                             icon: Icon(Icons.arrow_back_ios_new, size: 16, color: textColor),
                             onPressed: () => Navigator.pop(context),
                           ),
-                  const SizedBox(width: 2),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 7,
-                            height: 7,
-                            decoration: BoxDecoration(
-                              color: _isPaused ? Colors.amber : const Color(0xFF10B981),
-                              shape: BoxShape.circle,
+                          if (_isPaused)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: Colors.amber.withValues(alpha: 0.4)),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.pause_circle_filled, size: 12, color: Colors.amber),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'SESSION PAUSED',
+                                    style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w900, color: Colors.amber, letterSpacing: 0.5),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            '${widget.activityType.toUpperCase()} #${widget.sessionId}',
-                            style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: textColor, letterSpacing: 0.8),
+                          // Map layer toggle
+                          IconButton(
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                            icon: Container(
+                              padding: const EdgeInsets.all(5),
+                              decoration: BoxDecoration(
+                                color: surfaceBg,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: borderColor),
+                              ),
+                              child: Icon(_showOsmTiles ? Icons.layers : Icons.layers_outlined, size: 15, color: textColor),
+                            ),
+                            tooltip: 'Toggle Vector / Satellite OSM',
+                            onPressed: () {
+                              HapticFeedback.selectionClick();
+                              setState(() => _showOsmTiles = !_showOsmTiles);
+                            },
                           ),
                         ],
                       ),
-                      Text(
-                        _isPaused ? 'PAUSED' : 'LIVE GPS ACTIVE',
-                        style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5)),
-                      ),
-                    ],
-                  ),
-                  const Spacer(),
-                  // Map layer toggle
-                  IconButton(
-                    icon: Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: surfaceBg,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: borderColor),
-                      ),
-                      child: Icon(_showOsmTiles ? Icons.layers : Icons.layers_outlined, size: 16, color: textColor),
                     ),
-                    tooltip: 'Toggle Vector / Satellite OSM',
-                    onPressed: () {
-                      HapticFeedback.selectionClick();
-                      setState(() => _showOsmTiles = !_showOsmTiles);
-                    },
-                  ),
-                ],
-              ),
-            ),
 
             // Flashing turn-back alarm banner
             if (_turnBackTriggered)
@@ -1339,9 +1336,20 @@ class _HudScreenState extends State<HudScreen> {
               ),
             ),
 
-            // Live GPS Coordinates Ticker Bar
+            // Dedicated 4x1 Modular Widget Space (3 Rectangular Glove-Friendly Buttons for Cycling)
+            Modular4x1WidgetSpace(
+              brightness: brightness,
+              accentColor: accentColor,
+              currentSpeedKmh: _currentSpeed * 3.6,
+              currentAltitudeMeters: _altitude,
+              heartRateBpm: _sensorData.heartRateBpm,
+              cadenceRpm: _sensorData.cadenceRpm,
+              elapsed: _elapsed,
+            ),
+
+            // Live GPS Coordinates & Searching Ticker Bar (Placed directly below music controls)
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 5.0),
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
               color: isDark ? Colors.black.withValues(alpha: 0.3) : const Color(0xFFF1F5F9),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1353,17 +1361,17 @@ class _HudScreenState extends State<HudScreen> {
                           : 'GPS: ${SettingsService.instance.formatCoordinates(_points.last.x, _points.last.y)}',
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 9.5,
+                        fontSize: 9.0,
                         fontWeight: FontWeight.w700,
                         fontFamily: 'monospace',
-                        color: textColor.withValues(alpha: 0.75),
+                        color: _points.isEmpty ? Colors.amber : textColor.withValues(alpha: 0.75),
                       ),
                     ),
                   ),
                   Text(
                     'ALT: ${_altitude.toStringAsFixed(0)}m • ACC: ±${_accuracy.toStringAsFixed(0)}m • ${_points.length}pts',
                     style: TextStyle(
-                      fontSize: 9.5,
+                      fontSize: 9.0,
                       fontWeight: FontWeight.w700,
                       fontFamily: 'monospace',
                       color: textColor.withValues(alpha: 0.65),
@@ -1371,17 +1379,6 @@ class _HudScreenState extends State<HudScreen> {
                   ),
                 ],
               ),
-            ),
-
-            // Dedicated 4x1 Modular Widget Space (Default: Musicolet 4x1 Media Player Widget)
-            Modular4x1WidgetSpace(
-              brightness: brightness,
-              accentColor: accentColor,
-              currentSpeedKmh: _currentSpeed * 3.6,
-              currentAltitudeMeters: _altitude,
-              heartRateBpm: _sensorData.heartRateBpm,
-              cadenceRpm: _sensorData.cadenceRpm,
-              elapsed: _elapsed,
             ),
 
             // Bottom Action Bar

@@ -4,10 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
 enum AppThemeMode {
-  softNight,
-  highContrastOled,
-  highContrastDaylight,
   light,
+  dark,
   system,
 }
 
@@ -52,7 +50,8 @@ class SettingsService extends ChangeNotifier {
   static final SettingsService instance = SettingsService._internal();
   SettingsService._internal();
 
-  AppThemeMode _themeMode = AppThemeMode.softNight;
+  AppThemeMode _themeMode = AppThemeMode.dark;
+  bool _isOled = true;
   AccentColorChoice _accentColor = AccentColorChoice.emberOrange;
   RecordProfile _recordProfile = RecordProfile.general;
   CoordFormat _coordFormat = CoordFormat.decimal;
@@ -72,6 +71,7 @@ class SettingsService extends ChangeNotifier {
   bool _autoPauseCyclingMusic = true;
 
   AppThemeMode get themeMode => _themeMode;
+  bool get isOled => _isOled;
   AccentColorChoice get accentColor => _accentColor;
   RecordProfile get recordProfile => _recordProfile;
   CoordFormat get coordFormat => _coordFormat;
@@ -105,8 +105,11 @@ class SettingsService extends ChangeNotifier {
         if (map.containsKey('themeMode')) {
           _themeMode = AppThemeMode.values.firstWhere(
             (e) => e.name == map['themeMode'],
-            orElse: () => AppThemeMode.softNight,
+            orElse: () => AppThemeMode.dark,
           );
+        }
+        if (map.containsKey('isOled')) {
+          _isOled = map['isOled'] ?? true;
         }
         if (map.containsKey('accentColor')) {
           _accentColor = AccentColorChoice.values.firstWhere(
@@ -156,6 +159,7 @@ class SettingsService extends ChangeNotifier {
       final file = await _getSettingsFile();
       final map = {
         'themeMode': _themeMode.name,
+        'isOled': _isOled,
         'accentColor': _accentColor.name,
         'recordProfile': _recordProfile.name,
         'coordFormat': _coordFormat.name,
@@ -180,14 +184,14 @@ class SettingsService extends ChangeNotifier {
   }
 
   bool isLightMode(BuildContext context) {
-    if (_themeMode == AppThemeMode.light || _themeMode == AppThemeMode.highContrastDaylight) {
+    if (_themeMode == AppThemeMode.light) {
       return true;
     }
-    if (_themeMode == AppThemeMode.system) {
-      final Brightness systemBrightness = MediaQuery.maybeOf(context)?.platformBrightness ?? Brightness.dark;
-      return systemBrightness == Brightness.light;
+    if (_themeMode == AppThemeMode.dark) {
+      return false;
     }
-    return false;
+    final Brightness systemBrightness = MediaQuery.maybeOf(context)?.platformBrightness ?? Brightness.dark;
+    return systemBrightness == Brightness.light;
   }
 
   void setShowHudMediaController(bool enabled) {
@@ -204,6 +208,12 @@ class SettingsService extends ChangeNotifier {
 
   void setThemeMode(AppThemeMode mode) {
     _themeMode = mode;
+    _saveSettings();
+    notifyListeners();
+  }
+
+  void setOledMode(bool oled) {
+    _isOled = oled;
     _saveSettings();
     notifyListeners();
   }
@@ -315,31 +325,10 @@ class SettingsService extends ChangeNotifier {
   }
 
   ThemeData getThemeData(BuildContext context) {
-    final Brightness systemBrightness = MediaQuery.maybeOf(context)?.platformBrightness ?? Brightness.dark;
+    final light = isLightMode(context);
     final accent = _accentColor.color;
 
-    if (_themeMode == AppThemeMode.highContrastDaylight) {
-      // High Contrast Daylight - Maximum solar contrast with pitch black text on pure white & bold borders
-      return ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.light,
-        scaffoldBackgroundColor: Colors.white,
-        colorScheme: ColorScheme.light(
-          primary: Colors.black,
-          secondary: accent,
-          surface: const Color(0xFFF0F2F5),
-          onSurface: Colors.black,
-        ),
-        cardTheme: CardThemeData(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: const BorderSide(color: Colors.black, width: 2.0),
-          ),
-          color: Colors.white,
-        ),
-      );
-    } else if (_themeMode == AppThemeMode.light) {
+    if (light) {
       // Light Mode - Balanced modern daylight
       return ThemeData(
         useMaterial3: true,
@@ -360,69 +349,31 @@ class SettingsService extends ChangeNotifier {
           color: Colors.white,
         ),
       );
-    } else if (_themeMode == AppThemeMode.highContrastOled) {
-      // High Contrast OLED - True pure black (#000000) with ultra-bright neon accents
+    } else {
+      // Dark Mode (OLED Pitch Black vs Slate Dark)
+      final isPitchBlack = _isOled;
       return ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
-        scaffoldBackgroundColor: Colors.black,
+        scaffoldBackgroundColor: isPitchBlack ? Colors.black : const Color(0xFF0E1318),
         colorScheme: ColorScheme.dark(
           primary: Colors.white,
           secondary: accent,
-          surface: const Color(0xFF0C0C0C),
+          surface: isPitchBlack ? const Color(0xFF0A0C0E) : const Color(0xFF161C24),
           onSurface: Colors.white,
         ),
         cardTheme: CardThemeData(
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
-            side: const BorderSide(color: Color(0xFF383838), width: 1.8),
+            side: BorderSide(
+              color: isPitchBlack ? const Color(0xFF262626) : const Color(0xFF242F3E),
+              width: isPitchBlack ? 1.5 : 1.2,
+            ),
           ),
-          color: const Color(0xFF0C0C0C),
-        ),
-      );
-    } else if (_themeMode == AppThemeMode.system && systemBrightness == Brightness.light) {
-      return ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.light,
-        scaffoldBackgroundColor: const Color(0xFFF8F9FA),
-        colorScheme: ColorScheme.light(
-          primary: const Color(0xFF111827),
-          secondary: accent,
-          surface: Colors.white,
-          onSurface: const Color(0xFF111827),
-        ),
-        cardTheme: CardThemeData(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: const BorderSide(color: Color(0xFFE5E7EB), width: 1.5),
-          ),
-          color: Colors.white,
-        ),
-      );
-    } else {
-      // Soft Night Mode (Default) - Warm, low-strain muted slate/charcoal tones (#0E1318)
-      return ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF0E1318),
-        colorScheme: ColorScheme.dark(
-          primary: const Color(0xFFE2E8F0),
-          secondary: accent,
-          surface: const Color(0xFF161C24),
-          onSurface: const Color(0xFFE2E8F0),
-        ),
-        cardTheme: CardThemeData(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: const BorderSide(color: Color(0xFF242F3E), width: 1.2),
-          ),
-          color: const Color(0xFF161C24),
+          color: isPitchBlack ? const Color(0xFF0A0C0E) : const Color(0xFF161C24),
         ),
       );
     }
   }
 }
-
