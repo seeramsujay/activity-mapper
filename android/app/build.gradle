@@ -34,7 +34,7 @@ android {
     }
 
     defaultConfig {
-        applicationId "org.opensource.tracker"
+        applicationId "com.sujayseeram.turnback"
         minSdkVersion flutter.minSdkVersion
         targetSdk 35
         versionCode flutterVersionCode.toInteger()
@@ -47,13 +47,13 @@ android {
     productFlavors {
         offline {
             dimension "mode"
-            applicationId "org.opensource.tracker.offline"
-            manifestPlaceholders = [appName: "TurnBack (Offline)"]
+            applicationId "com.sujayseeram.turnback.offline"
+            manifestPlaceholders = [appName: "TurnBack"]
             versionNameSuffix "-offline"
         }
         colab {
             dimension "mode"
-            applicationId "org.opensource.tracker.colab"
+            applicationId "com.sujayseeram.turnback.colab"
             manifestPlaceholders = [appName: "TurnBack (Colab)"]
             versionNameSuffix "-colab"
         }

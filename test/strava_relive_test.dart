@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:activity_mapper/services/strava_service.dart';
-import 'package:activity_mapper/services/relive_service.dart';
+import 'package:turnback/services/strava_service.dart';
+import 'package:turnback/services/relive_service.dart';
 
 void main() {
   group('StravaService Activity Upload Simulation Tests', () {

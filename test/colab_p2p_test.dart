@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:activity_mapper/models/location_point.dart';
-import 'package:activity_mapper/models/teammate.dart';
-import 'package:activity_mapper/services/p2p_mesh_service.dart';
+import 'package:turnback/models/location_point.dart';
+import 'package:turnback/models/teammate.dart';
+import 'package:turnback/services/p2p_mesh_service.dart';
 
 void main() {
   group('P2pMeshService E2EE Crypto & URI Handshake Tests', () {

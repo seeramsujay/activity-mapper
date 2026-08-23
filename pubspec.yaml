@@ -1,6 +1,6 @@
-name: activity_mapper
-description: An ultra-lightweight, offline-first GPS activity tracking application designed to solve fatigue asymmetry on out-and-back routes.
-version: 1.0.0+1
+name: turnback
+description: "TurnBack: Precision Out-and-Back Endurance Tracker by Sujay Seeram."
+version: 1.2.0+120
 
 publish_to: 'none' # Prevent accidental publishing to pub.dev
 
@@ -27,3 +27,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/logo.png
