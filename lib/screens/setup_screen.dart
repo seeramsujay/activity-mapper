@@ -797,32 +797,31 @@ class _SetupScreenState extends State<SetupScreen> {
     final Color borderColor = isDark ? const Color(0xFF2D333F) : const Color(0xFFE5E7EB);
     final Color surfaceBg = isDark ? const Color(0xFF1E232B) : const Color(0xFFF3F4F6);
 
-    return Expanded(
-      child: Material(
-        color: selected ? selectedColor : surfaceBg,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: BorderSide(color: selected ? selectedColor : borderColor, width: 1.5),
-        ),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Column(
-              children: [
-                Icon(icon, size: 22, color: selected ? Colors.white : (isDark ? Colors.white70 : Colors.black87)),
-                const SizedBox(height: 4),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w900,
-                    color: selected ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
-                  ),
+    return Material(
+      color: selected ? selectedColor : surfaceBg,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: selected ? selectedColor : borderColor, width: 1.5),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 22, color: selected ? Colors.white : (isDark ? Colors.white70 : Colors.black87)),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  color: selected ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
