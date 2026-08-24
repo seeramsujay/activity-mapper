@@ -39,7 +39,7 @@ void main() {
       expect(corrupted, isNull);
     });
 
-    test('MeshSessionConfig encodes and parses activitymapper:// URI', () {
+    test('MeshSessionConfig encodes and parses turnback:// and legacy activitymapper:// URI', () {
       const config = MeshSessionConfig(
         sessionId: 'tunnel-1234-abcd',
         sessionKey: 'test_base64_encryption_key_256_bit==',
@@ -47,7 +47,7 @@ void main() {
       );
 
       final uri = config.toUri();
-      expect(uri, startsWith('activitymapper://mesh?'));
+      expect(uri, startsWith('turnback://mesh?'));
       expect(uri, contains('id=tunnel-1234-abcd'));
 
       final parsed = MeshSessionConfig.fromUri(uri);
@@ -55,6 +55,13 @@ void main() {
       expect(parsed!.sessionId, equals('tunnel-1234-abcd'));
       expect(parsed.sessionKey, equals('test_base64_encryption_key_256_bit=='));
       expect(parsed.sessionName, equals('Sunday Morning Mountain Ride'));
+
+      // Test legacy activitymapper:// backward compatibility
+      final legacyParsed = MeshSessionConfig.fromUri(
+        'activitymapper://mesh?id=tunnel-1234-abcd&key=test_base64_encryption_key_256_bit%3D%3D&name=Sunday%20Morning%20Mountain%20Ride',
+      );
+      expect(legacyParsed, isNotNull);
+      expect(legacyParsed!.sessionId, equals('tunnel-1234-abcd'));
     });
   });
 

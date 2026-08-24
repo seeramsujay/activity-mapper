@@ -1020,7 +1020,7 @@ class _SetupScreenState extends State<SetupScreen> {
                               controller: uriCtrl,
                               maxLines: 2,
                               decoration: const InputDecoration(
-                                labelText: 'Paste Mesh URI (activitymapper://...)',
+                                labelText: 'Paste Mesh URI (turnback://...)',
                                 border: OutlineInputBorder(),
                                 isDense: true,
                               ),
@@ -1068,7 +1068,7 @@ class _SetupScreenState extends State<SetupScreen> {
                                   final config = MeshSessionConfig.fromUri(uriCtrl.text.trim());
                                   if (config == null) {
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Invalid activitymapper:// mesh URI')),
+                                      const SnackBar(content: Text('Invalid turnback:// mesh URI')),
                                     );
                                     return;
                                   }

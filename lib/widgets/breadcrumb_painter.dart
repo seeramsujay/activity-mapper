@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import '../models/teammate.dart';
 
 /// A custom painter that draws an offline relative vector track trail on a canvas.
 ///
@@ -7,9 +8,11 @@ import 'package:flutter/material.dart';
 /// - Auto-scales coordinates to fit container bounds.
 /// - Built-in Ramer-Douglas-Peucker (RDP) polyline decimation for 60 FPS rendering on 2GB RAM phones.
 /// - Start marker ("O") and active heading direction arrow ("^").
+/// - Live P2P Mesh Teammate position pucks, color-coded breadcrumbs, and status tags.
 /// - High-contrast light and dark mode styling.
 class BreadcrumbPainter extends CustomPainter {
   final List<Point<double>> points;
+  final List<Teammate> teammates;
   final Brightness brightness;
   final double simplificationEpsilon;
   final Offset panOffset;
@@ -18,6 +21,7 @@ class BreadcrumbPainter extends CustomPainter {
 
   BreadcrumbPainter({
     required this.points,
+    this.teammates = const [],
     required this.brightness,
     this.simplificationEpsilon = 0.00005,
     this.panOffset = Offset.zero,
@@ -121,7 +125,30 @@ class BreadcrumbPainter extends CustomPainter {
       return Offset(x, y);
     }
 
-    // Draw Track Trail Shadow/Glow
+    // 1. Draw Teammates' Breadcrumb Trails
+    for (final t in teammates) {
+      if (!t.isActive || t.breadcrumbTrail.length < 2) continue;
+      final tColor = t.color;
+      final tPath = Path();
+      final firstPt = toCanvasOffset(Point(t.breadcrumbTrail.first.lat, t.breadcrumbTrail.first.lng));
+      tPath.moveTo(firstPt.dx, firstPt.dy);
+
+      for (int i = 1; i < t.breadcrumbTrail.length; i++) {
+        final pt = toCanvasOffset(Point(t.breadcrumbTrail[i].lat, t.breadcrumbTrail[i].lng));
+        tPath.lineTo(pt.dx, pt.dy);
+      }
+
+      canvas.drawPath(
+        tPath,
+        Paint()
+          ..color = tColor.withValues(alpha: 0.6)
+          ..strokeWidth = 2.5
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+
+    // 2. Draw Local User Track Trail Shadow/Glow
     final Paint glowPaint = Paint()
       ..color = const Color(0xFFFF5722).withValues(alpha: 0.35)
       ..strokeWidth = 6.0
@@ -154,7 +181,46 @@ class BreadcrumbPainter extends CustomPainter {
     final Paint startCenterPaint = Paint()..color = Colors.white;
     canvas.drawCircle(startOff, 3.5, startCenterPaint);
 
-    // Draw Current Position with Sleek Directional Navigation Vector Puck
+    // 3. Draw Teammate Location Pucks & Badges
+    for (final t in teammates) {
+      if (!t.isActive) continue;
+      final tColor = t.color;
+      final tOff = toCanvasOffset(Point(t.lastLat, t.lastLng));
+
+      // Outer Halo
+      canvas.drawCircle(tOff, 14.0, Paint()..color = tColor.withValues(alpha: 0.25));
+      // Inner Circle
+      canvas.drawCircle(tOff, 6.5, Paint()..color = tColor);
+      canvas.drawCircle(tOff, 6.5, Paint()..color = Colors.white..style = PaintingStyle.stroke..strokeWidth = 1.8);
+
+      // Name & Speed Badge
+      final labelText = '${t.username.isNotEmpty ? t.username : t.displayTag} • ${t.speedKmh.toStringAsFixed(0)}km/h';
+      final textSpan = TextSpan(
+        text: labelText,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 9.0,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.3,
+        ),
+      );
+      final tp = TextPainter(text: textSpan, textDirection: TextDirection.ltr);
+      tp.layout();
+
+      final badgeRect = RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: Offset(tOff.dx, tOff.dy - 16.0),
+          width: tp.width + 10.0,
+          height: tp.height + 4.0,
+        ),
+        const Radius.circular(6.0),
+      );
+      canvas.drawRRect(badgeRect, Paint()..color = Colors.black.withValues(alpha: 0.82));
+      canvas.drawRRect(badgeRect, Paint()..color = tColor.withValues(alpha: 0.85)..style = PaintingStyle.stroke..strokeWidth = 1.0);
+      tp.paint(canvas, Offset(badgeRect.left + 5.0, badgeRect.top + 2.0));
+    }
+
+    // 4. Draw Local User Current Position with Sleek Directional Navigation Vector Puck
     final currentOff = toCanvasOffset(_renderPoints.last);
     
     // Calculate heading vector angle
@@ -217,6 +283,7 @@ class BreadcrumbPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant BreadcrumbPainter oldDelegate) {
     return oldDelegate.points.length != points.length ||
+        oldDelegate.teammates.length != teammates.length ||
         oldDelegate.brightness != brightness ||
         oldDelegate.panOffset != panOffset ||
         oldDelegate.zoomScale != zoomScale;
@@ -226,6 +293,7 @@ class BreadcrumbPainter extends CustomPainter {
 /// A custom painter that draws a GPS breadcrumb polyline aligned with an OSM raster tile grid.
 class TileBreadcrumbPainter extends CustomPainter {
   final List<Point<double>> points;
+  final List<Teammate> teammates;
   final int zoom;
   final int startX;
   final int startY;
@@ -236,6 +304,7 @@ class TileBreadcrumbPainter extends CustomPainter {
 
   TileBreadcrumbPainter({
     required this.points,
+    this.teammates = const [],
     required this.zoom,
     required this.startX,
     required this.startY,
@@ -269,6 +338,30 @@ class TileBreadcrumbPainter extends CustomPainter {
       return Offset(px, py);
     }
 
+    // 1. Draw Teammates' Breadcrumb Trails on OSM
+    for (final t in teammates) {
+      if (!t.isActive || t.breadcrumbTrail.length < 2) continue;
+      final tColor = t.color;
+      final tPath = Path();
+      final firstPt = toPixelOffset(Point(t.breadcrumbTrail.first.lat, t.breadcrumbTrail.first.lng));
+      tPath.moveTo(firstPt.dx, firstPt.dy);
+
+      for (int i = 1; i < t.breadcrumbTrail.length; i++) {
+        final pt = toPixelOffset(Point(t.breadcrumbTrail[i].lat, t.breadcrumbTrail[i].lng));
+        tPath.lineTo(pt.dx, pt.dy);
+      }
+
+      canvas.drawPath(
+        tPath,
+        Paint()
+          ..color = tColor.withValues(alpha: 0.6)
+          ..strokeWidth = 2.5
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+
+    // 2. Draw Local User Track
     final Paint glowPaint = Paint()
       ..color = const Color(0xFFFF5722).withValues(alpha: 0.35)
       ..strokeWidth = 6.0
@@ -299,7 +392,43 @@ class TileBreadcrumbPainter extends CustomPainter {
     canvas.drawCircle(firstOff, 6.0, Paint()..color = const Color(0xFF10B981));
     canvas.drawCircle(firstOff, 3.0, Paint()..color = Colors.white);
 
-    // Current position directional vector puck
+    // 3. Draw Teammate Location Pucks & Badges on OSM
+    for (final t in teammates) {
+      if (!t.isActive) continue;
+      final tColor = t.color;
+      final tOff = toPixelOffset(Point(t.lastLat, t.lastLng));
+
+      canvas.drawCircle(tOff, 14.0, Paint()..color = tColor.withValues(alpha: 0.25));
+      canvas.drawCircle(tOff, 6.5, Paint()..color = tColor);
+      canvas.drawCircle(tOff, 6.5, Paint()..color = Colors.white..style = PaintingStyle.stroke..strokeWidth = 1.8);
+
+      final labelText = '${t.username.isNotEmpty ? t.username : t.displayTag} • ${t.speedKmh.toStringAsFixed(0)}km/h';
+      final textSpan = TextSpan(
+        text: labelText,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 9.0,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.3,
+        ),
+      );
+      final tp = TextPainter(text: textSpan, textDirection: TextDirection.ltr);
+      tp.layout();
+
+      final badgeRect = RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: Offset(tOff.dx, tOff.dy - 16.0),
+          width: tp.width + 10.0,
+          height: tp.height + 4.0,
+        ),
+        const Radius.circular(6.0),
+      );
+      canvas.drawRRect(badgeRect, Paint()..color = Colors.black.withValues(alpha: 0.82));
+      canvas.drawRRect(badgeRect, Paint()..color = tColor.withValues(alpha: 0.85)..style = PaintingStyle.stroke..strokeWidth = 1.0);
+      tp.paint(canvas, Offset(badgeRect.left + 5.0, badgeRect.top + 2.0));
+    }
+
+    // 4. Current position directional vector puck
     final lastOff = toPixelOffset(points.last);
     
     // Calculate heading angle
@@ -356,6 +485,7 @@ class TileBreadcrumbPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant TileBreadcrumbPainter oldDelegate) {
     return oldDelegate.points.length != points.length ||
+        oldDelegate.teammates.length != teammates.length ||
         oldDelegate.zoom != zoom ||
         oldDelegate.startX != startX ||
         oldDelegate.startY != startY ||

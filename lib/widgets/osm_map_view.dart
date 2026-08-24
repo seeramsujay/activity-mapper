@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'breadcrumb_painter.dart';
+import '../services/p2p_mesh_service.dart';
 import '../services/settings_service.dart';
 import '../services/tile_cache_service.dart';
 
@@ -249,6 +250,7 @@ class _OsmMapViewState extends State<OsmMapView> {
                   child: CustomPaint(
                     painter: TileBreadcrumbPainter(
                       points: widget.points,
+                      teammates: P2pMeshService.instance.teammates.where((t) => t.isActive).toList(),
                       zoom: zoom,
                       startX: startX,
                       startY: startY,
@@ -265,6 +267,7 @@ class _OsmMapViewState extends State<OsmMapView> {
                   child: CustomPaint(
                     painter: BreadcrumbPainter(
                       points: widget.points,
+                      teammates: P2pMeshService.instance.teammates.where((t) => t.isActive).toList(),
                       brightness: widget.brightness,
                       panOffset: _userPanOffset,
                       zoomScale: _zoomScale,

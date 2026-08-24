@@ -20,19 +20,19 @@ class MeshSessionConfig {
     this.isHost = false,
   });
 
-  /// Converts this configuration into an activitymapper:// URI for QR generation.
+  /// Converts this configuration into a turnback:// URI for QR generation.
   String toUri() {
     final encId = Uri.encodeComponent(sessionId);
     final encKey = Uri.encodeComponent(sessionKey);
     final encName = Uri.encodeComponent(sessionName);
-    return 'activitymapper://mesh?id=$encId&key=$encKey&name=$encName';
+    return 'turnback://mesh?id=$encId&key=$encKey&name=$encName';
   }
 
-  /// Parses an activitymapper:// QR code URI into a [MeshSessionConfig].
+  /// Parses a turnback:// or activitymapper:// QR code URI into a [MeshSessionConfig].
   static MeshSessionConfig? fromUri(String uriString) {
     try {
       final uri = Uri.parse(uriString.trim());
-      if (uri.scheme != 'activitymapper' || uri.host != 'mesh') {
+      if ((uri.scheme != 'turnback' && uri.scheme != 'activitymapper') || uri.host != 'mesh') {
         return null;
       }
       final id = uri.queryParameters['id'];
