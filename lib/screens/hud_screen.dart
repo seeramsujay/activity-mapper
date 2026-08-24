@@ -16,6 +16,7 @@ import '../widgets/telemetry_chart.dart';
 import '../widgets/mesh_radar_widget.dart';
 import '../widgets/mesh_qr_widget.dart';
 import '../widgets/strava_upload_dialog.dart';
+import '../widgets/colab_comms_sheet.dart';
 
 
 /// Ultra-high performance HUD Activity Screen.
@@ -805,6 +806,44 @@ class _HudScreenState extends State<HudScreen> {
                           ],
                         ),
                       ),
+                      // Dedicated Colab COMMS Button
+                      if (PlatformService.isColabMode && P2pMeshService.instance.isActive) ...[
+                        GestureDetector(
+                          onTap: () {
+                            HapticFeedback.mediumImpact();
+                            ColabCommsSheet.show(
+                              context,
+                              currentLat: _points.isNotEmpty ? _points.last.x : 0.0,
+                              currentLng: _points.isNotEmpty ? _points.last.y : 0.0,
+                            );
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF10B981).withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: const Color(0xFF10B981), width: 1.2),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.campaign_rounded, size: 14, color: Color(0xFF10B981)),
+                                SizedBox(width: 4),
+                                Text(
+                                  'COMMS',
+                                  style: TextStyle(
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.8,
+                                    color: Color(0xFF10B981),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                      ],
                       // Layer toggle button
                       IconButton(
                         icon: Icon(_showOsmTiles ? Icons.layers : Icons.layers_outlined, size: 20),
@@ -960,6 +999,44 @@ class _HudScreenState extends State<HudScreen> {
                             ],
                           ),
                           const Spacer(),
+                          // Dedicated Colab COMMS Button beside Run #1 & Layer controls
+                          if (PlatformService.isColabMode && P2pMeshService.instance.isActive) ...[
+                            GestureDetector(
+                              onTap: () {
+                                HapticFeedback.mediumImpact();
+                                ColabCommsSheet.show(
+                                  context,
+                                  currentLat: _points.isNotEmpty ? _points.last.x : 0.0,
+                                  currentLng: _points.isNotEmpty ? _points.last.y : 0.0,
+                                );
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF10B981).withValues(alpha: 0.18),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: const Color(0xFF10B981), width: 1.2),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.campaign_rounded, size: 14, color: Color(0xFF10B981)),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'COMMS',
+                                      style: TextStyle(
+                                        fontSize: 10.5,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 0.8,
+                                        color: Color(0xFF10B981),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                          ],
                           // Map layer toggle
                           IconButton(
                             padding: EdgeInsets.zero,
