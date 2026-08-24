@@ -1258,7 +1258,7 @@ class _SetupScreenState extends State<SetupScreen> {
                                 const Expanded(child: Divider()),
                                 Padding(
                                   padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                                  child: Text('OR PASTE LINK', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5))),
+                                  child: Text('OR PASTE LINK', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: (theme.textTheme.bodyMedium?.color ?? Colors.grey).withValues(alpha: 0.5))),
                                 ),
                                 const Expanded(child: Divider()),
                               ],
