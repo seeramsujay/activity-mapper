@@ -109,11 +109,14 @@ class _HudScreenState extends State<HudScreen> {
     if (_isOledDimmed) {
       setState(() => _isOledDimmed = false);
     }
-    _inactivityTimer = Timer(const Duration(seconds: 25), () {
-      if (mounted && !_isPaused) {
-        setState(() => _isOledDimmed = true);
-      }
-    });
+    // Only schedule OLED screen dimming when isOled mode is actively enabled in settings!
+    if (SettingsService.instance.isOled) {
+      _inactivityTimer = Timer(const Duration(seconds: 25), () {
+        if (mounted && !_isPaused && SettingsService.instance.isOled) {
+          setState(() => _isOledDimmed = true);
+        }
+      });
+    }
   }
 
   @override
@@ -951,92 +954,120 @@ class _HudScreenState extends State<HudScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Top App Bar: Minimalist Back, Active Run Indicator & Map Layer Switch
+                    // Top App Bar: Minimalist Back, Glove-Friendly Large COMMS Div (Colab) / Run Indicator (Offline) & Map Layer Switch
                     Padding(
-                      padding: const EdgeInsets.only(left: 14.0, right: 14.0, top: 4.0, bottom: 2.0),
+                      padding: const EdgeInsets.only(left: 14.0, right: 14.0, top: 4.0, bottom: 4.0),
                       child: Row(
                         children: [
                           IconButton(
                             padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                             icon: Icon(Icons.arrow_back_ios_new, size: 16, color: textColor),
                             onPressed: () => Navigator.pop(context),
                           ),
                           const SizedBox(width: 8),
-                          // Active Run Status Indicator
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Row(
-                                children: [
-                                  Container(
-                                    width: 7,
-                                    height: 7,
-                                    decoration: BoxDecoration(
-                                      color: _isPaused ? Colors.amber : const Color(0xFF10B981),
-                                      shape: BoxShape.circle,
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: (_isPaused ? Colors.amber : const Color(0xFF10B981)).withValues(alpha: 0.5),
-                                          blurRadius: 4,
-                                          spreadRadius: 1,
-                                        ),
-                                      ],
-                                    ),
+
+                          // If Colab Mode: Giant Glove-Friendly COMMS Div for Quick 1-Tap Cycling Comms
+                          if (PlatformService.isColabMode)
+                            Expanded(
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () {
+                                  HapticFeedback.heavyImpact();
+                                  ColabCommsSheet.show(
+                                    context,
+                                    currentLat: _points.isNotEmpty ? _points.last.x : 0.0,
+                                    currentLng: _points.isNotEmpty ? _points.last.y : 0.0,
+                                  );
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF10B981).withValues(alpha: isDark ? 0.22 : 0.15),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: const Color(0xFF10B981), width: 1.8),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                                        blurRadius: 6,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ],
                                   ),
-                                  const SizedBox(width: 6),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Icon(Icons.campaign_rounded, size: 19, color: Color(0xFF10B981)),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'TACTICAL COMMS',
+                                        style: TextStyle(
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: 1.0,
+                                          color: isDark ? Colors.white : const Color(0xFF047857),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF10B981),
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Text(
+                                          '${P2pMeshService.instance.teammates.length + 1}P',
+                                          style: const TextStyle(
+                                            fontSize: 9.5,
+                                            fontWeight: FontWeight.w900,
+                                            color: Colors.black,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            )
+                          else
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Container(
+                                        width: 7,
+                                        height: 7,
+                                        decoration: BoxDecoration(
+                                          color: _isPaused ? Colors.amber : const Color(0xFF10B981),
+                                          shape: BoxShape.circle,
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: (_isPaused ? Colors.amber : const Color(0xFF10B981)).withValues(alpha: 0.5),
+                                              blurRadius: 4,
+                                              spreadRadius: 1,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        '${widget.activityType.toUpperCase()} #${widget.sessionId}',
+                                        style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12.5, color: textColor, letterSpacing: 0.8),
+                                      ),
+                                    ],
+                                  ),
                                   Text(
-                                    '${widget.activityType.toUpperCase()} #${widget.sessionId}',
-                                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12.5, color: textColor, letterSpacing: 0.8),
+                                    _isPaused ? 'PAUSED' : 'LIVE GPS ACTIVE',
+                                    style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5)),
                                   ),
                                 ],
                               ),
-                              Text(
-                                _isPaused ? 'PAUSED' : 'LIVE GPS ACTIVE',
-                                style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5)),
-                              ),
-                            ],
-                          ),
-                          const Spacer(),
-                          // Dedicated Colab COMMS Button beside Run #1 & Layer controls
-                          if (PlatformService.isColabMode && P2pMeshService.instance.isActive) ...[
-                            GestureDetector(
-                              onTap: () {
-                                HapticFeedback.mediumImpact();
-                                ColabCommsSheet.show(
-                                  context,
-                                  currentLat: _points.isNotEmpty ? _points.last.x : 0.0,
-                                  currentLng: _points.isNotEmpty ? _points.last.y : 0.0,
-                                );
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF10B981).withValues(alpha: 0.18),
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(color: const Color(0xFF10B981), width: 1.2),
-                                ),
-                                child: const Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.campaign_rounded, size: 14, color: Color(0xFF10B981)),
-                                    SizedBox(width: 4),
-                                    Text(
-                                      'COMMS',
-                                      style: TextStyle(
-                                        fontSize: 10.5,
-                                        fontWeight: FontWeight.w900,
-                                        letterSpacing: 0.8,
-                                        color: Color(0xFF10B981),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
                             ),
-                            const SizedBox(width: 8),
-                          ],
+
+                          const SizedBox(width: 8),
                           // Map layer toggle
                           IconButton(
                             padding: EdgeInsets.zero,
@@ -2035,20 +2066,12 @@ class _HudScreenState extends State<HudScreen> {
       ),
       child: Row(
         children: [
-          // BLE Heart Rate & Cadence Indicator Pill
+          // Small Person Symbol Button (Replaces Heart sensor icon; opens Colab teammates sheet if Colab)
           GestureDetector(
             onTap: () {
               HapticFeedback.selectionClick();
-              if (BleSensorService.instance.isConnected) {
-                BleSensorService.instance.disconnect();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('BLE Sensors Disconnected')),
-                );
-              } else {
-                BleSensorService.instance.startSimulation();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('BLE Sensors Connected (Polar H10 Simulated)')),
-                );
+              if (PlatformService.isColabMode) {
+                MeshRadarHudWidget.showTeammatesSheet(context);
               }
             },
             child: Container(
@@ -2057,23 +2080,23 @@ class _HudScreenState extends State<HudScreen> {
                 color: (Theme.of(context).brightness == Brightness.dark ? const Color(0xFF1E232B) : const Color(0xFFF3F4F6)),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: _sensorData.isConnected ? const Color(0xFFEF4444) : borderColor,
-                  width: _sensorData.isConnected ? 1.4 : 1.0,
+                  color: (PlatformService.isColabMode && P2pMeshService.instance.isActive) ? const Color(0xFF10B981) : borderColor,
+                  width: (PlatformService.isColabMode && P2pMeshService.instance.isActive) ? 1.4 : 1.0,
                 ),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    Icons.favorite,
-                    size: 13,
-                    color: _sensorData.isConnected ? const Color(0xFFEF4444) : textColor.withValues(alpha: 0.4),
+                    Icons.person_rounded,
+                    size: 15,
+                    color: (PlatformService.isColabMode && P2pMeshService.instance.isActive) ? const Color(0xFF10B981) : textColor.withValues(alpha: 0.6),
                   ),
-                  if (_sensorData.isConnected) ...[
+                  if (PlatformService.isColabMode && P2pMeshService.instance.isActive) ...[
                     const SizedBox(width: 4),
                     Text(
-                      '${_sensorData.heartRateBpm}',
-                      style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w900, color: Color(0xFFEF4444)),
+                      '${P2pMeshService.instance.teammates.length + 1}',
+                      style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w900, color: Color(0xFF10B981)),
                     ),
                   ],
                 ],
