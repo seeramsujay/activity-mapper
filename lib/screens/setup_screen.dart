@@ -36,6 +36,8 @@ class SetupScreen extends StatefulWidget {
 /// State controller for the [SetupScreen], managing lifetime analytics.
 class _SetupScreenState extends State<SetupScreen> {
 
+  bool get isColab => !widget.isOfflineOnly && PlatformService.isColabMode;
+
   // Lifetime stats
   List<Map<String, dynamic>> _completedSessions = [];
   double _lifetimeDistance = 0.0;
@@ -906,7 +908,218 @@ class _SetupScreenState extends State<SetupScreen> {
     }
   }
 
-  void _showMeshSessionDialog(BuildContext context) {
+  Widget _buildColabMeshCard(Color textColor, Color cardBg, Color borderColor, bool isDark) {
+    return AnimatedBuilder(
+      animation: P2pMeshService.instance,
+      builder: (context, _) {
+        final mesh = P2pMeshService.instance;
+        final bool isMeshActive = mesh.isActive;
+        final activePeers = mesh.teammates.where((t) => t.isActive).toList();
+
+        if (isMeshActive) {
+          return Container(
+            margin: const EdgeInsets.only(bottom: 20.0),
+            padding: const EdgeInsets.all(16.0),
+            decoration: BoxDecoration(
+              color: cardBg,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.4), width: 1.5),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  const Color(0xFF10B981).withValues(alpha: isDark ? 0.15 : 0.08),
+                  cardBg,
+                ],
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF10B981),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'MESH ACTIVE: "${mesh.sessionConfig?.sessionName ?? 'Group Ride'}"',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 0.8, color: Color(0xFF10B981)),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '${activePeers.length} Online',
+                        style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF10B981)),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                if (activePeers.isNotEmpty) ...[
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: activePeers.map((t) => Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: t.color.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: t.color.withValues(alpha: 0.4)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircleAvatar(radius: 4, backgroundColor: t.color),
+                          const SizedBox(width: 5),
+                          Text(
+                            t.username.isNotEmpty ? t.username : t.displayTag,
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor),
+                          ),
+                        ],
+                      ),
+                    )).toList(),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                Row(
+                  children: [
+                    if (mesh.sessionConfig != null)
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.qr_code, size: 16),
+                          label: const Text('Share QR / Code', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF10B981),
+                            side: const BorderSide(color: Color(0xFF10B981), width: 1.2),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                          ),
+                          onPressed: () {
+                            showDialog(
+                              context: context,
+                              builder: (qrCtx) => MeshQrDisplayDialog(config: mesh.sessionConfig!),
+                            );
+                          },
+                        ),
+                      ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.exit_to_app, color: Colors.redAccent, size: 20),
+                      tooltip: 'Leave Group',
+                      onPressed: () async {
+                        await P2pMeshService.instance.leaveSession();
+                        setState(() {});
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        }
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 20.0),
+          padding: const EdgeInsets.all(16.0),
+          decoration: BoxDecoration(
+            color: cardBg,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFF2563EB).withValues(alpha: 0.3), width: 1.5),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                const Color(0xFF2563EB).withValues(alpha: isDark ? 0.12 : 0.06),
+                cardBg,
+              ],
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2563EB).withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.groups_rounded, color: Color(0xFF3B82F6), size: 20),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'P2P GROUP RIDE (COLAB)',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: 0.8, color: Color(0xFF3B82F6)),
+                        ),
+                        Text(
+                          'Private zero-server live tracking over Wi-Fi / Hotspot',
+                          style: TextStyle(fontSize: 11, color: textColor.withValues(alpha: 0.6)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.wifi_tethering, size: 16),
+                      label: const Text('Host Ride', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF3B82F6),
+                        side: const BorderSide(color: Color(0xFF3B82F6), width: 1.2),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                      onPressed: () => _showMeshSessionDialog(context, initialTab: 0),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.qr_code_scanner, size: 16),
+                      label: const Text('Join Ride', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF2563EB),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                      onPressed: () => _showMeshSessionDialog(context, initialTab: 1),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showMeshSessionDialog(BuildContext context, {int initialTab = 0}) {
     final theme = Theme.of(context);
     final nameCtrl = TextEditingController(text: 'Team Out-and-Back');
     final userCtrl = TextEditingController(text: 'Rider');
@@ -919,6 +1132,7 @@ class _SetupScreenState extends State<SetupScreen> {
         return StatefulBuilder(
           builder: (sCtx, setModalState) {
             return DefaultTabController(
+              initialIndex: initialTab,
               length: 2,
               child: AlertDialog(
                 backgroundColor: theme.scaffoldBackgroundColor,
@@ -1324,35 +1538,64 @@ class _SetupScreenState extends State<SetupScreen> {
       appBar: AppBar(
         title: Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                color: accentColor,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.turn_left_rounded, color: Colors.white, size: 18),
+            Image.asset(
+              'assets/logo.png',
+              width: 32,
+              height: 32,
+              errorBuilder: (_, __, ___) => const Icon(Icons.directions_run_rounded, size: 30, color: Color(0xFFFF5722)),
             ),
             const SizedBox(width: 10),
-            const Text('TURNBACK', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.5, fontSize: 18)),
+            Text(
+              isColab ? 'TURNBACK COLAB' : 'TURNBACK',
+              style: const TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.5, fontSize: 18),
+            ),
           ],
         ),
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: false,
         actions: [
-          if (!widget.isOfflineOnly)
-            IconButton(
-              icon: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.green.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.green.withOpacity(0.3)),
-                ),
-                child: const Icon(Icons.wifi_tethering, size: 20, color: Colors.greenAccent),
-              ),
-              tooltip: 'P2P Mesh Group Ride',
-              onPressed: () => _showMeshSessionDialog(context),
+          if (isColab)
+            AnimatedBuilder(
+              animation: P2pMeshService.instance,
+              builder: (context, _) {
+                final isMeshActive = P2pMeshService.instance.isActive;
+                final peerCount = P2pMeshService.instance.teammates.where((t) => t.isActive).length;
+                return GestureDetector(
+                  onTap: () => _showMeshSessionDialog(context),
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(vertical: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: (isMeshActive ? const Color(0xFF10B981) : const Color(0xFF2563EB)).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: (isMeshActive ? const Color(0xFF10B981) : const Color(0xFF2563EB)).withValues(alpha: 0.4),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.wifi_tethering,
+                          size: 16,
+                          color: isMeshActive ? const Color(0xFF10B981) : const Color(0xFF3B82F6),
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          isMeshActive ? '$peerCount ONLINE' : 'GROUP',
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w900,
+                            color: isMeshActive ? const Color(0xFF10B981) : const Color(0xFF3B82F6),
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
             ),
           IconButton(
             icon: Container(
@@ -1389,6 +1632,10 @@ class _SetupScreenState extends State<SetupScreen> {
               const SizedBox(height: 8),
               // Real-Time Active Session Banner (Ticking return countdown)
               _buildActiveSessionCard(textColor, brightness),
+
+              // Intuitive Colab P2P Mesh Group Ride Card (Visible only in Colab flavor)
+              if (isColab)
+                _buildColabMeshCard(textColor, cardBg, borderColor, isDark),
 
               // Strava-Style Athletic Performance Summary Card
               Container(

@@ -82,7 +82,9 @@ class P2pMeshService extends ChangeNotifier {
   bool _isMeshActive = false;
 
   bool get isMeshActive => _isMeshActive;
+  bool get isActive => _isMeshActive;
   MeshSessionConfig? get activeConfig => _activeConfig;
+  MeshSessionConfig? get sessionConfig => _activeConfig;
   String get localPeerId => _localPeerId;
   String get localUsername => _localUsername;
   int get localColorValue => _localColorValue;
@@ -198,6 +200,9 @@ class P2pMeshService extends ChangeNotifier {
     _startTimers();
     notifyListeners();
   }
+
+  /// Leaves active collaborative mesh session.
+  Future<void> leaveSession() => stopSession();
 
   /// Stops active collaborative mesh session and cleans up sockets.
   Future<void> stopSession() async {

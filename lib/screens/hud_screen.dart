@@ -606,13 +606,15 @@ class _HudScreenState extends State<HudScreen> {
           _rallyState = _rallyEngine!.updateNavigation(lat, lng);
         }
 
-        // P2P Mesh Telemetry Broadcast
-        P2pMeshService.instance.updateLocalPosition(
-          lat: lat,
-          lng: lng,
-          speedKmh: speed * 3.6,
-          altitude: alt,
-        );
+        // P2P Mesh Telemetry Broadcast (Active only in Colab flavor)
+        if (PlatformService.isColabMode && P2pMeshService.instance.isActive) {
+          P2pMeshService.instance.updateLocalPosition(
+            lat: lat,
+            lng: lng,
+            speedKmh: speed * 3.6,
+            altitude: alt,
+          );
+        }
 
         // Turn-back check on GPS point arrival
         if (!widget.isFreeRun && !_turnBackTriggered && _activeTargetDuration.inSeconds > 0) {
@@ -1403,7 +1405,8 @@ class _HudScreenState extends State<HudScreen> {
         ),
       ),
     ),
-    const MeshRadarHudWidget(),
+    if (PlatformService.isColabMode && P2pMeshService.instance.isActive)
+      const MeshRadarHudWidget(),
     if (_isOledDimmed)
       Positioned(
         top: MediaQuery.of(context).padding.top + 12,

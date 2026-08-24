@@ -1,6 +1,6 @@
 name: turnback
 description: "TurnBack: Precision Out-and-Back Endurance Tracker by Sujay Seeram."
-version: 1.2.0+120
+version: 1.2.1+121
 
 publish_to: 'none' # Prevent accidental publishing to pub.dev
 

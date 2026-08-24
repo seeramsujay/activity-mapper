@@ -13,6 +13,12 @@ class PlatformService {
 
   PlatformService._init();
 
+  /// Returns true if the build is running the Colab P2P flavor.
+  static bool get isColabMode => appFlavor == 'colab';
+
+  /// Returns true if the build is running the pure Offline flavor.
+  static bool get isOfflineMode => !isColabMode;
+
   Stream<dynamic>? _telemetryStream;
 
   /// Checks if background and fine location permissions are granted.
