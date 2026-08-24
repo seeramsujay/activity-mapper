@@ -1230,13 +1230,59 @@ class _SetupScreenState extends State<SetupScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const SizedBox(height: 8),
+                            // Primary 1-Tap Camera Scanner Button
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                icon: const Icon(Icons.camera_alt_rounded, size: 18),
+                                label: const Text('Scan QR Code with Camera', style: TextStyle(fontWeight: FontWeight.bold)),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF10B981),
+                                  foregroundColor: Colors.black,
+                                  padding: const EdgeInsets.symmetric(vertical: 13),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                                onPressed: () async {
+                                  final scannedUri = await MeshQrCameraScannerDialog.scan(context);
+                                  if (scannedUri != null && scannedUri.isNotEmpty) {
+                                    setModalState(() {
+                                      uriCtrl.text = scannedUri;
+                                    });
+                                  }
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                const Expanded(child: Divider()),
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                                  child: Text('OR PASTE LINK', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5))),
+                                ),
+                                const Expanded(child: Divider()),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
                             TextField(
                               controller: uriCtrl,
                               maxLines: 2,
-                              decoration: const InputDecoration(
+                              decoration: InputDecoration(
                                 labelText: 'Paste Mesh URI (turnback://...)',
-                                border: OutlineInputBorder(),
+                                border: const OutlineInputBorder(),
                                 isDense: true,
+                                suffixIcon: IconButton(
+                                  icon: const Icon(Icons.content_paste, size: 18),
+                                  tooltip: 'Paste from Clipboard',
+                                  onPressed: () async {
+                                    final data = await Clipboard.getData('text/plain');
+                                    if (data?.text != null) {
+                                      setModalState(() {
+                                        uriCtrl.text = data!.text!.trim();
+                                      });
+                                    }
+                                  },
+                                ),
                               ),
                             ),
                             const SizedBox(height: 12),
@@ -1272,7 +1318,7 @@ class _SetupScreenState extends State<SetupScreen> {
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton.icon(
-                                icon: const Icon(Icons.qr_code_scanner, size: 18),
+                                icon: const Icon(Icons.link, size: 18),
                                 label: const Text('Join Mesh Session', style: TextStyle(fontWeight: FontWeight.bold)),
                                 style: ElevatedButton.styleFrom(
                                   padding: const EdgeInsets.symmetric(vertical: 12),
@@ -1282,7 +1328,7 @@ class _SetupScreenState extends State<SetupScreen> {
                                   final config = MeshSessionConfig.fromUri(uriCtrl.text.trim());
                                   if (config == null) {
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Invalid turnback:// mesh URI')),
+                                      const SnackBar(content: Text('Invalid turnback:// mesh URI. Please scan QR or paste a valid link.')),
                                     );
                                     return;
                                   }

@@ -1,9 +1,10 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../services/p2p_mesh_service.dart';
 
-/// Interactive modal/dialog displaying the session QR code and URI for P2P Mesh Handshake.
+/// Interactive modal/dialog displaying the standard ISO QR code and URI for P2P Mesh Handshake.
 class MeshQrDisplayDialog extends StatelessWidget {
   final MeshSessionConfig config;
 
@@ -43,29 +44,42 @@ class MeshQrDisplayDialog extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'Scan this code on your teammate\'s phone to join the direct E2EE encrypted mesh.',
+                'Scan this code on your teammate\'s phone using TurnBack or camera to join.',
                 style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
-              // QR Code Graphic Matrix
+              // Standard ISO/IEC 18004 QR Code
               Container(
-                width: 220,
-                height: 220,
+                width: 230,
+                height: 230,
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
+                      color: Colors.black.withOpacity(0.12),
                       blurRadius: 10,
                       spreadRadius: 2,
                     ),
                   ],
                 ),
                 padding: const EdgeInsets.all(12),
-                child: CustomPaint(
-                  painter: _QrMatrixPainter(data: uri),
+                child: Center(
+                  child: QrImageView(
+                    data: uri,
+                    version: QrVersions.auto,
+                    size: 206,
+                    backgroundColor: Colors.white,
+                    eyeStyle: const QrEyeStyle(
+                      eyeShape: QrEyeShape.square,
+                      color: Color(0xFF0F172A),
+                    ),
+                    dataModuleStyle: const QrDataModuleStyle(
+                      dataModuleShape: QrDataModuleShape.square,
+                      color: Color(0xFF0F172A),
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
@@ -143,63 +157,188 @@ class MeshQrDisplayDialog extends StatelessWidget {
   }
 }
 
-/// Custom Canvas Painter rendering a high-contrast binary QR code matrix from text data.
-class _QrMatrixPainter extends CustomPainter {
-  final String data;
-  _QrMatrixPainter({required this.data});
+/// Full-screen live camera QR code scanner dialog for scanning the host's QR code.
+class MeshQrCameraScannerDialog extends StatefulWidget {
+  const MeshQrCameraScannerDialog({super.key});
+
+  static Future<String?> scan(BuildContext context) {
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => const MeshQrCameraScannerDialog(),
+    );
+  }
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final paintDark = Paint()..color = Colors.black..style = PaintingStyle.fill;
-    final paintLight = Paint()..color = Colors.white..style = PaintingStyle.fill;
+  State<MeshQrCameraScannerDialog> createState() => _MeshQrCameraScannerDialogState();
+}
 
-    // Background
-    canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), paintLight);
+class _MeshQrCameraScannerDialogState extends State<MeshQrCameraScannerDialog> {
+  final MobileScannerController _controller = MobileScannerController(
+    detectionSpeed: DetectionSpeed.normal,
+    facing: CameraFacing.back,
+    torchEnabled: false,
+  );
+  bool _hasScanned = false;
 
-    const int matrixSize = 25; // 25x25 QR Matrix
-    final cellSize = size.width / matrixSize;
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
-    // Deterministic pseudo-random pattern seeded by data bytes
-    final hash = data.codeUnits.fold<int>(0, (prev, elem) => ((prev << 5) - prev) + elem);
-    final random = Random(hash.abs());
-
-    // Draw position detection finder patterns at top-left, top-right, bottom-left
-    _drawFinderPattern(canvas, 0, 0, cellSize, paintDark, paintLight);
-    _drawFinderPattern(canvas, (matrixSize - 7) * cellSize, 0, cellSize, paintDark, paintLight);
-    _drawFinderPattern(canvas, 0, (matrixSize - 7) * cellSize, cellSize, paintDark, paintLight);
-
-    // Draw data cells
-    for (int r = 0; r < matrixSize; r++) {
-      for (int c = 0; c < matrixSize; c++) {
-        // Skip finder pattern zones
-        if ((r < 8 && c < 8) || (r < 8 && c >= matrixSize - 8) || (r >= matrixSize - 8 && c < 8)) {
-          continue;
-        }
-
-        // Timing patterns
-        if (r == 6 || c == 6) {
-          if ((r + c) % 2 == 0) {
-            canvas.drawRect(Rect.fromLTWH(c * cellSize, r * cellSize, cellSize, cellSize), paintDark);
-          }
-          continue;
-        }
-
-        if (random.nextBool()) {
-          canvas.drawRect(Rect.fromLTWH(c * cellSize, r * cellSize, cellSize, cellSize), paintDark);
-        }
+  void _onDetect(BarcodeCapture capture) {
+    if (_hasScanned) return;
+    for (final barcode in capture.barcodes) {
+      final rawVal = barcode.rawValue;
+      if (rawVal != null && (rawVal.startsWith('turnback://mesh') || rawVal.startsWith('activitymapper://mesh'))) {
+        _hasScanned = true;
+        HapticFeedback.heavyImpact();
+        Navigator.of(context).pop(rawVal);
+        break;
       }
     }
   }
 
-  void _drawFinderPattern(Canvas canvas, double x, double y, double cellSize, Paint dark, Paint light) {
-    // 7x7 outer dark square
-    canvas.drawRect(Rect.fromLTWH(x, y, 7 * cellSize, 7 * cellSize), dark);
-    // 5x5 inner light square
-    canvas.drawRect(Rect.fromLTWH(x + cellSize, y + cellSize, 5 * cellSize, 5 * cellSize), light);
-    // 3x3 inner dark core
-    canvas.drawRect(Rect.fromLTWH(x + 2 * cellSize, y + 2 * cellSize, 3 * cellSize, 3 * cellSize), dark);
-  }
-
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.black,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: SizedBox(
+          width: double.infinity,
+          height: 480,
+          child: Stack(
+            children: [
+              // Live Camera View
+              MobileScanner(
+                controller: _controller,
+                onDetect: _onDetect,
+                errorBuilder: (context, error, child) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(20.0),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.videocam_off, color: Colors.redAccent, size: 48),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Camera Unavailable or Permission Denied',
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            '${error.errorCode}: Please grant Camera permission in system settings.',
+                            style: const TextStyle(color: Colors.white54, fontSize: 12),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: const Text('Close'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+
+              // Viewfinder Scanner Reticle Overlay
+              Center(
+                child: Container(
+                  width: 240,
+                  height: 240,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: const Color(0xFF10B981), width: 2.5),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+              ),
+
+              // Top Controls Header
+              Positioned(
+                top: 12,
+                left: 12,
+                right: 12,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.6),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.qr_code_scanner, color: Color(0xFF10B981), size: 16),
+                          SizedBox(width: 6),
+                          Text(
+                            'SCAN HOST QR',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: ValueListenableBuilder(
+                            valueListenable: _controller,
+                            builder: (context, state, child) {
+                              return Icon(
+                                state.torchState == TorchState.on ? Icons.flash_on : Icons.flash_off,
+                                color: Colors.white,
+                              );
+                            },
+                          ),
+                          onPressed: () => _controller.toggleTorch(),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white),
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              // Bottom Instruction
+              Positioned(
+                bottom: 20,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.7),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Text(
+                      'Align QR code inside the box to connect',
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

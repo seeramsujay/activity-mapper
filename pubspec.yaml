@@ -1,6 +1,6 @@
 name: turnback
 description: "TurnBack: Precision Out-and-Back Endurance Tracker by Sujay Seeram."
-version: 1.2.2+122
+version: 1.2.3+123
 
 publish_to: 'none' # Prevent accidental publishing to pub.dev
 
@@ -19,6 +19,10 @@ dependencies:
 
   # Cupertion & Material Icons
   cupertino_icons: ^1.0.5
+
+  # Live Camera QR Code Scanner & Generator for Colab Mesh
+  mobile_scanner: ^5.2.3
+  qr_flutter: ^4.1.0
 
 dev_dependencies:
   flutter_test:
