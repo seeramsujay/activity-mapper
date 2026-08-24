@@ -5,6 +5,8 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import '../models/location_point.dart';
 import '../models/teammate.dart';
+import '../models/colab_models.dart';
+import 'stun_service.dart';
 
 /// Configuration and credentials for a collaborative P2P mesh session.
 class MeshSessionConfig {
@@ -12,20 +14,28 @@ class MeshSessionConfig {
   final String sessionKey;
   final String sessionName;
   final bool isHost;
+  final String? publicIp;
+  final int? publicPort;
 
   const MeshSessionConfig({
     required this.sessionId,
     required this.sessionKey,
     required this.sessionName,
     this.isHost = false,
+    this.publicIp,
+    this.publicPort,
   });
 
-  /// Converts this configuration into a turnback:// URI for QR generation.
+  /// Converts this configuration into a turnback:// URI for QR generation and link sharing.
   String toUri() {
     final encId = Uri.encodeComponent(sessionId);
     final encKey = Uri.encodeComponent(sessionKey);
     final encName = Uri.encodeComponent(sessionName);
-    return 'turnback://mesh?id=$encId&key=$encKey&name=$encName';
+    var uri = 'turnback://mesh?id=$encId&key=$encKey&name=$encName';
+    if (publicIp != null && publicPort != null) {
+      uri += '&ip=${Uri.encodeComponent(publicIp!)}&port=$publicPort';
+    }
+    return uri;
   }
 
   /// Parses a turnback:// or activitymapper:// QR code URI into a [MeshSessionConfig].
@@ -38,6 +48,10 @@ class MeshSessionConfig {
       final id = uri.queryParameters['id'];
       final key = uri.queryParameters['key'];
       final name = uri.queryParameters['name'] ?? 'Group Ride';
+      final ip = uri.queryParameters['ip'];
+      final portStr = uri.queryParameters['port'];
+      final port = portStr != null ? int.tryParse(portStr) : null;
+
       if (id == null || key == null || id.isEmpty || key.isEmpty) {
         return null;
       }
@@ -46,16 +60,37 @@ class MeshSessionConfig {
         sessionKey: key,
         sessionName: name,
         isHost: false,
+        publicIp: ip,
+        publicPort: port,
       );
     } catch (_) {
       return null;
     }
   }
+
+  MeshSessionConfig copyWith({
+    String? sessionId,
+    String? sessionKey,
+    String? sessionName,
+    bool? isHost,
+    String? publicIp,
+    int? publicPort,
+  }) {
+    return MeshSessionConfig(
+      sessionId: sessionId ?? this.sessionId,
+      sessionKey: sessionKey ?? this.sessionKey,
+      sessionName: sessionName ?? this.sessionName,
+      isHost: isHost ?? this.isHost,
+      publicIp: publicIp ?? this.publicIp,
+      publicPort: publicPort ?? this.publicPort,
+    );
+  }
 }
 
 /// Serverless, zero-cloud Peer-to-Peer Encrypted Mesh Tracking Service.
 ///
-/// Implements AES-256 E2EE symmetric encryption, UDP hole punching / socket broadcast,
+/// Implements RFC 5389 STUN NAT traversal, AES-256 E2EE symmetric encryption,
+/// UDP hole punching / socket broadcast, 1-tap tactical comms, shared waypoints,
 /// and live teammate telemetry relay across kilometers.
 class P2pMeshService extends ChangeNotifier {
   static final P2pMeshService instance = P2pMeshService._internal();
@@ -64,6 +99,7 @@ class P2pMeshService extends ChangeNotifier {
   static const int meshDefaultPort = 42424;
 
   MeshSessionConfig? _activeConfig;
+  StunEndpoint? _publicEndpoint;
   String _localPeerId = '';
   String _localUsername = 'Rider';
   int _localColorValue = 0xFFFF5722; // Ember Orange
@@ -73,23 +109,44 @@ class P2pMeshService extends ChangeNotifier {
 
   final Map<String, Teammate> _teammates = {};
   final Set<String> _knownPeerEndpoints = {}; // "ip:port"
+  final Map<String, SharedWaypoint> _sharedWaypoints = {};
+
+  MeshPing? _latestPing;
+  final StreamController<MeshPing> _pingController = StreamController<MeshPing>.broadcast();
 
   double _lastUserLat = 0.0;
   double _lastUserLng = 0.0;
   double _lastUserSpeedKmh = 0.0;
   double _lastUserAlt = 0.0;
 
+  double _gapAlertThresholdMeters = 400.0;
   bool _isMeshActive = false;
 
   bool get isMeshActive => _isMeshActive;
   bool get isActive => _isMeshActive;
   MeshSessionConfig? get activeConfig => _activeConfig;
   MeshSessionConfig? get sessionConfig => _activeConfig;
+  StunEndpoint? get publicEndpoint => _publicEndpoint;
   String get localPeerId => _localPeerId;
   String get localUsername => _localUsername;
   int get localColorValue => _localColorValue;
   List<Teammate> get teammates => _teammates.values.toList();
   int get activeTeammatesCount => _teammates.values.where((t) => t.isActive).length;
+
+  MeshPing? get latestPing => _latestPing;
+  Stream<MeshPing> get onPingReceived => _pingController.stream;
+  List<SharedWaypoint> get sharedWaypoints => _sharedWaypoints.values.toList();
+
+  double get gapAlertThresholdMeters => _gapAlertThresholdMeters;
+  set gapAlertThresholdMeters(double val) {
+    _gapAlertThresholdMeters = val;
+    notifyListeners();
+  }
+
+  /// Returns active teammates who have dropped behind the user past the gap threshold.
+  List<Teammate> get droppedTeammates => _teammates.values
+      .where((t) => t.isActive && t.distanceToUserMeters > _gapAlertThresholdMeters)
+      .toList();
 
   /// Generates a 256-bit symmetric session encryption key (URL-safe Base64).
   static String generate256BitKey() {
@@ -155,7 +212,32 @@ class P2pMeshService extends ChangeNotifier {
     }
   }
 
-  /// Starts hosting a new P2P collaborative tracking mesh session.
+  /// Leaves active collaborative mesh session.
+  Future<void> leaveSession() => stopSession();
+
+  /// Stops active collaborative mesh session and cleans up sockets.
+  Future<void> stopSession() async {
+    _heartbeatTimer?.cancel();
+    _pruneTimer?.cancel();
+    _heartbeatTimer = null;
+    _pruneTimer = null;
+
+    try {
+      _socket?.close();
+    } catch (_) {}
+    _socket = null;
+
+    _isMeshActive = false;
+    _activeConfig = null;
+    _publicEndpoint = null;
+    _teammates.clear();
+    _knownPeerEndpoints.clear();
+    _sharedWaypoints.clear();
+    _latestPing = null;
+    notifyListeners();
+  }
+
+  /// Starts hosting a new P2P collaborative tracking mesh session with STUN discovery.
   Future<MeshSessionConfig> startHostSession({
     required String sessionName,
     required String username,
@@ -167,7 +249,7 @@ class P2pMeshService extends ChangeNotifier {
     _localUsername = username;
     _localColorValue = colorValue;
 
-    final config = MeshSessionConfig(
+    var config = MeshSessionConfig(
       sessionId: generateTunnelId(),
       sessionKey: generate256BitKey(),
       sessionName: sessionName,
@@ -179,6 +261,19 @@ class P2pMeshService extends ChangeNotifier {
     _isMeshActive = true;
     _startTimers();
     notifyListeners();
+
+    // Perform background STUN NAT discovery on the bound socket
+    unawaited(_discoverPublicEndpoint().then((endpoint) {
+      if (endpoint != null && _activeConfig != null) {
+        _publicEndpoint = endpoint;
+        _activeConfig = _activeConfig!.copyWith(
+          publicIp: endpoint.ip,
+          publicPort: endpoint.port,
+        );
+        notifyListeners();
+      }
+    }));
+
     return config;
   }
 
@@ -197,30 +292,147 @@ class P2pMeshService extends ChangeNotifier {
 
     await _initSocket();
     _isMeshActive = true;
+
+    // If host included public IP:Port in QR / link, immediately initiate UDP hole punching
+    if (config.publicIp != null && config.publicPort != null) {
+      final hostEndpoint = '${config.publicIp}:${config.publicPort}';
+      _knownPeerEndpoints.add(hostEndpoint);
+      _punchUdpHole(config.publicIp!, config.publicPort!);
+    }
+
     _startTimers();
     notifyListeners();
+
+    // Also discover own STUN endpoint in background
+    unawaited(_discoverPublicEndpoint());
   }
 
-  /// Leaves active collaborative mesh session.
-  Future<void> leaveSession() => stopSession();
+  Future<StunEndpoint?> _discoverPublicEndpoint() async {
+    try {
+      final ep = await StunService.discoverPublicEndpoint(localSocket: _socket);
+      if (ep != null) {
+        _publicEndpoint = ep;
+        debugPrint('STUN NAT Public Endpoint Discovered: $ep');
+        broadcastTelemetry();
+      }
+      return ep;
+    } catch (e) {
+      debugPrint('STUN discovery error: $e');
+      return null;
+    }
+  }
 
-  /// Stops active collaborative mesh session and cleans up sockets.
-  Future<void> stopSession() async {
-    _heartbeatTimer?.cancel();
-    _pruneTimer?.cancel();
-    _heartbeatTimer = null;
-    _pruneTimer = null;
+  /// Punches a UDP hole directly to the remote peer's public reflexive IP and port.
+  void _punchUdpHole(String ip, int port) {
+    try {
+      final addr = InternetAddress(ip);
+      // Send 3 rapid punch packets
+      for (int i = 0; i < 3; i++) {
+        Future.delayed(Duration(milliseconds: i * 80), () {
+          broadcastTelemetry();
+        });
+      }
+    } catch (_) {}
+  }
+
+  /// Sends a 1-tap tactical comms ping across the encrypted mesh.
+  Future<void> sendPing(PingType type, {String? customText}) async {
+    if (!_isMeshActive || _activeConfig == null) return;
+
+    final ping = MeshPing(
+      id: generateTunnelId().substring(0, 8),
+      type: type,
+      senderId: _localPeerId,
+      senderName: _localUsername,
+      senderColor: _localColorValue,
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+      customText: customText,
+    );
+
+    _latestPing = ping;
+    _pingController.add(ping);
+    notifyListeners();
+
+    final packet = {
+      'v': 1,
+      't': 'ping',
+      'sid': _activeConfig!.sessionId,
+      'ping': ping.toJson(),
+    };
+
+    _sendMeshPacket(packet);
+  }
+
+  /// Drops a shared waypoint / Point of Interest (POI) synced to all teammates' maps.
+  Future<void> addSharedWaypoint(String name, double lat, double lng) async {
+    if (!_isMeshActive || _activeConfig == null) return;
+
+    final wpt = SharedWaypoint(
+      id: generateTunnelId().substring(0, 8),
+      name: name,
+      lat: lat,
+      lng: lng,
+      creatorId: _localPeerId,
+      creatorName: _localUsername,
+      colorValue: _localColorValue,
+      timestamp: DateTime.now().millisecondsSinceEpoch,
+    );
+
+    _sharedWaypoints[wpt.id] = wpt;
+    notifyListeners();
+
+    final packet = {
+      'v': 1,
+      't': 'wpt_add',
+      'sid': _activeConfig!.sessionId,
+      'wpt': wpt.toJson(),
+    };
+
+    _sendMeshPacket(packet);
+  }
+
+  /// Removes a shared waypoint from all peers' maps.
+  Future<void> removeSharedWaypoint(String id) async {
+    _sharedWaypoints.remove(id);
+    notifyListeners();
+
+    if (!_isMeshActive || _activeConfig == null) return;
+
+    final packet = {
+      'v': 1,
+      't': 'wpt_del',
+      'sid': _activeConfig!.sessionId,
+      'wid': id,
+    };
+
+    _sendMeshPacket(packet);
+  }
+
+  void _sendMeshPacket(Map<String, dynamic> packet) {
+    if (_socket == null || _activeConfig == null) return;
 
     try {
-      _socket?.close();
-    } catch (_) {}
-    _socket = null;
+      final rawJson = jsonEncode(packet);
+      final encrypted = encryptPayload(rawJson, _activeConfig!.sessionKey);
+      final packetBytes = utf8.encode(encrypted);
 
-    _isMeshActive = false;
-    _activeConfig = null;
-    _teammates.clear();
-    _knownPeerEndpoints.clear();
-    notifyListeners();
+      // Global broadcast
+      try {
+        _socket?.send(packetBytes, InternetAddress('255.255.255.255'), meshDefaultPort);
+      } catch (_) {}
+
+      // Direct unicast to all known peer endpoints
+      for (final endpoint in _knownPeerEndpoints) {
+        try {
+          final parts = endpoint.split(':');
+          if (parts.length == 2) {
+            final addr = InternetAddress(parts[0]);
+            final port = int.tryParse(parts[1]) ?? meshDefaultPort;
+            _socket?.send(packetBytes, addr, port);
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
   }
 
   /// Initializes UDP socket with broadcast and Tailscale/WireGuard interface support.
@@ -280,6 +492,7 @@ class P2pMeshService extends ChangeNotifier {
 
     final packet = {
       'v': 1,
+      't': 'telem',
       'sid': _activeConfig!.sessionId,
       'id': _localPeerId,
       'user': _localUsername,
@@ -345,6 +558,44 @@ class P2pMeshService extends ChangeNotifier {
       final data = jsonDecode(plainJson) as Map<String, dynamic>;
       if (data['sid'] != _activeConfig!.sessionId) return; // Different session
 
+      final packetType = data['t'] as String? ?? 'telem';
+
+      // 1. Tactical Comms Ping Message
+      if (packetType == 'ping') {
+        final pingData = data['ping'] as Map<String, dynamic>?;
+        if (pingData != null) {
+          final ping = MeshPing.fromJson(pingData);
+          if (ping.senderId != _localPeerId) {
+            _latestPing = ping;
+            _pingController.add(ping);
+            notifyListeners();
+          }
+        }
+        return;
+      }
+
+      // 2. Shared Waypoint Added
+      if (packetType == 'wpt_add') {
+        final wptData = data['wpt'] as Map<String, dynamic>?;
+        if (wptData != null) {
+          final wpt = SharedWaypoint.fromJson(wptData);
+          _sharedWaypoints[wpt.id] = wpt;
+          notifyListeners();
+        }
+        return;
+      }
+
+      // 3. Shared Waypoint Deleted
+      if (packetType == 'wpt_del') {
+        final wid = data['wid'] as String?;
+        if (wid != null) {
+          _sharedWaypoints.remove(wid);
+          notifyListeners();
+        }
+        return;
+      }
+
+      // 4. GPS Telemetry packet (default)
       final peerId = data['id'] as String;
       if (peerId == _localPeerId) return; // Ignore self packets
 

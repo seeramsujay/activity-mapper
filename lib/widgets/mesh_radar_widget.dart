@@ -2,10 +2,18 @@ import 'package:flutter/material.dart';
 import '../models/teammate.dart';
 import '../services/p2p_mesh_service.dart';
 import 'mesh_qr_widget.dart';
+import 'colab_comms_sheet.dart';
 
-/// Compact HUD badge & expandable bottom sheet showing live P2P mesh teammates.
+/// Compact HUD badge, comms launcher & expandable bottom sheet showing live P2P mesh teammates.
 class MeshRadarHudWidget extends StatelessWidget {
-  const MeshRadarHudWidget({super.key});
+  final double currentLat;
+  final double currentLng;
+
+  const MeshRadarHudWidget({
+    super.key,
+    this.currentLat = 0.0,
+    this.currentLng = 0.0,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -19,6 +27,8 @@ class MeshRadarHudWidget extends StatelessWidget {
 
         final activeTeammates = mesh.teammates.where((t) => t.isActive).toList();
         final count = activeTeammates.length;
+        final dropped = mesh.droppedTeammates;
+        final ping = mesh.latestPing;
 
         return Positioned(
           top: 80,
@@ -26,51 +36,141 @@ class MeshRadarHudWidget extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              // Mesh Status Pill Button
-              GestureDetector(
-                onTap: () => _showMeshTeammatesSheet(context),
-                child: Container(
+              // Row containing Comms Trigger Button & Status Pill Button
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Tactical Comms Trigger
+                  GestureDetector(
+                    onTap: () => ColabCommsSheet.show(context, currentLat: currentLat, currentLng: currentLng),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF10B981).withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: const Color(0xFF10B981), width: 1.2),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.campaign_outlined, size: 14, color: Color(0xFF10B981)),
+                          SizedBox(width: 4),
+                          Text(
+                            'COMMS',
+                            style: TextStyle(
+                              color: Color(0xFF10B981),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+
+                  // Mesh Status Pill Button
+                  GestureDetector(
+                    onTap: () => _showMeshTeammatesSheet(context),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.85),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: count > 0 ? const Color(0xFF10B981) : Colors.amber,
+                          width: 1.2,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.25),
+                            blurRadius: 6,
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 7,
+                            height: 7,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: count > 0 ? const Color(0xFF10B981) : Colors.amber,
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            count > 0 ? '$count Online' : 'P2P Ready',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          const Icon(Icons.people_alt_rounded, size: 13, color: Colors.white70),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              // Recent Tactical Comms Ping Popup
+              if (ping != null && (DateTime.now().millisecondsSinceEpoch - ping.timestamp) < 15000) ...[
+                const SizedBox(height: 6),
+                Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.85),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: count > 0 ? const Color(0xFF10B981) : Colors.amber,
-                      width: 1.2,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.25),
-                        blurRadius: 6,
-                      ),
-                    ],
+                    color: Colors.black.withValues(alpha: 0.9),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: ping.color, width: 1.2),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Container(
-                        width: 7,
-                        height: 7,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: count > 0 ? const Color(0xFF10B981) : Colors.amber,
-                        ),
-                      ),
-                      const SizedBox(width: 5),
+                      Text(ping.iconEmoji, style: const TextStyle(fontSize: 14)),
+                      const SizedBox(width: 6),
                       Text(
-                        count > 0 ? '$count Online' : 'P2P Ready',
-                        style: const TextStyle(
-                          color: Colors.white,
+                        '${ping.senderName}: ${ping.title}',
+                        style: TextStyle(
+                          color: ping.color,
                           fontSize: 10.5,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      const SizedBox(width: 4),
-                      const Icon(Icons.people_alt_rounded, size: 13, color: Colors.white70),
                     ],
                   ),
                 ),
-              ),
+              ],
+
+              // Gap Alert Notification
+              if (dropped.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.9),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange, width: 1.0),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 13),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${dropped.first.username} is ${dropped.first.formattedDistance} behind',
+                        style: const TextStyle(color: Colors.orange, fontSize: 10, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              // Individual Teammate Tags
               if (count > 0 && count <= 2) ...[
                 const SizedBox(height: 4),
                 ...activeTeammates.map((t) => Padding(
@@ -100,7 +200,6 @@ class MeshRadarHudWidget extends StatelessWidget {
                 )),
               ],
             ],
-          ),
         );
       },
     );

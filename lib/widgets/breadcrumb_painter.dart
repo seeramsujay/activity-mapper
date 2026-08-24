@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../models/teammate.dart';
+import '../models/colab_models.dart';
 
 /// A custom painter that draws an offline relative vector track trail on a canvas.
 ///
@@ -9,10 +10,12 @@ import '../models/teammate.dart';
 /// - Built-in Ramer-Douglas-Peucker (RDP) polyline decimation for 60 FPS rendering on 2GB RAM phones.
 /// - Start marker ("O") and active heading direction arrow ("^").
 /// - Live P2P Mesh Teammate position pucks, color-coded breadcrumbs, and status tags.
+/// - Shared Group Waypoints & Meeting Points.
 /// - High-contrast light and dark mode styling.
 class BreadcrumbPainter extends CustomPainter {
   final List<Point<double>> points;
   final List<Teammate> teammates;
+  final List<SharedWaypoint> sharedWaypoints;
   final Brightness brightness;
   final double simplificationEpsilon;
   final Offset panOffset;
@@ -22,6 +25,7 @@ class BreadcrumbPainter extends CustomPainter {
   BreadcrumbPainter({
     required this.points,
     this.teammates = const [],
+    this.sharedWaypoints = const [],
     required this.brightness,
     this.simplificationEpsilon = 0.00005,
     this.panOffset = Offset.zero,
@@ -220,6 +224,42 @@ class BreadcrumbPainter extends CustomPainter {
       tp.paint(canvas, Offset(badgeRect.left + 5.0, badgeRect.top + 2.0));
     }
 
+    // 3.5 Draw Shared Group Waypoints & POIs
+    for (final wpt in sharedWaypoints) {
+      final wptOff = toCanvasOffset(Point(wpt.lat, wpt.lng));
+      final wptColor = wpt.color;
+
+      // Outer Halo
+      canvas.drawCircle(wptOff, 12.0, Paint()..color = wptColor.withValues(alpha: 0.28));
+      // Inner Pin
+      canvas.drawCircle(wptOff, 5.5, Paint()..color = wptColor);
+      canvas.drawCircle(wptOff, 5.5, Paint()..color = Colors.white..style = PaintingStyle.stroke..strokeWidth = 1.5);
+
+      final textSpan = TextSpan(
+        text: '📍 ${wpt.name}',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 9.0,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.2,
+        ),
+      );
+      final tp = TextPainter(text: textSpan, textDirection: TextDirection.ltr);
+      tp.layout();
+
+      final badgeRect = RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: Offset(wptOff.dx, wptOff.dy - 14.0),
+          width: tp.width + 8.0,
+          height: tp.height + 4.0,
+        ),
+        const Radius.circular(4.0),
+      );
+      canvas.drawRRect(badgeRect, Paint()..color = Colors.black.withValues(alpha: 0.85));
+      canvas.drawRRect(badgeRect, Paint()..color = wptColor.withValues(alpha: 0.85)..style = PaintingStyle.stroke..strokeWidth = 1.0);
+      tp.paint(canvas, Offset(badgeRect.left + 4.0, badgeRect.top + 2.0));
+    }
+
     // 4. Draw Local User Current Position with Sleek Directional Navigation Vector Puck
     final currentOff = toCanvasOffset(_renderPoints.last);
     
@@ -294,6 +334,7 @@ class BreadcrumbPainter extends CustomPainter {
 class TileBreadcrumbPainter extends CustomPainter {
   final List<Point<double>> points;
   final List<Teammate> teammates;
+  final List<SharedWaypoint> sharedWaypoints;
   final int zoom;
   final int startX;
   final int startY;
@@ -305,6 +346,7 @@ class TileBreadcrumbPainter extends CustomPainter {
   TileBreadcrumbPainter({
     required this.points,
     this.teammates = const [],
+    this.sharedWaypoints = const [],
     required this.zoom,
     required this.startX,
     required this.startY,
@@ -333,30 +375,45 @@ class TileBreadcrumbPainter extends CustomPainter {
     Offset toPixelOffset(Point<double> p) {
       final double tileX = _lon2tileX(p.y, zoom);
       final double tileY = _lat2tileY(p.x, zoom);
-      final double px = (tileX - startX) * tileWidthPx + panOffset.dx;
-      final double py = (tileY - startY) * tileHeightPx + panOffset.dy;
-      return Offset(px, py);
+      final double x = (tileX - startX) * tileWidthPx + panOffset.dx;
+      final double y = (tileY - startY) * tileHeightPx + panOffset.dy;
+      return Offset(x, y);
     }
 
-    // 1. Draw Teammates' Breadcrumb Trails on OSM
+    // 1. Draw Teammate Breadcrumb Trails on OSM
     for (final t in teammates) {
       if (!t.isActive || t.breadcrumbTrail.length < 2) continue;
       final tColor = t.color;
+      final tGlow = Paint()
+        ..color = tColor.withValues(alpha: 0.3)
+        ..strokeWidth = 5.0
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+      final tLine = Paint()
+        ..color = tColor
+        ..strokeWidth = 2.5
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+
       final tPath = Path();
-      final firstPt = toPixelOffset(Point(t.breadcrumbTrail.first.lat, t.breadcrumbTrail.first.lng));
-      tPath.moveTo(firstPt.dx, firstPt.dy);
-
+      final tFirst = toPixelOffset(Point(t.breadcrumbTrail.first.lat, t.breadcrumbTrail.first.lng));
+      tPath.moveTo(tFirst.dx, tFirst.dy);
       for (int i = 1; i < t.breadcrumbTrail.length; i++) {
-        final pt = toPixelOffset(Point(t.breadcrumbTrail[i].lat, t.breadcrumbTrail[i].lng));
-        tPath.lineTo(pt.dx, pt.dy);
+        final off = toPixelOffset(Point(t.breadcrumbTrail[i].lat, t.breadcrumbTrail[i].lng));
+        tPath.lineTo(off.dx, off.dy);
       }
+      canvas.drawPath(tPath, tGlow);
+      canvas.drawPath(tPath, tLine);
 
-      canvas.drawPath(
-        tPath,
+      // Start circle for teammate
+      canvas.drawCircle(
+        tFirst,
+        4.0,
         Paint()
-          ..color = tColor.withValues(alpha: 0.6)
-          ..strokeWidth = 2.5
-          ..style = PaintingStyle.stroke
+          ..color = tColor
+          ..style = PaintingStyle.fill
           ..strokeCap = StrokeCap.round,
       );
     }
@@ -426,6 +483,42 @@ class TileBreadcrumbPainter extends CustomPainter {
       canvas.drawRRect(badgeRect, Paint()..color = Colors.black.withValues(alpha: 0.82));
       canvas.drawRRect(badgeRect, Paint()..color = tColor.withValues(alpha: 0.85)..style = PaintingStyle.stroke..strokeWidth = 1.0);
       tp.paint(canvas, Offset(badgeRect.left + 5.0, badgeRect.top + 2.0));
+    }
+
+    // 3.5 Draw Shared Group Waypoints & POIs on OSM
+    for (final wpt in sharedWaypoints) {
+      final wptOff = toPixelOffset(Point(wpt.lat, wpt.lng));
+      final wptColor = wpt.color;
+
+      // Outer Halo
+      canvas.drawCircle(wptOff, 12.0, Paint()..color = wptColor.withValues(alpha: 0.28));
+      // Inner Pin
+      canvas.drawCircle(wptOff, 5.5, Paint()..color = wptColor);
+      canvas.drawCircle(wptOff, 5.5, Paint()..color = Colors.white..style = PaintingStyle.stroke..strokeWidth = 1.5);
+
+      final textSpan = TextSpan(
+        text: '📍 ${wpt.name}',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 9.0,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.2,
+        ),
+      );
+      final tp = TextPainter(text: textSpan, textDirection: TextDirection.ltr);
+      tp.layout();
+
+      final badgeRect = RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: Offset(wptOff.dx, wptOff.dy - 14.0),
+          width: tp.width + 8.0,
+          height: tp.height + 4.0,
+        ),
+        const Radius.circular(4.0),
+      );
+      canvas.drawRRect(badgeRect, Paint()..color = Colors.black.withValues(alpha: 0.85));
+      canvas.drawRRect(badgeRect, Paint()..color = wptColor.withValues(alpha: 0.85)..style = PaintingStyle.stroke..strokeWidth = 1.0);
+      tp.paint(canvas, Offset(badgeRect.left + 4.0, badgeRect.top + 2.0));
     }
 
     // 4. Current position directional vector puck

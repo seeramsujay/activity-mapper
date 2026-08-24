@@ -1406,7 +1406,10 @@ class _HudScreenState extends State<HudScreen> {
       ),
     ),
     if (PlatformService.isColabMode && P2pMeshService.instance.isActive)
-      const MeshRadarHudWidget(),
+      MeshRadarHudWidget(
+        currentLat: _currentLocation?.latitude ?? 0.0,
+        currentLng: _currentLocation?.longitude ?? 0.0,
+      ),
     if (_isOledDimmed)
       Positioned(
         top: MediaQuery.of(context).padding.top + 12,

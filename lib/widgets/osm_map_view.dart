@@ -254,6 +254,9 @@ class _OsmMapViewState extends State<OsmMapView> {
                       teammates: PlatformService.isColabMode
                           ? P2pMeshService.instance.teammates.where((t) => t.isActive).toList()
                           : const [],
+                      sharedWaypoints: PlatformService.isColabMode
+                          ? P2pMeshService.instance.sharedWaypoints
+                          : const [],
                       zoom: zoom,
                       startX: startX,
                       startY: startY,
@@ -272,6 +275,9 @@ class _OsmMapViewState extends State<OsmMapView> {
                       points: widget.points,
                       teammates: PlatformService.isColabMode
                           ? P2pMeshService.instance.teammates.where((t) => t.isActive).toList()
+                          : const [],
+                      sharedWaypoints: PlatformService.isColabMode
+                          ? P2pMeshService.instance.sharedWaypoints
                           : const [],
                       brightness: widget.brightness,
                       panOffset: _userPanOffset,
