@@ -1407,8 +1407,8 @@ class _HudScreenState extends State<HudScreen> {
     ),
     if (PlatformService.isColabMode && P2pMeshService.instance.isActive)
       MeshRadarHudWidget(
-        currentLat: _currentLocation?.latitude ?? 0.0,
-        currentLng: _currentLocation?.longitude ?? 0.0,
+        currentLat: _points.isNotEmpty ? _points.last.x : 0.0,
+        currentLng: _points.isNotEmpty ? _points.last.y : 0.0,
       ),
     if (_isOledDimmed)
       Positioned(

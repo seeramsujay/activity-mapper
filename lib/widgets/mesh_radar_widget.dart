@@ -200,6 +200,7 @@ class MeshRadarHudWidget extends StatelessWidget {
                 )),
               ],
             ],
+          ),
         );
       },
     );
