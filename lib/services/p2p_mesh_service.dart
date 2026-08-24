@@ -226,7 +226,21 @@ class P2pMeshService extends ChangeNotifier {
   /// Initializes UDP socket with broadcast and Tailscale/WireGuard interface support.
   Future<void> _initSocket() async {
     try {
-      _socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      try {
+        _socket = await RawDatagramSocket.bind(
+          InternetAddress.anyIPv4,
+          meshDefaultPort,
+          reuseAddress: true,
+          reusePort: true,
+        );
+      } catch (_) {
+        _socket = await RawDatagramSocket.bind(
+          InternetAddress.anyIPv4,
+          0,
+          reuseAddress: true,
+          reusePort: true,
+        );
+      }
       _socket?.broadcastEnabled = true;
       _socket?.listen((event) {
         if (event == RawSocketEvent.read) {
@@ -261,7 +275,7 @@ class P2pMeshService extends ChangeNotifier {
   }
 
   /// Broadcasts encrypted telemetry packet to all connected peers and broadcast address.
-  void broadcastTelemetry() {
+  Future<void> broadcastTelemetry() async {
     if (_socket == null || _activeConfig == null) return;
 
     final packet = {
@@ -281,12 +295,28 @@ class P2pMeshService extends ChangeNotifier {
     final encrypted = encryptPayload(rawJson, _activeConfig!.sessionKey);
     final packetBytes = utf8.encode(encrypted);
 
-    // 1. Broadcast to local subnet (Wi-Fi / hotspot / direct link)
+    // 1. Broadcast to global 255.255.255.255
     try {
       _socket?.send(packetBytes, InternetAddress('255.255.255.255'), meshDefaultPort);
     } catch (_) {}
 
-    // 2. Unicast to all known mesh peer endpoints (Tailscale 100.x.y.z, cellular UDP hole punch)
+    // 2. Broadcast to specific interface subnet broadcast addresses (Hotspot 192.168.43.255, Wi-Fi 192.168.x.255, Tailscale 100.x)
+    try {
+      final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4);
+      for (final iface in interfaces) {
+        for (final addr in iface.addresses) {
+          if (!addr.isLoopback) {
+            final parts = addr.address.split('.');
+            if (parts.length == 4) {
+              final subnet = '${parts[0]}.${parts[1]}.${parts[2]}.255';
+              _socket?.send(packetBytes, InternetAddress(subnet), meshDefaultPort);
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    // 3. Unicast directly to all discovered mesh peer endpoints
     for (final endpoint in _knownPeerEndpoints) {
       try {
         final parts = endpoint.split(':');
@@ -304,6 +334,7 @@ class P2pMeshService extends ChangeNotifier {
     if (_activeConfig == null) return;
 
     final senderEndpoint = '${datagram.address.address}:${datagram.port}';
+    final isNewPeer = !_knownPeerEndpoints.contains(senderEndpoint);
     _knownPeerEndpoints.add(senderEndpoint);
 
     try {
@@ -340,9 +371,11 @@ class P2pMeshService extends ChangeNotifier {
 
       final existing = _teammates[peerId];
       final trail = existing != null ? List<LocationPoint>.from(existing.breadcrumbTrail) : <LocationPoint>[];
-      trail.add(newPoint);
-      if (trail.length > 500) {
-        trail.removeAt(0); // Keep memory tight on low-spec hardware
+      if (lat != 0.0 || lng != 0.0) {
+        trail.add(newPoint);
+        if (trail.length > 500) {
+          trail.removeAt(0); // Keep memory tight on low-spec hardware
+        }
       }
 
       _teammates[peerId] = Teammate(
@@ -358,6 +391,11 @@ class P2pMeshService extends ChangeNotifier {
         distanceToUserMeters: distMeters,
         relativeStatus: relStatus,
       );
+
+      // Instantly acknowledge new peer with reciprocal packet
+      if (isNewPeer) {
+        broadcastTelemetry();
+      }
 
       notifyListeners();
     } catch (_) {}
