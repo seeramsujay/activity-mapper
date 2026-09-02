@@ -494,7 +494,7 @@ class _OsmMapViewState extends State<OsmMapView> {
                 child: Wrap(
                   spacing: 8,
                   runSpacing: 8,
-                  cross: WrapCrossAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     GestureDetector(
                       onTap: () => _showTileSourcePicker(context, isDark, textColor, accentColor),
@@ -717,7 +717,6 @@ class _OsmMapViewState extends State<OsmMapView> {
       ),
     );
   }
-}
 }
 
 class _CachedTileImage extends StatefulWidget {
