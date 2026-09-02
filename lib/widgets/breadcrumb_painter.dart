@@ -20,6 +20,10 @@ class BreadcrumbPainter extends CustomPainter {
   final double simplificationEpsilon;
   final Offset panOffset;
   final double zoomScale;
+  final bool isHeadingUp;
+  final double headingRad;
+  final bool isReturning;
+  final Point<double>? turnaroundPoint;
   late final List<Point<double>> _renderPoints;
 
   BreadcrumbPainter({
@@ -30,6 +34,10 @@ class BreadcrumbPainter extends CustomPainter {
     this.simplificationEpsilon = 0.00005,
     this.panOffset = Offset.zero,
     this.zoomScale = 1.0,
+    this.isHeadingUp = false,
+    this.headingRad = 0.0,
+    this.isReturning = false,
+    this.turnaroundPoint,
   }) {
     if (points.length > 100 && simplificationEpsilon > 0) {
       _renderPoints = rdpSimplify(points, simplificationEpsilon);
@@ -129,6 +137,27 @@ class BreadcrumbPainter extends CustomPainter {
       return Offset(x, y);
     }
 
+    final currentOff = toCanvasOffset(_renderPoints.last);
+
+    // Compute live heading angle in screen space
+    double activeHeading = headingRad;
+    if (_renderPoints.length >= 2) {
+      final prevOff = toCanvasOffset(_renderPoints[_renderPoints.length - 2]);
+      final double dx = currentOff.dx - prevOff.dx;
+      final double dy = currentOff.dy - prevOff.dy;
+      if (dx != 0 || dy != 0) {
+        activeHeading = atan2(dy, dx);
+      }
+    }
+
+    final bool applyHeadingUp = isHeadingUp && _renderPoints.length >= 2;
+    if (applyHeadingUp) {
+      canvas.save();
+      canvas.translate(currentOff.dx, currentOff.dy);
+      canvas.rotate(-(activeHeading + (pi / 2)));
+      canvas.translate(-currentOff.dx, -currentOff.dy);
+    }
+
     // 1. Draw Teammates' Breadcrumb Trails
     for (final t in teammates) {
       if (!t.isActive || t.breadcrumbTrail.length < 2) continue;
@@ -178,12 +207,71 @@ class BreadcrumbPainter extends CustomPainter {
     canvas.drawPath(path, glowPaint);
     canvas.drawPath(path, linePaint);
 
-    // Draw Start point ("S")
+    // 2.5 Draw Return Route Guidance Polyline (if returning)
+    if (isReturning && _renderPoints.length >= 2) {
+      final Paint returnGlow = Paint()
+        ..color = const Color(0xFF00E5FF).withValues(alpha: 0.45)
+        ..strokeWidth = 8.0
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+
+      final Paint returnLine = Paint()
+        ..color = const Color(0xFF00E5FF)
+        ..strokeWidth = 4.0
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+
+      final Path returnPath = Path();
+      returnPath.moveTo(currentOff.dx, currentOff.dy);
+
+      for (int i = _renderPoints.length - 2; i >= 0; i--) {
+        final pt = toCanvasOffset(_renderPoints[i]);
+        returnPath.lineTo(pt.dx, pt.dy);
+      }
+
+      canvas.drawPath(returnPath, returnGlow);
+      canvas.drawPath(returnPath, returnLine);
+
+      // Draw Turnaround Marker
+      final turnPt = turnaroundPoint != null ? toCanvasOffset(turnaroundPoint!) : currentOff;
+      canvas.drawCircle(turnPt, 8.0, Paint()..color = const Color(0xFF3B82F6));
+      canvas.drawCircle(turnPt, 8.0, Paint()..color = Colors.white..style = PaintingStyle.stroke..strokeWidth = 1.8);
+      
+      final turnSpan = const TextSpan(
+        text: '🔄 U-TURN',
+        style: TextStyle(color: Colors.white, fontSize: 8.5, fontWeight: FontWeight.w900),
+      );
+      final turnTp = TextPainter(text: turnSpan, textDirection: TextDirection.ltr)..layout();
+      final turnRect = RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset(turnPt.dx, turnPt.dy + 16.0), width: turnTp.width + 8.0, height: turnTp.height + 4.0),
+        const Radius.circular(5.0),
+      );
+      canvas.drawRRect(turnRect, Paint()..color = Colors.black.withValues(alpha: 0.85));
+      canvas.drawRRect(turnRect, Paint()..color = const Color(0xFF3B82F6)..style = PaintingStyle.stroke..strokeWidth = 1.0);
+      turnTp.paint(canvas, Offset(turnRect.left + 4.0, turnRect.top + 2.0));
+    }
+
+    // Draw Start / Finish Flag
     final startOff = toCanvasOffset(_renderPoints.first);
-    final Paint startBgPaint = Paint()..color = const Color(0xFF10B981);
-    canvas.drawCircle(startOff, 7.0, startBgPaint);
-    final Paint startCenterPaint = Paint()..color = Colors.white;
-    canvas.drawCircle(startOff, 3.5, startCenterPaint);
+    final Paint startBgPaint = Paint()..color = isReturning ? const Color(0xFF3B82F6) : const Color(0xFF10B981);
+    canvas.drawCircle(startOff, 7.5, startBgPaint);
+    canvas.drawCircle(startOff, 7.5, Paint()..color = Colors.white..style = PaintingStyle.stroke..strokeWidth = 1.8);
+
+    final String labelText = isReturning ? '🏁 FINISH' : '🚩 START';
+    final TextSpan startSpan = TextSpan(
+      text: labelText,
+      style: const TextStyle(color: Colors.white, fontSize: 8.5, fontWeight: FontWeight.w900),
+    );
+    final TextPainter startTp = TextPainter(text: startSpan, textDirection: TextDirection.ltr)..layout();
+    final startRect = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: Offset(startOff.dx, startOff.dy - 16.0), width: startTp.width + 8.0, height: startTp.height + 4.0),
+      const Radius.circular(5.0),
+    );
+    canvas.drawRRect(startRect, Paint()..color = Colors.black.withValues(alpha: 0.85));
+    canvas.drawRRect(startRect, Paint()..color = (isReturning ? const Color(0xFF3B82F6) : const Color(0xFF10B981))..style = PaintingStyle.stroke..strokeWidth = 1.0);
+    startTp.paint(canvas, Offset(startRect.left + 4.0, startRect.top + 2.0));
 
     // 3. Draw Teammate Location Pucks & Badges
     for (final t in teammates) {
@@ -191,13 +279,10 @@ class BreadcrumbPainter extends CustomPainter {
       final tColor = t.color;
       final tOff = toCanvasOffset(Point(t.lastLat, t.lastLng));
 
-      // Outer Halo
       canvas.drawCircle(tOff, 14.0, Paint()..color = tColor.withValues(alpha: 0.25));
-      // Inner Circle
       canvas.drawCircle(tOff, 6.5, Paint()..color = tColor);
       canvas.drawCircle(tOff, 6.5, Paint()..color = Colors.white..style = PaintingStyle.stroke..strokeWidth = 1.8);
 
-      // Name & Speed Badge
       final labelText = '${t.username.isNotEmpty ? t.username : t.displayTag} • ${t.speedKmh.toStringAsFixed(0)}km/h';
       final textSpan = TextSpan(
         text: labelText,
@@ -229,9 +314,7 @@ class BreadcrumbPainter extends CustomPainter {
       final wptOff = toCanvasOffset(Point(wpt.lat, wpt.lng));
       final wptColor = wpt.color;
 
-      // Outer Halo
       canvas.drawCircle(wptOff, 12.0, Paint()..color = wptColor.withValues(alpha: 0.28));
-      // Inner Pin
       canvas.drawCircle(wptOff, 5.5, Paint()..color = wptColor);
       canvas.drawCircle(wptOff, 5.5, Paint()..color = Colors.white..style = PaintingStyle.stroke..strokeWidth = 1.5);
 
@@ -261,19 +344,6 @@ class BreadcrumbPainter extends CustomPainter {
     }
 
     // 4. Draw Local User Current Position with Sleek Directional Navigation Vector Puck
-    final currentOff = toCanvasOffset(_renderPoints.last);
-    
-    // Calculate heading vector angle
-    double headingRad = 0.0;
-    if (_renderPoints.length >= 2) {
-      final prevOff = toCanvasOffset(_renderPoints[_renderPoints.length - 2]);
-      final double dx = currentOff.dx - prevOff.dx;
-      final double dy = currentOff.dy - prevOff.dy;
-      if (dx != 0 || dy != 0) {
-        headingRad = atan2(dy, dx);
-      }
-    }
-
     // Outer pulsating radar halo
     final Paint haloPaint = Paint()..color = const Color(0xFFFF5722).withValues(alpha: 0.25);
     canvas.drawCircle(currentOff, 18.0, haloPaint);
@@ -281,17 +351,16 @@ class BreadcrumbPainter extends CustomPainter {
     // Draw Directional Navigation Vector Arrow
     canvas.save();
     canvas.translate(currentOff.dx, currentOff.dy);
-    canvas.rotate(headingRad + (pi / 2));
+    canvas.rotate(activeHeading + (pi / 2));
 
-    // Vector Arrow Path (Sleek Garmin / Jet-style arrowhead)
+    // Vector Arrow Path
     final Path arrowPath = Path()
-      ..moveTo(0, -14) // Tip
-      ..lineTo(9, 10)  // Bottom right
-      ..lineTo(0, 5)   // Inner notch
-      ..lineTo(-9, 10) // Bottom left
+      ..moveTo(0, -14)
+      ..lineTo(9, 10)
+      ..lineTo(0, 5)
+      ..lineTo(-9, 10)
       ..close();
 
-    // Arrow shadow
     canvas.drawPath(
       arrowPath,
       Paint()
@@ -299,7 +368,6 @@ class BreadcrumbPainter extends CustomPainter {
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
     );
 
-    // Arrow white border
     canvas.drawPath(
       arrowPath,
       Paint()
@@ -309,7 +377,6 @@ class BreadcrumbPainter extends CustomPainter {
         ..strokeJoin = StrokeJoin.round,
     );
 
-    // Arrow vibrant accent core
     canvas.drawPath(
       arrowPath,
       Paint()
@@ -318,6 +385,10 @@ class BreadcrumbPainter extends CustomPainter {
     );
 
     canvas.restore();
+
+    if (applyHeadingUp) {
+      canvas.restore();
+    }
   }
 
   @override
@@ -326,7 +397,11 @@ class BreadcrumbPainter extends CustomPainter {
         oldDelegate.teammates.length != teammates.length ||
         oldDelegate.brightness != brightness ||
         oldDelegate.panOffset != panOffset ||
-        oldDelegate.zoomScale != zoomScale;
+        oldDelegate.zoomScale != zoomScale ||
+        oldDelegate.isHeadingUp != isHeadingUp ||
+        oldDelegate.headingRad != headingRad ||
+        oldDelegate.isReturning != isReturning ||
+        oldDelegate.turnaroundPoint != turnaroundPoint;
   }
 }
 
@@ -342,6 +417,10 @@ class TileBreadcrumbPainter extends CustomPainter {
   final int yCount;
   final Brightness brightness;
   final Offset panOffset;
+  final bool isHeadingUp;
+  final double headingRad;
+  final bool isReturning;
+  final Point<double>? turnaroundPoint;
 
   TileBreadcrumbPainter({
     required this.points,
@@ -354,6 +433,10 @@ class TileBreadcrumbPainter extends CustomPainter {
     required this.yCount,
     required this.brightness,
     this.panOffset = Offset.zero,
+    this.isHeadingUp = false,
+    this.headingRad = 0.0,
+    this.isReturning = false,
+    this.turnaroundPoint,
   });
 
   double _lon2tileX(double lon, int zoom) {
@@ -378,6 +461,26 @@ class TileBreadcrumbPainter extends CustomPainter {
       final double x = (tileX - startX) * tileWidthPx + panOffset.dx;
       final double y = (tileY - startY) * tileHeightPx + panOffset.dy;
       return Offset(x, y);
+    }
+
+    final lastOff = toPixelOffset(points.last);
+
+    double activeHeading = headingRad;
+    if (points.length >= 2) {
+      final prevOff = toPixelOffset(points[points.length - 2]);
+      final double dx = lastOff.dx - prevOff.dx;
+      final double dy = lastOff.dy - prevOff.dy;
+      if (dx != 0 || dy != 0) {
+        activeHeading = atan2(dy, dx);
+      }
+    }
+
+    final bool applyHeadingUp = isHeadingUp && points.length >= 2;
+    if (applyHeadingUp) {
+      canvas.save();
+      canvas.translate(lastOff.dx, lastOff.dy);
+      canvas.rotate(-(activeHeading + (pi / 2)));
+      canvas.translate(-lastOff.dx, -lastOff.dy);
     }
 
     // 1. Draw Teammate Breadcrumb Trails on OSM
@@ -407,7 +510,6 @@ class TileBreadcrumbPainter extends CustomPainter {
       canvas.drawPath(tPath, tGlow);
       canvas.drawPath(tPath, tLine);
 
-      // Start circle for teammate
       canvas.drawCircle(
         tFirst,
         4.0,
@@ -445,9 +547,70 @@ class TileBreadcrumbPainter extends CustomPainter {
     canvas.drawPath(path, glowPaint);
     canvas.drawPath(path, linePaint);
 
-    // Start circle
-    canvas.drawCircle(firstOff, 6.0, Paint()..color = const Color(0xFF10B981));
-    canvas.drawCircle(firstOff, 3.0, Paint()..color = Colors.white);
+    // 2.5 Draw Return Guidance Path (if returning)
+    if (isReturning && points.length >= 2) {
+      final Paint returnGlow = Paint()
+        ..color = const Color(0xFF00E5FF).withValues(alpha: 0.45)
+        ..strokeWidth = 8.0
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+
+      final Paint returnLine = Paint()
+        ..color = const Color(0xFF00E5FF)
+        ..strokeWidth = 4.0
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+
+      final Path returnPath = Path();
+      returnPath.moveTo(lastOff.dx, lastOff.dy);
+
+      for (int i = points.length - 2; i >= 0; i--) {
+        final off = toPixelOffset(points[i]);
+        returnPath.lineTo(off.dx, off.dy);
+      }
+
+      canvas.drawPath(returnPath, returnGlow);
+      canvas.drawPath(returnPath, returnLine);
+
+      // Turnaround pin
+      final turnPt = turnaroundPoint != null ? toPixelOffset(turnaroundPoint!) : lastOff;
+      canvas.drawCircle(turnPt, 8.0, Paint()..color = const Color(0xFF3B82F6));
+      canvas.drawCircle(turnPt, 8.0, Paint()..color = Colors.white..style = PaintingStyle.stroke..strokeWidth = 1.8);
+      
+      final turnSpan = const TextSpan(
+        text: '🔄 U-TURN',
+        style: TextStyle(color: Colors.white, fontSize: 8.5, fontWeight: FontWeight.w900),
+      );
+      final turnTp = TextPainter(text: turnSpan, textDirection: TextDirection.ltr)..layout();
+      final turnRect = RRect.fromRectAndRadius(
+        Rect.fromCenter(center: Offset(turnPt.dx, turnPt.dy + 16.0), width: turnTp.width + 8.0, height: turnTp.height + 4.0),
+        const Radius.circular(5.0),
+      );
+      canvas.drawRRect(turnRect, Paint()..color = Colors.black.withValues(alpha: 0.85));
+      canvas.drawRRect(turnRect, Paint()..color = const Color(0xFF3B82F6)..style = PaintingStyle.stroke..strokeWidth = 1.0);
+      turnTp.paint(canvas, Offset(turnRect.left + 4.0, turnRect.top + 2.0));
+    }
+
+    // Start / Finish Flag Pin
+    final Paint startBgPaint = Paint()..color = isReturning ? const Color(0xFF3B82F6) : const Color(0xFF10B981);
+    canvas.drawCircle(firstOff, 7.5, startBgPaint);
+    canvas.drawCircle(firstOff, 7.5, Paint()..color = Colors.white..style = PaintingStyle.stroke..strokeWidth = 1.8);
+
+    final String startLabelText = isReturning ? '🏁 FINISH' : '🚩 START';
+    final TextSpan startSpan = TextSpan(
+      text: startLabelText,
+      style: const TextStyle(color: Colors.white, fontSize: 8.5, fontWeight: FontWeight.w900),
+    );
+    final TextPainter startTp = TextPainter(text: startSpan, textDirection: TextDirection.ltr)..layout();
+    final startRect = RRect.fromRectAndRadius(
+      Rect.fromCenter(center: Offset(firstOff.dx, firstOff.dy - 16.0), width: startTp.width + 8.0, height: startTp.height + 4.0),
+      const Radius.circular(5.0),
+    );
+    canvas.drawRRect(startRect, Paint()..color = Colors.black.withValues(alpha: 0.85));
+    canvas.drawRRect(startRect, Paint()..color = (isReturning ? const Color(0xFF3B82F6) : const Color(0xFF10B981))..style = PaintingStyle.stroke..strokeWidth = 1.0);
+    startTp.paint(canvas, Offset(startRect.left + 4.0, startRect.top + 2.0));
 
     // 3. Draw Teammate Location Pucks & Badges on OSM
     for (final t in teammates) {
@@ -490,9 +653,7 @@ class TileBreadcrumbPainter extends CustomPainter {
       final wptOff = toPixelOffset(Point(wpt.lat, wpt.lng));
       final wptColor = wpt.color;
 
-      // Outer Halo
       canvas.drawCircle(wptOff, 12.0, Paint()..color = wptColor.withValues(alpha: 0.28));
-      // Inner Pin
       canvas.drawCircle(wptOff, 5.5, Paint()..color = wptColor);
       canvas.drawCircle(wptOff, 5.5, Paint()..color = Colors.white..style = PaintingStyle.stroke..strokeWidth = 1.5);
 
@@ -522,26 +683,11 @@ class TileBreadcrumbPainter extends CustomPainter {
     }
 
     // 4. Current position directional vector puck
-    final lastOff = toPixelOffset(points.last);
-    
-    // Calculate heading angle
-    double headingRad = 0.0;
-    if (points.length >= 2) {
-      final prevOff = toPixelOffset(points[points.length - 2]);
-      final double dx = lastOff.dx - prevOff.dx;
-      final double dy = lastOff.dy - prevOff.dy;
-      if (dx != 0 || dy != 0) {
-        headingRad = atan2(dy, dx);
-      }
-    }
-
-    // Outer radar ring
     canvas.drawCircle(lastOff, 18.0, Paint()..color = const Color(0xFFFF5722).withValues(alpha: 0.25));
 
-    // Draw Rotated Navigation Vector Arrow
     canvas.save();
     canvas.translate(lastOff.dx, lastOff.dy);
-    canvas.rotate(headingRad + (pi / 2));
+    canvas.rotate(activeHeading + (pi / 2));
 
     final Path arrowPath = Path()
       ..moveTo(0, -14)
@@ -550,7 +696,6 @@ class TileBreadcrumbPainter extends CustomPainter {
       ..lineTo(-9, 10)
       ..close();
 
-    // Shadow & border
     canvas.drawPath(
       arrowPath,
       Paint()
@@ -573,6 +718,10 @@ class TileBreadcrumbPainter extends CustomPainter {
     );
 
     canvas.restore();
+
+    if (applyHeadingUp) {
+      canvas.restore();
+    }
   }
 
   @override
@@ -582,6 +731,10 @@ class TileBreadcrumbPainter extends CustomPainter {
         oldDelegate.zoom != zoom ||
         oldDelegate.startX != startX ||
         oldDelegate.startY != startY ||
-        oldDelegate.panOffset != panOffset;
+        oldDelegate.panOffset != panOffset ||
+        oldDelegate.isHeadingUp != isHeadingUp ||
+        oldDelegate.headingRad != headingRad ||
+        oldDelegate.isReturning != isReturning ||
+        oldDelegate.turnaroundPoint != turnaroundPoint;
   }
 }

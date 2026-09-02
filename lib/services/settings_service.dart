@@ -69,6 +69,7 @@ class SettingsService extends ChangeNotifier {
   String _mapTileSource = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
   bool _showHudMediaController = true;
   bool _autoPauseCyclingMusic = true;
+  bool _isHeadingUp = false;
 
   AppThemeMode get themeMode => _themeMode;
   bool get isOled => _isOled;
@@ -89,6 +90,7 @@ class SettingsService extends ChangeNotifier {
   String get mapTileSource => _mapTileSource;
   bool get showHudMediaController => _showHudMediaController;
   bool get autoPauseCyclingMusic => _autoPauseCyclingMusic;
+  bool get isHeadingUp => _isHeadingUp;
 
   Future<File> _getSettingsFile() async {
     final dir = await getApplicationDocumentsDirectory();
@@ -147,6 +149,7 @@ class SettingsService extends ChangeNotifier {
         _mapTileSource = map['mapTileSource'] ?? _mapTileSource;
         _showHudMediaController = map['showHudMediaController'] ?? _showHudMediaController;
         _autoPauseCyclingMusic = map['autoPauseCyclingMusic'] ?? _autoPauseCyclingMusic;
+        _isHeadingUp = map['isHeadingUp'] ?? _isHeadingUp;
         notifyListeners();
       }
     } catch (e) {
@@ -176,6 +179,7 @@ class SettingsService extends ChangeNotifier {
         'mapTileSource': _mapTileSource,
         'showHudMediaController': _showHudMediaController,
         'autoPauseCyclingMusic': _autoPauseCyclingMusic,
+        'isHeadingUp': _isHeadingUp,
       };
       await file.writeAsString(jsonEncode(map), flush: true);
     } catch (e) {
@@ -202,6 +206,12 @@ class SettingsService extends ChangeNotifier {
 
   void setAutoPauseCyclingMusic(bool enabled) {
     _autoPauseCyclingMusic = enabled;
+    _saveSettings();
+    notifyListeners();
+  }
+
+  void setHeadingUp(bool enabled) {
+    _isHeadingUp = enabled;
     _saveSettings();
     notifyListeners();
   }

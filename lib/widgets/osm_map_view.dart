@@ -21,6 +21,8 @@ class OsmMapView extends StatefulWidget {
   final bool showOsmTiles;
   final Brightness brightness;
   final ValueChanged<bool>? onToggleMapTiles;
+  final bool isReturning;
+  final double returnPathRemainingKm;
 
   const OsmMapView({
     super.key,
@@ -28,6 +30,8 @@ class OsmMapView extends StatefulWidget {
     required this.showOsmTiles,
     required this.brightness,
     this.onToggleMapTiles,
+    this.isReturning = false,
+    this.returnPathRemainingKm = 0.0,
   });
 
   @override
@@ -39,6 +43,7 @@ class _OsmMapViewState extends State<OsmMapView> {
   Offset _userPanOffset = Offset.zero;
   double _zoomScale = 1.0;
   bool _isFreePanning = false;
+  late bool _isHeadingUp;
 
   // Viewport bounds cache
   int _lastZoom = 15;
@@ -47,6 +52,12 @@ class _OsmMapViewState extends State<OsmMapView> {
   int _lastXCount = 0;
   int _lastYCount = 0;
   int _lastPointsLength = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _isHeadingUp = SettingsService.instance.isHeadingUp;
+  }
 
   int _lon2tileX(double lon, int zoom) {
     return ((lon + 180.0) / 360.0 * (1 << zoom)).floor();
@@ -57,6 +68,18 @@ class _OsmMapViewState extends State<OsmMapView> {
     return ((1.0 - log(tan(latRad) + 1.0 / cos(latRad)) / pi) / 2.0 * (1 << zoom)).floor();
   }
 
+  double _calculateHeadingRad() {
+    if (widget.points.length < 2) return 0.0;
+    final p1 = widget.points[widget.points.length - 2];
+    final p2 = widget.points.last;
+    final double midLat = (p1.x + p2.x) / 2.0;
+    final double cosLat = cos(midLat * pi / 180.0);
+    final double dx = (p2.y - p1.y) * cosLat;
+    final double dy = p2.x - p1.x;
+    if (dx == 0 && dy == 0) return 0.0;
+    return atan2(dx, dy);
+  }
+
   void _recenter() {
     HapticFeedback.selectionClick();
     setState(() {
@@ -65,6 +88,98 @@ class _OsmMapViewState extends State<OsmMapView> {
       _zoomScale = 1.0;
       _isFreePanning = false;
     });
+  }
+
+  void _toggleHeadingUp() {
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _isHeadingUp = !_isHeadingUp;
+    });
+    SettingsService.instance.setHeadingUp(_isHeadingUp);
+  }
+
+  void _enableGuidanceZoom() {
+    HapticFeedback.heavyImpact();
+    setState(() {
+      _userPanOffset = Offset.zero;
+      _zoomOffset = 3;
+      _zoomScale = 2.5;
+      _isFreePanning = false;
+      _isHeadingUp = true;
+    });
+  }
+
+  void _showTileSourcePicker(BuildContext context, bool isDark, Color textColor, Color accentColor) {
+    HapticFeedback.selectionClick();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: isDark ? const Color(0xFF14171C) : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: textColor.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'SELECT MAP TILE PROVIDER',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.1,
+                    color: textColor.withValues(alpha: 0.5),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _buildTileSourceTile('Standard OpenStreetMap', 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', Icons.public, textColor, accentColor),
+                _buildTileSourceTile('Google Maps (Roadmap)', 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', Icons.map, textColor, accentColor),
+                _buildTileSourceTile('Google Maps (Satellite & Hybrid)', 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', Icons.satellite_alt_rounded, textColor, accentColor),
+                _buildTileSourceTile('Google Maps (Terrain)', 'https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', Icons.terrain, textColor, accentColor),
+                _buildTileSourceTile('OpenTopoMap (Topographic)', 'https://a.tile.opentopomap.org/{z}/{x}/{y}.png', Icons.filter_hdr_rounded, textColor, accentColor),
+                _buildTileSourceTile('CartoDB Dark Matter', 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', Icons.dark_mode_outlined, textColor, accentColor),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildTileSourceTile(String title, String url, IconData icon, Color textColor, Color accentColor) {
+    final isSelected = SettingsService.instance.mapTileSource == url;
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      leading: Icon(icon, color: isSelected ? accentColor : textColor.withValues(alpha: 0.6)),
+      title: Text(
+        title,
+        style: TextStyle(
+          color: isSelected ? accentColor : textColor,
+          fontWeight: isSelected ? FontWeight.w900 : FontWeight.w600,
+          fontSize: 13,
+        ),
+      ),
+      trailing: isSelected ? Icon(Icons.check_circle_rounded, color: accentColor, size: 20) : null,
+      onTap: () {
+        SettingsService.instance.setMapTileSource(url);
+        setState(() {});
+        Navigator.pop(context);
+      },
+    );
   }
 
   @override
@@ -135,7 +250,7 @@ class _OsmMapViewState extends State<OsmMapView> {
         if (p.y > maxLng) maxLng = p.y;
       }
 
-      int baseZoom = 15;
+      int baseZoom = 16;
       final latDiff = (maxLat - minLat).abs();
       final lngDiff = (maxLng - minLng).abs();
       final maxDiff = max(latDiff, lngDiff);
@@ -146,11 +261,13 @@ class _OsmMapViewState extends State<OsmMapView> {
         baseZoom = 13;
       } else if (maxDiff > 0.015) {
         baseZoom = 14;
-      } else {
+      } else if (maxDiff > 0.005) {
         baseZoom = 15;
+      } else {
+        baseZoom = 16;
       }
 
-      int zoom = (baseZoom + _zoomOffset).clamp(10, 18);
+      int zoom = (baseZoom + _zoomOffset).clamp(10, 20);
 
       int startX = _lon2tileX(minLng, zoom);
       int endX = _lon2tileX(maxLng, zoom);
@@ -160,7 +277,7 @@ class _OsmMapViewState extends State<OsmMapView> {
       int xCount = (endX - startX).abs() + 1;
       int yCount = (endY - startY).abs() + 1;
 
-      if (xCount * yCount > 16) {
+      if (xCount * yCount > 25) {
         zoom = max(10, zoom - 1);
         startX = _lon2tileX(minLng, zoom);
         endX = _lon2tileX(maxLng, zoom);
@@ -184,6 +301,7 @@ class _OsmMapViewState extends State<OsmMapView> {
     final int xCount = _lastXCount;
     final int yCount = _lastYCount;
     final tileBaseUrl = SettingsService.instance.mapTileSource;
+    final headingRad = _calculateHeadingRad();
 
     return RepaintBoundary(
       child: Container(
@@ -201,7 +319,7 @@ class _OsmMapViewState extends State<OsmMapView> {
             setState(() {
               _userPanOffset += details.focalPointDelta;
               if (details.scale != 1.0) {
-                _zoomScale = (_zoomScale * details.scale).clamp(0.5, 4.0);
+                _zoomScale = (_zoomScale * details.scale).clamp(0.5, 8.0);
               }
             });
           },
@@ -264,11 +382,14 @@ class _OsmMapViewState extends State<OsmMapView> {
                       yCount: yCount,
                       brightness: widget.brightness,
                       panOffset: _userPanOffset,
+                      isHeadingUp: _isHeadingUp,
+                      headingRad: headingRad,
+                      isReturning: widget.isReturning,
                     ),
                   ),
                 ),
               ] else ...[
-                // Offline High-Contrast Vector Map with 2D Pan Support
+                // Offline High-Contrast Vector Map with 2D Pan & Heading-Up Rotation
                 RepaintBoundary(
                   child: CustomPaint(
                     painter: BreadcrumbPainter(
@@ -282,57 +403,143 @@ class _OsmMapViewState extends State<OsmMapView> {
                       brightness: widget.brightness,
                       panOffset: _userPanOffset,
                       zoomScale: _zoomScale,
+                      isHeadingUp: _isHeadingUp,
+                      headingRad: headingRad,
+                      isReturning: widget.isReturning,
                     ),
                   ),
                 ),
               ],
 
-              // Top-Left Status Pill & Intuitive Recenter Vector Chip (16dp corner padding)
-              Positioned(
-                top: 16,
-                left: 16,
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.88),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: borderColor, width: 1.2),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.15),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
+              // Top Guidance Banner when Returning
+              if (widget.isReturning) ...[
+                Positioned(
+                  top: 14,
+                  left: 14,
+                  right: 14,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF0F172A), Color(0xFF1E293B)],
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 7,
-                            height: 7,
-                            decoration: BoxDecoration(
-                              color: widget.showOsmTiles ? Colors.blueAccent : const Color(0xFF10B981),
-                              shape: BoxShape.circle,
-                            ),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: 0.6), width: 1.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF00E5FF).withValues(alpha: 0.25),
+                          blurRadius: 10,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF00E5FF).withValues(alpha: 0.15),
+                            shape: BoxShape.circle,
                           ),
-                          const SizedBox(width: 6),
-                          Text(
-                            widget.showOsmTiles ? 'OSM TILES' : 'OFFLINE VECTOR',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 0.8,
-                              color: textColor,
-                            ),
+                          child: const Icon(Icons.turn_left_rounded, size: 20, color: Color(0xFF00E5FF)),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text(
+                                'RETURNING TO START',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 1.0,
+                                  color: Color(0xFF00E5FF),
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${widget.returnPathRemainingKm.toStringAsFixed(2)} km remaining on trace route',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF00E5FF).withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Text(
+                            'TRACE NAV',
+                            style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Color(0xFF00E5FF)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+
+              // Top-Left Status & Control Pills (16dp corner padding)
+              Positioned(
+                top: widget.isReturning ? 76 : 16,
+                left: 16,
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  cross: WrapCrossAlignment.center,
+                  children: [
+                    GestureDetector(
+                      onTap: () => _showTileSourcePicker(context, isDark, textColor, accentColor),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.88),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: borderColor, width: 1.2),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.15),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 7,
+                              height: 7,
+                              decoration: BoxDecoration(
+                                color: widget.showOsmTiles ? Colors.blueAccent : const Color(0xFF10B981),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              widget.showOsmTiles ? 'TILES (TAP TO CHANGE)' : 'OFFLINE VECTOR',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.8,
+                                color: textColor,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Icon(Icons.arrow_drop_down_rounded, size: 14, color: textColor.withValues(alpha: 0.6)),
+                          ],
+                        ),
                       ),
                     ),
                     if (_isFreePanning) ...[
-                      const SizedBox(width: 8),
                       GestureDetector(
                         onTap: _recenter,
                         child: Container(
@@ -359,7 +566,7 @@ class _OsmMapViewState extends State<OsmMapView> {
                               ),
                               const SizedBox(width: 6),
                               const Text(
-                                'RECENTER TO GPS',
+                                'RECENTER GPS',
                                 style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 0.8),
                               ),
                             ],
@@ -371,20 +578,43 @@ class _OsmMapViewState extends State<OsmMapView> {
                 ),
               ),
 
-              // Floating Controls (Zoom & Directional Recenter Vector) (16dp corner padding)
+              // Floating Controls (Orientation, High-Zoom, Zoom +/- & GPS Recenter)
               Positioned(
                 bottom: 16,
                 right: 16,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    // 🧭 Orientation Button (NORTH-UP / HEADING-UP)
+                    _buildMapButton(
+                      icon: _isHeadingUp ? Icons.navigation_rounded : Icons.explore_outlined,
+                      label: _isHeadingUp ? 'HEAD-UP' : 'NORTH',
+                      iconColor: _isHeadingUp ? accentColor : textColor.withValues(alpha: 0.7),
+                      onPressed: _toggleHeadingUp,
+                      isDark: isDark,
+                      textColor: textColor,
+                      borderColor: borderColor,
+                    ),
+                    const SizedBox(height: 8),
+                    // 🔍 Guidance Mode Quick Zoom Button
+                    _buildMapButton(
+                      icon: Icons.alt_route_rounded,
+                      label: 'GUIDE',
+                      iconColor: const Color(0xFF10B981),
+                      onPressed: _enableGuidanceZoom,
+                      isDark: isDark,
+                      textColor: textColor,
+                      borderColor: borderColor,
+                    ),
+                    const SizedBox(height: 8),
+                    // Zoom IN (+1)
                     _buildMapButton(
                       icon: Icons.add,
                       onPressed: () {
                         HapticFeedback.selectionClick();
                         setState(() {
-                          _zoomOffset = min(3, _zoomOffset + 1);
-                          _zoomScale = min(4.0, _zoomScale * 1.25);
+                          _zoomOffset = min(6, _zoomOffset + 1);
+                          _zoomScale = min(8.0, _zoomScale * 1.35);
                         });
                       },
                       isDark: isDark,
@@ -392,13 +622,14 @@ class _OsmMapViewState extends State<OsmMapView> {
                       borderColor: borderColor,
                     ),
                     const SizedBox(height: 8),
+                    // Zoom OUT (-1)
                     _buildMapButton(
                       icon: Icons.remove,
                       onPressed: () {
                         HapticFeedback.selectionClick();
                         setState(() {
-                          _zoomOffset = max(-3, _zoomOffset - 1);
-                          _zoomScale = max(0.5, _zoomScale / 1.25);
+                          _zoomOffset = max(-4, _zoomOffset - 1);
+                          _zoomScale = max(0.4, _zoomScale / 1.35);
                         });
                       },
                       isDark: isDark,
@@ -406,7 +637,7 @@ class _OsmMapViewState extends State<OsmMapView> {
                       borderColor: borderColor,
                     ),
                     const SizedBox(height: 8),
-                    // Intuitive GPS Vector Recenter Button
+                    // GPS Recenter Puck Button
                     Material(
                       color: (_isFreePanning ? accentColor : (isDark ? Colors.black : Colors.white)).withValues(alpha: 0.9),
                       shape: RoundedRectangleBorder(
@@ -419,15 +650,15 @@ class _OsmMapViewState extends State<OsmMapView> {
                         onTap: _recenter,
                         borderRadius: BorderRadius.circular(12),
                         child: SizedBox(
-                          width: 38,
-                          height: 38,
+                          width: 42,
+                          height: 42,
                           child: Center(
                             child: _isFreePanning
                                 ? Transform.rotate(
                                     angle: atan2(-_userPanOffset.dy, -_userPanOffset.dx) - (pi / 2),
                                     child: const Icon(Icons.navigation_rounded, size: 20, color: Colors.white),
                                   )
-                                : Icon(Icons.my_location_rounded, size: 18, color: textColor.withValues(alpha: 0.6)),
+                                : Icon(Icons.my_location_rounded, size: 20, color: textColor.withValues(alpha: 0.7)),
                           ),
                         ),
                       ),
@@ -444,28 +675,49 @@ class _OsmMapViewState extends State<OsmMapView> {
 
   Widget _buildMapButton({
     required IconData icon,
+    String? label,
+    Color? iconColor,
     required VoidCallback onPressed,
     required bool isDark,
     required Color textColor,
     required Color borderColor,
   }) {
     return Material(
-      color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.85),
+      color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.88),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: BorderSide(color: borderColor, width: 1),
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: borderColor, width: 1.2),
       ),
       child: InkWell(
         onTap: onPressed,
-        borderRadius: BorderRadius.circular(10),
-        child: SizedBox(
-          width: 34,
-          height: 34,
-          child: Icon(icon, size: 18, color: textColor),
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          width: 42,
+          height: 42,
+          padding: const EdgeInsets.all(4),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: label != null ? 17 : 20, color: iconColor ?? textColor),
+              if (label != null) ...[
+                const SizedBox(height: 1),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 7.5,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.4,
+                    color: iconColor ?? textColor,
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );
   }
+}
 }
 
 class _CachedTileImage extends StatefulWidget {

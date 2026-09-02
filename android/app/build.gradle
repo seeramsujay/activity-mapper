@@ -17,9 +17,8 @@ def flutterVersionName = localProperties.getProperty('flutter.versionName') ?: '
 
 android {
     namespace "org.opensource.tracker"
-    compileSdk 36
-    ndkVersion "28.2.13676358"
-    
+    compileSdk flutter.compileSdkVersion
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
@@ -36,7 +35,7 @@ android {
     defaultConfig {
         applicationId "com.sujayseeram.turnback"
         minSdkVersion flutter.minSdkVersion
-        targetSdk 35
+        targetSdkVersion flutter.targetSdkVersion
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName
         manifestPlaceholders = [appName: "TurnBack", applicationName: "io.flutter.app.FlutterApplication"]

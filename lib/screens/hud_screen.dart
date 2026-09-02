@@ -525,6 +525,15 @@ class _HudScreenState extends State<HudScreen> {
     return 12742 * asin(sqrt(a));
   }
 
+  double get _returnPathRemainingKm {
+    if (_points.length < 2) return 0.0;
+    double dist = 0.0;
+    for (int i = 0; i < _points.length - 1; i++) {
+      dist += _distanceBetween(_points[i].x, _points[i].y, _points[i + 1].x, _points[i + 1].y);
+    }
+    return dist;
+  }
+
   void _startTimer() {
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
@@ -749,6 +758,8 @@ class _HudScreenState extends State<HudScreen> {
               points: _points,
               showOsmTiles: _showOsmTiles,
               brightness: brightness,
+              isReturning: _freeRunReturning,
+              returnPathRemainingKm: _returnPathRemainingKm,
             ),
 
             // Top Translucent Telemetry Header
@@ -1748,6 +1759,8 @@ class _HudScreenState extends State<HudScreen> {
                     points: _points,
                     showOsmTiles: _showOsmTiles,
                     brightness: brightness,
+                    isReturning: _freeRunReturning,
+                    returnPathRemainingKm: _returnPathRemainingKm,
                   ),
                   // Floating Fullscreen Expand Pill
                   Positioned(
@@ -1809,6 +1822,8 @@ class _HudScreenState extends State<HudScreen> {
               points: _points,
               showOsmTiles: _showOsmTiles,
               brightness: brightness,
+              isReturning: _freeRunReturning,
+              returnPathRemainingKm: _returnPathRemainingKm,
             ),
             // Floating Fullscreen Expand Pill
             Positioned(
