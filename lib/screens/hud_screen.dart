@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/ble_sensor_service.dart';
 import '../services/db_service.dart';
+import '../services/gpx_service.dart';
 import '../services/elevation_filter_service.dart';
 import '../services/platform_service.dart';
 import '../services/rally_service.dart';
@@ -642,11 +643,11 @@ class _HudScreenState extends State<HudScreen> {
           }
         }
 
-        // Finish Line Arrival Check (Within 25 meters of Start Point)
-        if ((_freeRunReturning || _userDismissedTurnBack || _turnBackTriggered) && !_arrivedAtFinishLine && _points.length > 5 && _distanceKm > 0.05) {
+        // Finish Line Arrival Check (Within 30 meters of Start Point after turning back)
+        if ((_freeRunReturning || _userDismissedTurnBack) && !_arrivedAtFinishLine && _points.length > 15 && _distanceKm > 0.15) {
           final startPoint = _points.first;
           final distToStartKm = _distanceBetween(startPoint.x, startPoint.y, lat, lng);
-          if (distToStartKm <= 0.025) { // 25 meters
+          if (distToStartKm <= 0.03) { // 30 meters
             _arrivedAtFinishLine = true;
             _flashTimer?.cancel();
             PlatformService.instance.triggerTurnBackAlert(activityType: widget.activityType);
@@ -2387,10 +2388,15 @@ class _HudScreenState extends State<HudScreen> {
   Future<void> _finalizeSession() async {
     await PlatformService.instance.stopTracking();
     await DbService.instance.updateSessionStatus(widget.sessionId, 'completed');
+    final activityName = '${widget.activityType.toUpperCase()} - Out and Back';
+    final file = await GpxService.instance.saveGpxFile(widget.sessionId, activityName);
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Activity #${widget.sessionId} saved!')),
+        SnackBar(
+          content: Text('Activity #${widget.sessionId} finished & GPX saved:\n${file.path}'),
+          duration: const Duration(seconds: 4),
+        ),
       );
       Navigator.pop(context);
     }
