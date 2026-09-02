@@ -84,6 +84,8 @@ class _HudScreenState extends State<HudScreen> {
   // Tracking control state
   bool _isPaused = false;
   bool _turnBackTriggered = false;
+  bool _userDismissedTurnBack = false;
+  bool _arrivedAtFinishLine = false;
   bool _freeRunReturning = false;
   Duration _outboundFreeRunDuration = Duration.zero;
   int? _lastTimestamp;
@@ -544,7 +546,7 @@ class _HudScreenState extends State<HudScreen> {
         }
 
         // Live Turn-Back Outbound Threshold Check (Foreground)
-        if (!widget.isFreeRun && !_turnBackTriggered && _activeTargetDuration.inSeconds > 0) {
+        if (!widget.isFreeRun && !_turnBackTriggered && !_userDismissedTurnBack && _activeTargetDuration.inSeconds > 0) {
           final double outboundRatio = (100.0 - widget.safetyBufferPct) / 200.0;
           final int outboundLimitSeconds = (_activeTargetDuration.inSeconds * outboundRatio).toInt();
           if (_elapsed.inSeconds >= outboundLimitSeconds) {
@@ -630,13 +632,25 @@ class _HudScreenState extends State<HudScreen> {
         }
 
         // Turn-back check on GPS point arrival
-        if (!widget.isFreeRun && !_turnBackTriggered && _activeTargetDuration.inSeconds > 0) {
+        if (!widget.isFreeRun && !_turnBackTriggered && !_userDismissedTurnBack && _activeTargetDuration.inSeconds > 0) {
           final double outboundRatio = (100.0 - widget.safetyBufferPct) / 200.0;
           final int outboundLimitSeconds = (_activeTargetDuration.inSeconds * outboundRatio).toInt();
           if (_elapsed.inSeconds >= outboundLimitSeconds) {
             _turnBackTriggered = true;
             _startFlashingTimer();
             PlatformService.instance.triggerTurnBackAlert(activityType: widget.activityType);
+          }
+        }
+
+        // Finish Line Arrival Check (Within 25 meters of Start Point)
+        if ((_freeRunReturning || _userDismissedTurnBack || _turnBackTriggered) && !_arrivedAtFinishLine && _points.length > 5 && _distanceKm > 0.05) {
+          final startPoint = _points.first;
+          final distToStartKm = _distanceBetween(startPoint.x, startPoint.y, lat, lng);
+          if (distToStartKm <= 0.025) { // 25 meters
+            _arrivedAtFinishLine = true;
+            _flashTimer?.cancel();
+            PlatformService.instance.triggerTurnBackAlert(activityType: widget.activityType);
+            _showFinishLineArrivalDialog();
           }
         }
 
@@ -950,7 +964,12 @@ class _HudScreenState extends State<HudScreen> {
     // ------------------------------------------------------------------------
     // STANDARD ATHLETIC HUD LAYOUT
     // ------------------------------------------------------------------------
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) _showExitConfirmDialog();
+      },
+      child: Scaffold(
       backgroundColor: scaffoldBg,
       body: GestureDetector(
         behavior: HitTestBehavior.translucent,
@@ -974,7 +993,7 @@ class _HudScreenState extends State<HudScreen> {
                             padding: EdgeInsets.zero,
                             constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
                             icon: Icon(Icons.arrow_back_ios_new, size: 16, color: textColor),
-                            onPressed: () => Navigator.pop(context),
+                            onPressed: _showExitConfirmDialog,
                           ),
                           const SizedBox(width: 8),
 
@@ -1105,11 +1124,34 @@ class _HudScreenState extends State<HudScreen> {
             // Flashing turn-back alarm banner
             if (_turnBackTriggered)
               GestureDetector(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  _flashTimer?.cancel();
+                  setState(() {
+                    _turnBackTriggered = false;
+                    _userDismissedTurnBack = true;
+                    _freeRunReturning = true;
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('TURN-BACK ACKNOWLEDGED - RETURN ROUTE GUIDE ACTIVE'),
+                      backgroundColor: Color(0xFF10B981),
+                    ),
+                  );
+                },
                 onLongPress: () {
                   HapticFeedback.selectionClick();
-                  setState(() => _turnBackTriggered = false);
+                  _flashTimer?.cancel();
+                  setState(() {
+                    _turnBackTriggered = false;
+                    _userDismissedTurnBack = true;
+                    _freeRunReturning = true;
+                  });
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('TURN-BACK ALERT ACKNOWLEDGED')),
+                    const SnackBar(
+                      content: Text('TURN-BACK ACKNOWLEDGED - RETURN ROUTE GUIDE ACTIVE'),
+                      backgroundColor: Color(0xFF10B981),
+                    ),
                   );
                 },
                 child: Container(
@@ -1125,7 +1167,7 @@ class _HudScreenState extends State<HudScreen> {
                       Icon(Icons.warning_amber_rounded, color: Colors.white, size: 18),
                       SizedBox(width: 8),
                       Text(
-                        'TURN BACK NOW (Hold to dismiss)',
+                        'TURN BACK NOW (Tap/Hold to dismiss)',
                         style: TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 0.8),
                       ),
                     ],
@@ -1133,9 +1175,10 @@ class _HudScreenState extends State<HudScreen> {
                 ),
               ),
 
-            // Compact Reverse Countdown / Free Run Real-Time Prediction Hero Header Card
-            Builder(
-              builder: (context) {
+            // Compact Reverse Countdown / Free Run Real-Time Prediction Hero Header Card (Hidden when on Map Tab!)
+            if (_currentPageIndex != 1)
+              Builder(
+                builder: (context) {
                 // Free Run Real-time Prediction Calculations
                 if (widget.isFreeRun) {
                   final int outboundSec = _freeRunReturning ? _outboundFreeRunDuration.inSeconds : _elapsed.inSeconds;
@@ -1559,6 +1602,7 @@ class _HudScreenState extends State<HudScreen> {
   ],
 ),
 ),
+),
 );
 }
 
@@ -1807,53 +1851,47 @@ class _HudScreenState extends State<HudScreen> {
     required Color accentColor,
   }) {
     final isDark = brightness == Brightness.dark;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: borderColor, width: 1.5),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            OsmMapView(
-              points: _points,
-              showOsmTiles: _showOsmTiles,
-              brightness: brightness,
-              isReturning: _freeRunReturning,
-              returnPathRemainingKm: _returnPathRemainingKm,
-            ),
-            // Floating Fullscreen Expand Pill
-            Positioned(
-              top: 10,
-              right: 10,
-              child: GestureDetector(
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  setState(() => _isMapFullScreen = true);
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.9),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: borderColor),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.fullscreen_rounded, size: 18),
-                      SizedBox(width: 4),
-                      Text('FULLSCREEN', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 0.6)),
-                    ],
-                  ),
+    return Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: const BoxDecoration(),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          OsmMapView(
+            points: _points,
+            showOsmTiles: _showOsmTiles,
+            brightness: brightness,
+            isReturning: _freeRunReturning,
+            returnPathRemainingKm: _returnPathRemainingKm,
+          ),
+          // Floating Fullscreen Expand Pill
+          Positioned(
+            top: max(10.0, MediaQuery.of(context).padding.top + 8),
+            right: max(10.0, MediaQuery.of(context).padding.right + 8),
+            child: GestureDetector(
+              onTap: () {
+                HapticFeedback.selectionClick();
+                setState(() => _isMapFullScreen = true);
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.9),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: borderColor),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.fullscreen_rounded, size: 18),
+                    SizedBox(width: 4),
+                    Text('FULLSCREEN', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 0.6)),
+                  ],
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -2072,14 +2110,16 @@ class _HudScreenState extends State<HudScreen> {
   // BOTTOM ACTION BAR (BLE Sensors, Pause / Resume / Finish)
   // --------------------------------------------------------------------------
   Widget _buildBottomControlBar(Color textColor, Color scaffoldBg, Color cardBg, Color borderColor, Color accentColor) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: const BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
-        border: Border(top: BorderSide(color: borderColor, width: 1.0)),
-      ),
-      child: Row(
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+        decoration: BoxDecoration(
+          color: cardBg,
+          borderRadius: const BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
+          border: Border(top: BorderSide(color: borderColor, width: 1.0)),
+        ),
+        child: Row(
         children: [
           // Small Person Symbol Button (Replaces Heart sensor icon; opens Colab teammates sheet if Colab)
           GestureDetector(
@@ -2166,6 +2206,141 @@ class _HudScreenState extends State<HudScreen> {
           ),
         ],
       ),
+    ),
+  );
+}
+
+  void _showFinishLineArrivalDialog() {
+    HapticFeedback.heavyImpact();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final color = isDark ? Colors.white : Colors.black;
+    final bg = isDark ? const Color(0xFF14171C) : Colors.white;
+    final accentColor = SettingsService.instance.accentColor.color;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: bg,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF10B981),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.emoji_events_rounded, color: Colors.white, size: 22),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'FINISH LINE REACHED!',
+                  style: TextStyle(fontWeight: FontWeight.w900, color: color, fontSize: 16, letterSpacing: 0.8),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Congratulations! You have completed your out-and-back route and returned to your starting origin.',
+                style: TextStyle(color: color.withValues(alpha: 0.8), fontSize: 13),
+              ),
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: (isDark ? const Color(0xFF1E232B) : const Color(0xFFF3F4F6)),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    Column(
+                      children: [
+                        Text('DISTANCE', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: color.withValues(alpha: 0.5))),
+                        Text('${_distanceKm.toStringAsFixed(2)} km', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: accentColor)),
+                      ],
+                    ),
+                    Column(
+                      children: [
+                        Text('DURATION', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: color.withValues(alpha: 0.5))),
+                        Text(_formatDuration(_elapsed), style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: color)),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('KEEP RECORDING', style: TextStyle(color: color.withValues(alpha: 0.6), fontWeight: FontWeight.bold)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF10B981),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: () async {
+                Navigator.pop(context);
+                await _finalizeSession();
+              },
+              child: const Text('FINISH & SAVE', style: TextStyle(fontWeight: FontWeight.w900)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showExitConfirmDialog() {
+    HapticFeedback.selectionClick();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final color = isDark ? Colors.white : Colors.black;
+    final bg = isDark ? const Color(0xFF14171C) : Colors.white;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: bg,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Text('Exit Activity Session?', style: TextStyle(fontWeight: FontWeight.w900, color: color, letterSpacing: 0.8)),
+          content: Text(
+            'Do you want to finish & save your activity to history, or leave it running in the background?',
+            style: TextStyle(color: color.withValues(alpha: 0.8)),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext); // Close dialog
+                Navigator.pop(context); // Exit HUD screen, keeping tracking active in background
+              },
+              child: Text('KEEP RUNNING', style: TextStyle(color: color.withValues(alpha: 0.6), fontWeight: FontWeight.bold)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFDC2626),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: () async {
+                Navigator.pop(dialogContext); // Close dialog
+                await _finalizeSession(); // Finalize, save to SQLite DB, and exit cleanly
+              },
+              child: const Text('FINISH & SAVE', style: TextStyle(fontWeight: FontWeight.w900)),
+            ),
+          ],
+        );
+      },
     );
   }
 

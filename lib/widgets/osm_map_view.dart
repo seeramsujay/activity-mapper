@@ -333,7 +333,7 @@ class _OsmMapViewState extends State<OsmMapView> {
                   child: Transform.scale(
                     scale: _zoomScale,
                     child: GridView.builder(
-                      key: ValueKey('grid-$zoom-$startX-$startY-$xCount-$yCount'),
+                      key: ValueKey('grid-$tileBaseUrl-$zoom-$startX-$startY-$xCount-$yCount'),
                       physics: const NeverScrollableScrollPhysics(),
                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: xCount,
@@ -487,10 +487,10 @@ class _OsmMapViewState extends State<OsmMapView> {
                 ),
               ],
 
-              // Top-Left Status & Control Pills (16dp corner padding)
+              // Top-Left Status & Control Pills
               Positioned(
-                top: widget.isReturning ? 76 : 16,
-                left: 16,
+                top: widget.isReturning ? (MediaQuery.of(context).padding.top + 56) : (MediaQuery.of(context).padding.top + 8),
+                left: max(12.0, MediaQuery.of(context).padding.left + 8),
                 child: Wrap(
                   spacing: 8,
                   runSpacing: 8,
@@ -580,8 +580,8 @@ class _OsmMapViewState extends State<OsmMapView> {
 
               // Floating Controls (Orientation, High-Zoom, Zoom +/- & GPS Recenter)
               Positioned(
-                bottom: 16,
-                right: 16,
+                bottom: max(12.0, MediaQuery.of(context).padding.bottom + 8),
+                right: max(12.0, MediaQuery.of(context).padding.right + 8),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -753,7 +753,7 @@ class _CachedTileImageState extends State<_CachedTileImage> {
   @override
   void didUpdateWidget(covariant _CachedTileImage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.zoom != widget.zoom || oldWidget.tileX != widget.tileX || oldWidget.tileY != widget.tileY) {
+    if (oldWidget.zoom != widget.zoom || oldWidget.tileX != widget.tileX || oldWidget.tileY != widget.tileY || oldWidget.url != widget.url) {
       _checkedCache = false;
       _localFile = null;
       _checkCache();
@@ -792,7 +792,7 @@ class _CachedTileImageState extends State<_CachedTileImage> {
         NetworkImage(
           widget.url,
           headers: const {
-            'User-Agent': 'TurnBack-ActivityMapper/1.0.0 (Android; org.opensource.tracker; contact@turnback.app)',
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
           },
         ),
         width: 256,
@@ -814,7 +814,7 @@ class _CachedTileImageState extends State<_CachedTileImage> {
   void _cacheNetworkTile() async {
     try {
       final client = HttpClient();
-      client.userAgent = 'TurnBack-ActivityMapper/1.0.0 (Android; org.opensource.tracker; contact@turnback.app)';
+      client.userAgent = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
       final request = await client.getUrl(Uri.parse(widget.url));
       final response = await request.close();
       if (response.statusCode == 200) {
