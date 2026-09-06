@@ -1,14 +1,10 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as p;
 import '../services/db_service.dart';
 import '../services/platform_service.dart';
 import '../services/gpx_service.dart';
-import '../services/backup_service.dart';
 import '../services/settings_service.dart';
 import '../services/p2p_mesh_service.dart';
 import '../widgets/breadcrumb_painter.dart';
@@ -43,7 +39,6 @@ class _SetupScreenState extends State<SetupScreen> {
   double _lifetimeDistance = 0.0;
   Duration _lifetimeDuration = Duration.zero;
   bool _isLoading = true;
-  String _autoSyncPath = "Documents/TurnBack";
 
   // Active session tracking state (for home-screen return timer widget)
   Map<String, dynamic>? _activeSession;
@@ -121,24 +116,12 @@ class _SetupScreenState extends State<SetupScreen> {
       }
     }
 
-    // Resolve public TurnBack folder for UI sync label
-    String resolvedPath = "Documents/TurnBack";
-    if (Platform.isAndroid) {
-      try {
-        final extDir = await getExternalStorageDirectory();
-        if (extDir != null) {
-          final rootPath = extDir.path.split('/Android/data/')[0];
-          resolvedPath = p.join(rootPath, 'Documents', 'TurnBack');
-        }
-      } catch (_) {}
-    }
 
     if (mounted) {
       setState(() {
         _completedSessions = completed;
         _lifetimeDistance = totalDist;
         _lifetimeDuration = Duration(milliseconds: totalTimeMs);
-        _autoSyncPath = resolvedPath;
         _isLoading = false;
       });
     }
@@ -320,25 +303,6 @@ class _SetupScreenState extends State<SetupScreen> {
     }
   }
 
-  Future<void> _runZipBackup() async {
-    try {
-      final zipFile = await BackupService.instance.createZipBackup();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('ZIP Backup saved successfully:\n${zipFile.path}'),
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Backup compilation failed: $e')),
-        );
-      }
-    }
-  }
 
   void _showRecordBottomSheet(BuildContext context) {
     final Brightness brightness = Theme.of(context).brightness;
@@ -363,7 +327,6 @@ class _SetupScreenState extends State<SetupScreen> {
           builder: (context, setModalState) {
             // Live math preview
             final double outboundRatio = (100.0 - _safetyBufferPct) / 200.0;
-            final double returnRatio = 1.0 - outboundRatio;
             final int totalSeconds = _targetDurationMinutes * 60;
             final int outboundSeconds = (totalSeconds * outboundRatio).toInt();
             final int returnSeconds = totalSeconds - outboundSeconds;
@@ -427,70 +390,91 @@ class _SetupScreenState extends State<SetupScreen> {
                     const SizedBox(height: 16),
 
                     // Activity Selector Chips (Run, Ride, Walk, Hike, Free Run)
-                    Text(
-                      'ACTIVITY TYPE',
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: textColor.withValues(alpha: 0.6), letterSpacing: 0.8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'ACTIVITY TYPE',
+                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: textColor.withValues(alpha: 0.6), letterSpacing: 0.8),
+                        ),
+                        TextButton.icon(
+                          onPressed: () => _openActivitySelectionModal(context, setModalState),
+                          icon: const Icon(Icons.tune_rounded, size: 14),
+                          label: const Text('CHANGE PROFILE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900)),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 8),
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          _buildActivityChip(
-                            label: 'RUN',
-                            icon: Icons.directions_run,
-                            selected: _activityType == 'run',
-                            onTap: () {
-                              setModalState(() => _activityType = 'run');
-                              setState(() => _activityType = 'run');
-                            },
-                            isDark: isDark,
-                          ),
-                          const SizedBox(width: 8),
-                          _buildActivityChip(
-                            label: 'RIDE',
-                            icon: Icons.directions_bike,
-                            selected: _activityType == 'ride',
-                            onTap: () {
-                              setModalState(() => _activityType = 'ride');
-                              setState(() => _activityType = 'ride');
-                            },
-                            isDark: isDark,
-                          ),
-                          const SizedBox(width: 8),
-                          _buildActivityChip(
-                            label: 'WALK',
-                            icon: Icons.directions_walk,
-                            selected: _activityType == 'walk',
-                            onTap: () {
-                              setModalState(() => _activityType = 'walk');
-                              setState(() => _activityType = 'walk');
-                            },
-                            isDark: isDark,
-                          ),
-                          const SizedBox(width: 8),
-                          _buildActivityChip(
-                            label: 'HIKE',
-                            icon: Icons.hiking,
-                            selected: _activityType == 'hike',
-                            onTap: () {
-                              setModalState(() => _activityType = 'hike');
-                              setState(() => _activityType = 'hike');
-                            },
-                            isDark: isDark,
-                          ),
-                          const SizedBox(width: 8),
-                          _buildActivityChip(
-                            label: 'FREE RUN',
-                            icon: Icons.bolt_rounded,
-                            selected: _activityType == 'freerun',
-                            onTap: () {
-                              setModalState(() => _activityType = 'freerun');
-                              setState(() => _activityType = 'freerun');
-                            },
-                            isDark: isDark,
-                          ),
-                        ],
+                    // Glove-friendly minimum 72dp height activity tile
+                    InkWell(
+                      onTap: () => _openActivitySelectionModal(context, setModalState),
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        constraints: const BoxConstraints(minHeight: 72),
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: surfaceBg,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: accentColor, width: 1.6),
+                          boxShadow: [
+                            BoxShadow(
+                              color: accentColor.withValues(alpha: 0.1),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: accentColor.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(
+                                _getActivityIcon(_activityType),
+                                color: accentColor,
+                                size: 26,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(
+                                        _getActivityTitle(_activityType),
+                                        style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w900, color: textColor, letterSpacing: 0.5),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: accentColor.withValues(alpha: 0.2),
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Text(
+                                          'ACTIVE',
+                                          style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.w900, color: accentColor),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    _getActivityDescription(_activityType),
+                                    style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w600, color: textColor.withValues(alpha: 0.6)),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Icon(Icons.unfold_more_rounded, color: textColor.withValues(alpha: 0.5), size: 20),
+                          ],
+                        ),
                       ),
                     ),
                     const SizedBox(height: 20),
@@ -788,46 +772,239 @@ class _SetupScreenState extends State<SetupScreen> {
     );
   }
 
-  Widget _buildActivityChip({
-    required String label,
-    required IconData icon,
-    required bool selected,
-    required VoidCallback onTap,
-    required bool isDark,
-  }) {
-    final Color selectedColor = const Color(0xFFFF5722);
-    final Color borderColor = isDark ? const Color(0xFF2D333F) : const Color(0xFFE5E7EB);
-    final Color surfaceBg = isDark ? const Color(0xFF1E232B) : const Color(0xFFF3F4F6);
+  void _openActivitySelectionModal(BuildContext parentContext, StateSetter setParentModalState) {
+    HapticFeedback.selectionClick();
+    final isDark = Theme.of(parentContext).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : const Color(0xFF111827);
+    final cardBg = isDark ? const Color(0xFF14171C) : Colors.white;
+    final surfaceBg = isDark ? const Color(0xFF1E232B) : const Color(0xFFF3F4F6);
+    final borderColor = isDark ? const Color(0xFF2D333F) : const Color(0xFFE5E7EB);
 
-    return Material(
-      color: selected ? selectedColor : surfaceBg,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: selected ? selectedColor : borderColor, width: 1.5),
+    final activities = [
+      {
+        'id': 'run',
+        'title': 'RUN (RUNNING / JOGGING)',
+        'subtitle': 'Adaptive 1-10s curvature GPS • Net energy MET calories',
+        'icon': Icons.directions_run_rounded,
+        'color': const Color(0xFFEF4444),
+      },
+      {
+        'id': 'ride',
+        'title': 'RIDE (CYCLING / BIKING)',
+        'subtitle': 'Fast cruise economy • Aerodynamic power MET formulation',
+        'icon': Icons.directions_bike_rounded,
+        'color': const Color(0xFF3B82F6),
+      },
+      {
+        'id': 'walk',
+        'title': 'WALK (POWER WALKING)',
+        'subtitle': 'Steady low-frequency GPS • Incline work elevation calories',
+        'icon': Icons.directions_walk_rounded,
+        'color': const Color(0xFF10B981),
+      },
+      {
+        'id': 'hike',
+        'title': 'HIKE (MOUNTAIN / TRAIL HIKING)',
+        'subtitle': 'Trail pacing • Vertical ascent calories & battery saver',
+        'icon': Icons.hiking_rounded,
+        'color': const Color(0xFFF59E0B),
+      },
+      {
+        'id': 'vehicle',
+        'title': 'MOTOR VEHICLE (CAR / MOTORCYCLE)',
+        'subtitle': 'Strict 1000ms / 500ms locked GPS • Zero unit hysteresis',
+        'icon': Icons.directions_car_rounded,
+        'color': const Color(0xFF8B5CF6),
+      },
+      {
+        'id': 'freerun',
+        'title': 'FREE RUN (OPEN EXPLORATION)',
+        'subtitle': 'No set duration limit • Real-time return ETA & reversal guide',
+        'icon': Icons.bolt_rounded,
+        'color': const Color(0xFFEC4899),
+      },
+    ];
+
+    showModalBottomSheet(
+      context: parentContext,
+      backgroundColor: cardBg,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 22, color: selected ? Colors.white : (isDark ? Colors.white70 : Colors.black87)),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w900,
-                  color: selected ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 44,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: borderColor,
+                    borderRadius: BorderRadius.circular(3),
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 14),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'SELECT ACTIVITY PROFILE',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.8,
+                        color: textColor,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                ...activities.map((act) {
+                  final bool isSelected = _activityType == act['id'];
+                  final Color actColor = act['color'] as Color;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8.0),
+                    child: InkWell(
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        setParentModalState(() => _activityType = act['id'] as String);
+                        setState(() => _activityType = act['id'] as String);
+                        Navigator.pop(ctx);
+                      },
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        constraints: const BoxConstraints(minHeight: 72),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: isSelected ? actColor.withValues(alpha: 0.15) : surfaceBg,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: isSelected ? actColor : borderColor,
+                            width: isSelected ? 2.0 : 1.0,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 48,
+                              height: 48,
+                              decoration: BoxDecoration(
+                                color: actColor.withValues(alpha: isSelected ? 0.9 : 0.15),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(
+                                act['icon'] as IconData,
+                                color: isSelected ? Colors.white : actColor,
+                                size: 24,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    act['title'] as String,
+                                    style: TextStyle(
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 0.5,
+                                      color: isSelected ? actColor : textColor,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    act['subtitle'] as String,
+                                    style: TextStyle(
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: textColor.withValues(alpha: 0.6),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            if (isSelected)
+                              Icon(Icons.check_circle_rounded, color: actColor, size: 22)
+                            else
+                              Icon(Icons.radio_button_unchecked_rounded, color: textColor.withValues(alpha: 0.3), size: 22),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+                const SizedBox(height: 8),
+              ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
+  }
+
+  IconData _getActivityIcon(String type) {
+    switch (type.toLowerCase()) {
+      case 'ride':
+        return Icons.directions_bike_rounded;
+      case 'walk':
+        return Icons.directions_walk_rounded;
+      case 'hike':
+        return Icons.hiking_rounded;
+      case 'vehicle':
+      case 'drive':
+        return Icons.directions_car_rounded;
+      case 'freerun':
+        return Icons.bolt_rounded;
+      default:
+        return Icons.directions_run_rounded;
+    }
+  }
+
+  String _getActivityTitle(String type) {
+    switch (type.toLowerCase()) {
+      case 'ride':
+        return 'RIDE (CYCLING)';
+      case 'walk':
+        return 'WALK (POWER WALKING)';
+      case 'hike':
+        return 'HIKE (MOUNTAIN TRAIL)';
+      case 'vehicle':
+      case 'drive':
+        return 'MOTOR VEHICLE (CAR / MOTO)';
+      case 'freerun':
+        return 'FREE RUN (OPEN ENDED)';
+      default:
+        return 'RUN (RUNNING / JOGGING)';
+    }
+  }
+
+  String _getActivityDescription(String type) {
+    switch (type.toLowerCase()) {
+      case 'ride':
+        return 'Adaptive 1-10s cruise GPS • Aerodynamic MET power';
+      case 'walk':
+        return 'Low-frequency GPS • Incline work elevation calories';
+      case 'hike':
+        return 'Trail curvature polling • Vertical work calculation';
+      case 'vehicle':
+      case 'drive':
+        return 'Strict 1000ms / 500ms locked GPS • Zero hysteresis';
+      case 'freerun':
+        return 'No set duration • Real-time return countdown & ETA';
+      default:
+        return 'Adaptive 1-10s curvature GPS • Net energy MET calories';
+    }
   }
 
   Future<void> _launchSession(BuildContext modalContext, [StateSetter? setModalState]) async {
@@ -1457,7 +1634,18 @@ class _SetupScreenState extends State<SetupScreen> {
                         const SizedBox(height: 2),
                         Text(
                           _formatDuration(_activeElapsed),
-                          style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: textColor),
+                          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: textColor),
+                        ),
+                      ],
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Text('DISTANCE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.6))),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${_activeDistanceKm.toStringAsFixed(2)} km',
+                          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: textColor),
                         ),
                       ],
                     ),
@@ -1478,7 +1666,7 @@ class _SetupScreenState extends State<SetupScreen> {
                               ? _formatDuration(Duration(seconds: max(0, targetSec - _activeElapsed.inSeconds)))
                               : _formatDuration(Duration(seconds: remainingSeconds)),
                           style: TextStyle(
-                            fontSize: 24,
+                            fontSize: 22,
                             fontWeight: FontWeight.w900,
                             color: _activeTurnBackTriggered ? const Color(0xFFDC2626) : textColor,
                           ),
