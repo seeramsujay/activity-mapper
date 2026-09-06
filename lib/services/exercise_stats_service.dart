@@ -103,6 +103,36 @@ class ExerciseStatsService {
     return (baseKcal + verticalKcal).clamp(0.0, 15000.0);
   }
 
+  /// Estimates metabolic equivalent of task (MET) from speed and activity type.
+  static double estimateMet({
+    required String activityType,
+    required double speedKmh,
+  }) {
+    final type = activityType.toLowerCase();
+    if (type.contains('vehicle') || type.contains('drive') || type.contains('car') || type.contains('motor')) {
+      return 1.5;
+    }
+    if (type.contains('run') || type.contains('jog')) {
+      if (speedKmh <= 8.0) return 8.3;
+      if (speedKmh <= 9.7) return 9.8;
+      if (speedKmh <= 11.3) return 11.0;
+      if (speedKmh <= 12.9) return 11.8;
+      if (speedKmh <= 14.5) return 12.8;
+      return 14.5;
+    }
+    if (type.contains('ride') || type.contains('cycle') || type.contains('bike')) {
+      if (speedKmh < 16.0) return 6.0;
+      if (speedKmh < 20.0) return 8.0;
+      if (speedKmh < 25.0) return 10.0;
+      if (speedKmh < 30.0) return 12.0;
+      return 15.0;
+    }
+    if (speedKmh <= 4.0) return 3.0;
+    if (speedKmh <= 5.5) return 3.8;
+    if (speedKmh <= 7.0) return 5.0;
+    return 7.0;
+  }
+
   /// Formats speed in m/s into running pace string (mm:ss min/km).
   static String formatPaceFromMps(double mps) {
     if (mps <= 0.2) return '--:--';
