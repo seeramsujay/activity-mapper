@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -167,6 +168,58 @@ class DbService {
       whereArgs: ['completed'],
       orderBy: 'start_time DESC',
     );
+  }
+
+  /// Calculates planimetric Haversine distance in km between two coordinate points.
+  static double calculateDistanceKm(double lat1, double lon1, double lat2, double lon2) {
+    const p = 0.017453292519943295;
+    final a = 0.5 -
+        cos((lat2 - lat1) * p) / 2 +
+        cos(lat1 * p) * cos(lat2 * p) * (1 - cos((lon2 - lon1) * p)) / 2;
+    return 12742 * asin(sqrt(a));
+  }
+
+  /// Queries SQLite for the rolling median distance (D_base) over the last [limit]
+  /// activities of the selected [activityType] to dynamically scale hysteresis filters.
+  Future<double> getRollingMedianDistance(String activityType, {int limit = 10}) async {
+    final db = await database;
+    final type = activityType.toLowerCase();
+    final results = await db.query(
+      'sessions',
+      where: 'LOWER(activity_type) = ? AND status = ?',
+      whereArgs: [type, 'completed'],
+      orderBy: 'start_time DESC',
+      limit: limit,
+    );
+
+    if (results.isEmpty) return 0.0;
+
+    final List<double> distances = [];
+    for (final session in results) {
+      final int sid = session['id'] as int;
+      final points = await getPoints(sid);
+      if (points.length < 2) continue;
+
+      double dist = 0.0;
+      for (int i = 0; i < points.length - 1; i++) {
+        dist += calculateDistanceKm(
+          (points[i]['lat'] as num).toDouble(),
+          (points[i]['lng'] as num).toDouble(),
+          (points[i + 1]['lat'] as num).toDouble(),
+          (points[i + 1]['lng'] as num).toDouble(),
+        );
+      }
+      distances.add(dist);
+    }
+
+    if (distances.isEmpty) return 0.0;
+    distances.sort();
+    final mid = distances.length ~/ 2;
+    if (distances.length % 2 == 1) {
+      return distances[mid];
+    } else {
+      return (distances[mid - 1] + distances[mid]) / 2.0;
+    }
   }
 
   /// Deletes a tracking session and cascadingly deletes all its points.

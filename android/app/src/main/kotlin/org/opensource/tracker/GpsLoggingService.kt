@@ -16,25 +16,40 @@ import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import androidx.core.app.NotificationCompat
+import com.google.android.gms.location.*
 import org.opensource.tracker.db.DatabaseHelper
 import org.opensource.tracker.filter.KalmanFilter
+import java.util.Locale
+import kotlin.math.*
 
+/**
+ * High-performance Android Foreground Service executing continuous background GPS tracking.
+ *
+ * Implements:
+ * - FOREGROUND_SERVICE_TYPE_LOCATION enforcement (API 29+).
+ * - CPU Partial WakeLock ('TurnBack::GpsWakeLock') with safe acquiring/releasing lifecycle hooks.
+ * - Ongoing high-priority notification with live distance and duration.
+ * - Adaptive speed and curvature-driven GPS polling engine (FusedLocationProviderClient with LocationManager fallback).
+ * - Asymmetric fatigue turnaround logic: T_outbound = T_target / (1 + S * gamma).
+ */
 class GpsLoggingService : Service(), LocationListener {
 
     companion object {
-        const val CHANNEL_ID = "GpsLoggingServiceChannel"
+        const val CHANNEL_ID = "GpsLoggingServiceChannel_HighPriority"
         const val NOTIFICATION_ID = 486
         
         var isRunning = false
             private set
 
-        // Direct callback hook to MainActivity (fast, in-process, no binder serialization)
+        // Direct callback hook to MainActivity (fast, in-process telemetry stream)
         var telemetryListener: ((lat: Double, lng: Double, alt: Double, acc: Float, speed: Float, time: Long) -> Unit)? = null
     }
 
     private lateinit var locationManager: LocationManager
     private lateinit var dbHelper: DatabaseHelper
     private lateinit var kalmanFilter: KalmanFilter
+    private var fusedLocationClient: FusedLocationProviderClient? = null
+    private var locationCallback: LocationCallback? = null
     private var wakeLock: PowerManager.WakeLock? = null
     
     private var sessionId: Int = -1
@@ -44,19 +59,29 @@ class GpsLoggingService : Service(), LocationListener {
     private var startTimeMs: Long = 0
     private var turnBackAlerted = false
 
-    // Battery-saving Stop Detection and Dynamic GPS Frequency variables
-    private var originalGpsIntervalMs: Long = 5000
-    private var currentGpsIntervalMs: Long = 5000
-    private var consecutiveStopsCount = 0
-    private var isPowerSaveModeActive = false
-    private var lastLocation: Location? = null
+    // Telemetry accumulators
+    private var totalDistanceMeters: Double = 0.0
     private var totalActiveMovingTimeMs: Long = 0L
+    private var lastLocation: Location? = null
+    private var previousHeadingRad: Double? = null
+
+    // Adaptive GPS Polling Engine state
+    private var currentIntervalMs: Long = 5000L
+    private var currentFastestIntervalMs: Long = 2500L
+    private var currentDisplacementMeters: Float = 5.0f
+    private var consecutiveStationaryTicks: Int = 0
+    private var isStationaryPowerSave: Boolean = false
 
     override fun onCreate() {
-        super.onCreate();
+        super.onCreate()
         dbHelper = DatabaseHelper(this)
         kalmanFilter = KalmanFilter()
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        try {
+            fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+        } catch (e: Exception) {
+            fusedLocationClient = null
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -68,123 +93,211 @@ class GpsLoggingService : Service(), LocationListener {
         safetyBufferPct = intent.getDoubleExtra("safetyBufferPct", 8.0)
         startTimeMs = intent.getLongExtra("startTimeMs", System.currentTimeMillis())
         turnBackAlerted = intent.getBooleanExtra("turnBackAlerted", false)
-        
-        val gpsIntervalMs = intent.getIntExtra("gpsIntervalMs", 5000).toLong()
-        originalGpsIntervalMs = gpsIntervalMs
-        currentGpsIntervalMs = gpsIntervalMs
 
-        // Recover pre-existing moving time from DB (supports resuming paused runs & headless crashes)
+        val defaultInterval = intent.getIntExtra("gpsIntervalMs", 5000).toLong()
+        currentIntervalMs = defaultInterval
+
+        // Recover pre-existing moving time from DB (resuming paused sessions or post-reboot)
         totalActiveMovingTimeMs = dbHelper.getAccumulatedActiveTime(sessionId)
 
-        createNotificationChannel()
-        val notification = buildNotification("Starting GPS tracking...")
+        createHighPriorityNotificationChannel()
+        val notification = buildOngoingNotification("GPS Initializing...")
 
-        // Android 14+ FGS Location Type Enforcement
+        // Android 10+ (API 29+) Strict Foreground Service Location Type Enforcement
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
 
-        // Acquire CPU WakeLock to prevent sleep mode
-        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TurnBack::GpsLoggingWakeLock").apply {
-            acquire(10 * 60 * 60 * 1000L) // 10 hours max safety limit
+        // Safe CPU Partial WakeLock acquisition
+        acquireWakeLock()
+
+        // Start location updates based on activity profile
+        val isMotorVehicle = isMotorVehicleProfile(activityType)
+        if (isMotorVehicle) {
+            // Motor Vehicle Profile: strictly locked to 1000ms / 500ms / 0m
+            applyLocationUpdates(1000L, 500L, 0.0f)
+        } else {
+            applyLocationUpdates(currentIntervalMs, (currentIntervalMs / 2).coerceAtLeast(500L), 5.0f)
         }
 
-        try {
-            val minDistanceMeters = intent.getDoubleExtra("minDistanceMeters", 5.0).toFloat()
-            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                locationManager.requestLocationUpdates(
-                    LocationManager.GPS_PROVIDER,
-                    currentGpsIntervalMs,
-                    minDistanceMeters,
-                    this
-                )
-            } else if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                locationManager.requestLocationUpdates(
-                    LocationManager.NETWORK_PROVIDER,
-                    currentGpsIntervalMs,
-                    minDistanceMeters,
-                    this
-                )
-            }
-            isRunning = true
-            updateNotification("GPS Signal Active")
-        } catch (e: SecurityException) {
-            updateNotification("Error: GPS Permission Denied")
-            stopSelf()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
+        isRunning = true
+        updateLiveNotification("GPS Active")
         return START_STICKY
     }
 
-    private fun adjustGpsSamplingRate(intervalMs: Long) {
+    // -------------------------------------------------------------------------
+    // WakeLock Lifecycle Management
+    // -------------------------------------------------------------------------
+
+    private fun acquireWakeLock() {
+        if (wakeLock == null) {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TurnBack::GpsWakeLock").apply {
+                setReferenceCounted(false)
+            }
+        }
+        wakeLock?.let {
+            if (!it.isHeld) {
+                it.acquire(10 * 60 * 60 * 1000L) // 10 hour max safety cutoff
+            }
+        }
+    }
+
+    private fun releaseWakeLock() {
+        wakeLock?.let {
+            if (it.isHeld) {
+                it.release()
+            }
+        }
+        wakeLock = null
+    }
+
+    // -------------------------------------------------------------------------
+    // Adaptive Polling Engine & FusedLocationProviderClient
+    // -------------------------------------------------------------------------
+
+    private fun isMotorVehicleProfile(type: String): Boolean {
+        val t = type.lowercase(Locale.ROOT)
+        return t.contains("vehicle") || t.contains("drive") || t.contains("car") || t.contains("motor")
+    }
+
+    private fun applyLocationUpdates(intervalMs: Long, fastestIntervalMs: Long, smallestDisplacement: Float) {
+        currentIntervalMs = intervalMs
+        currentFastestIntervalMs = fastestIntervalMs
+        currentDisplacementMeters = smallestDisplacement
+
+        if (fusedLocationClient != null) {
+            try {
+                locationCallback?.let { fusedLocationClient?.removeLocationUpdates(it) }
+
+                val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, intervalMs)
+                    .setMinUpdateIntervalMillis(fastestIntervalMs)
+                    .setMinUpdateDistanceMeters(smallestDisplacement)
+                    .build()
+
+                locationCallback = object : LocationCallback() {
+                    override fun onLocationResult(result: LocationResult) {
+                        for (loc in result.locations) {
+                            processLocationUpdate(loc)
+                        }
+                    }
+                }
+                fusedLocationClient?.requestLocationUpdates(locationRequest, locationCallback!!, mainLooper)
+                return
+            } catch (e: SecurityException) {
+                updateLiveNotification("Error: Location Permission Denied")
+                stopSelf()
+                return
+            } catch (e: Exception) {
+                // Fall back to LocationManager on failure or missing Play Services
+            }
+        }
+
+        // LocationManager fallback
         try {
             locationManager.removeUpdates(this)
-            val minDistance = if (isPowerSaveModeActive) 15.0f else 5.0f
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                 locationManager.requestLocationUpdates(
                     LocationManager.GPS_PROVIDER,
                     intervalMs,
-                    minDistance,
+                    smallestDisplacement,
                     this
                 )
             } else if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
                 locationManager.requestLocationUpdates(
                     LocationManager.NETWORK_PROVIDER,
                     intervalMs,
-                    minDistance,
+                    smallestDisplacement,
                     this
                 )
             }
-            currentGpsIntervalMs = intervalMs
         } catch (e: SecurityException) {
-            e.printStackTrace()
+            updateLiveNotification("Error: Location Permission Denied")
+            stopSelf()
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
     override fun onLocationChanged(location: Location) {
-        // Battery-Saving Stop Detection: Check speed & distance to last location
-        val isStatic = if (lastLocation != null) {
-            val dist = location.distanceTo(lastLocation!!)
-            location.speed <= 0.2f || dist < 1.5f
-        } else {
-            location.speed <= 0.2f
+        processLocationUpdate(location)
+    }
+
+    /**
+     * Primary location ingest: evaluates speed, stationary rest, curvature, and turnback threshold.
+     */
+    private fun processLocationUpdate(location: Location) {
+        val prev = lastLocation
+
+        // 1. Distance accumulation & active moving duration
+        var stepDistMeters = 0.0
+        if (prev != null) {
+            stepDistMeters = location.distanceTo(prev).toDouble()
+            val timeDiff = location.time - prev.time
+            // Filter noise spikes and stationary drift (0.2 m/s = 0.72 km/h)
+            if (location.speed > 0.2f && stepDistMeters > 0.5) {
+                totalDistanceMeters += stepDistMeters
+                if (timeDiff in 1..15000) {
+                    totalActiveMovingTimeMs += timeDiff
+                }
+            }
         }
 
-        if (isStatic) {
-            consecutiveStopsCount++
-            if (consecutiveStopsCount >= 3 && !isPowerSaveModeActive) {
-                isPowerSaveModeActive = true
-                adjustGpsSamplingRate(30000L) // Reduce frequency to 30s updates
-                updateNotification("Stationary detected. Power save active (30s sampling).")
+        // 2. Adaptive GPS Polling Engine (Speed & Curvature Driven)
+        val isMotorVehicle = isMotorVehicleProfile(activityType)
+        if (isMotorVehicle) {
+            // Motor Vehicle Profile: strictly lock to 1000ms / 500ms / 0m
+            if (currentIntervalMs != 1000L || currentDisplacementMeters != 0.0f) {
+                applyLocationUpdates(1000L, 500L, 0.0f)
             }
         } else {
-            consecutiveStopsCount = 0
-            if (isPowerSaveModeActive) {
-                isPowerSaveModeActive = false
-                adjustGpsSamplingRate(originalGpsIntervalMs) // Restore standard frequency
-                updateNotification("Motion detected. Standard tracking active.")
-            }
-        }
-        
-        // Accumulate active moving duration (disregarding stationary breaks or pause gap delays)
-        val last = lastLocation
-        if (last != null) {
-            val diff = location.time - last.time
-            if (diff in 1..15000 && location.speed > 0.2f) {
-                totalActiveMovingTimeMs += diff
+            // Stationary rest check: v <= 0.72 km/h (0.2 m/s) across 3 consecutive ticks
+            val isResting = location.speed <= 0.2f || (prev != null && stepDistMeters < 1.0)
+            if (isResting) {
+                consecutiveStationaryTicks++
+                if (consecutiveStationaryTicks >= 3 && !isStationaryPowerSave) {
+                    isStationaryPowerSave = true
+                    applyLocationUpdates(30000L, 15000L, 10.0f)
+                }
+            } else {
+                consecutiveStationaryTicks = 0
+                if (isStationaryPowerSave) {
+                    isStationaryPowerSave = false
+                    applyLocationUpdates(5000L, 2500L, 5.0f)
+                }
+
+                // Curvature calculation: kappa = |delta_theta / delta_s|
+                if (prev != null && stepDistMeters >= 1.0) {
+                    val kappa = calculateCurvature(prev, location, stepDistMeters)
+                    val speedKmh = location.speed * 3.6f
+
+                    // Curved / Sharp Turns (kappa >= 0.05) -> 1000ms, 500ms, 2m
+                    if (kappa >= 0.05) {
+                        if (currentIntervalMs != 1000L || currentDisplacementMeters != 2.0f) {
+                            applyLocationUpdates(1000L, 500L, 2.0f)
+                        }
+                    }
+                    // Straight Fast Cruise (v > 15 km/h, kappa < 0.05) -> 10000ms, 15m
+                    else if (speedKmh > 15.0f && kappa < 0.05) {
+                        if (currentIntervalMs != 10000L || currentDisplacementMeters != 15.0f) {
+                            applyLocationUpdates(10000L, 5000L, 15.0f)
+                        }
+                    }
+                    // Standard cruising
+                    else {
+                        if (currentIntervalMs != 5000L && currentIntervalMs != 1000L) {
+                            applyLocationUpdates(5000L, 2500L, 5.0f)
+                        }
+                    }
+                }
             }
         }
 
         lastLocation = location
 
-        // Apply coordinate-wise Kalman filtering
+        // 3. Kalman filtering
         val (filteredLat, filteredLng) = kalmanFilter.filter(
             location.latitude,
             location.longitude,
@@ -192,7 +305,7 @@ class GpsLoggingService : Service(), LocationListener {
             location.time
         )
 
-        // Native SQL persistence (safe recovery checkpoint)
+        // 4. Persistence to SQLite
         dbHelper.insertPoint(
             sessionId,
             location.time,
@@ -203,7 +316,7 @@ class GpsLoggingService : Service(), LocationListener {
             location.speed
         )
 
-        // Stream coordinate node to active UI if running
+        // 5. In-process direct telemetry dispatch to UI
         telemetryListener?.invoke(
             filteredLat,
             filteredLng,
@@ -213,23 +326,56 @@ class GpsLoggingService : Service(), LocationListener {
             location.time
         )
 
-        // Safety-critical Turn-Back calculation (Active Moving Time vs Outbound Limit)
-        // Note: In Free Run mode (targetDurationSeconds <= 0), turn-back is initiated manually by the user
-        if (targetDurationSeconds > 0) {
-            val outboundLimitSeconds = (targetDurationSeconds * (100.0 - safetyBufferPct) / 200.0).toLong()
-            val elapsedSeconds = totalActiveMovingTimeMs / 1000
+        // 6. Asymmetric Fatigue Turn-Back Logic
+        checkTurnBackThreshold(isMotorVehicle)
+    }
 
-            if (elapsedSeconds >= outboundLimitSeconds && !turnBackAlerted) {
+    /**
+     * Curvature calculation: kappa = |delta_theta / delta_s| (rad / m).
+     */
+    private fun calculateCurvature(prevLoc: Location, currLoc: Location, deltaS: Double): Double {
+        val lat1 = Math.toRadians(prevLoc.latitude)
+        val lon1 = Math.toRadians(prevLoc.longitude)
+        val lat2 = Math.toRadians(currLoc.latitude)
+        val lon2 = Math.toRadians(currLoc.longitude)
+        val dLon = lon2 - lon1
+
+        val y = sin(dLon) * cos(lat2)
+        val x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon)
+        val currentHeadingRad = atan2(y, x)
+
+        val prevH = previousHeadingRad
+        previousHeadingRad = currentHeadingRad
+        if (prevH == null) return 0.0
+
+        var deltaTheta = abs(atan2(sin(currentHeadingRad - prevH), cos(currentHeadingRad - prevH)))
+        return deltaTheta / deltaS
+    }
+
+    /**
+     * Asymmetric Fatigue Turn-Back Engine:
+     * T_outbound = T_target / (1 + S * gamma)
+     * where S = 1.0 + (bufferPct / 100.0) [default S = 1.08]
+     * and gamma = 1.15 (15% fatigue decay) for human sports, or gamma = 1.0 for motor vehicle.
+     * T_outbound is approximately 44.6% of elapsed time.
+     */
+    private fun checkTurnBackThreshold(isMotorVehicle: Boolean) {
+        val elapsedSec = totalActiveMovingTimeMs / 1000
+
+        if (targetDurationSeconds > 0) {
+            val gamma = if (isMotorVehicle) 1.0 else 1.15
+            val sBuffer = 1.0 + (safetyBufferPct / 100.0)
+            val outboundLimitSeconds = (targetDurationSeconds / (1.0 + sBuffer * gamma)).toLong()
+
+            if (elapsedSec >= outboundLimitSeconds && !turnBackAlerted) {
                 turnBackAlerted = true
-                
-                // 1. Persist state natively to database
                 dbHelper.markTurnBackTriggered(sessionId, System.currentTimeMillis())
 
-                val type = activityType.lowercase()
+                val type = activityType.lowercase(Locale.ROOT)
                 val isWalking = type.contains("walk") || type.contains("hike")
                 val isCycling = type.contains("ride") || type.contains("cycle") || type.contains("bike")
 
-                // 2. Cycling: Automatically stop/pause active music player
+                // Auto-pause cycling media
                 if (isCycling) {
                     try {
                         val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
@@ -242,93 +388,107 @@ class GpsLoggingService : Service(), LocationListener {
                     }
                 }
 
-                // 3. Audible alarm: Small distinct chime/beep for cycling and running (omitted for walking)
+                // Native Audio Tone: TONE_CDMA_ALERT_CALL_GUARD
                 if (!isWalking) {
                     try {
-                        val toneGenerator = ToneGenerator(AudioManager.STREAM_ALARM, if (isCycling) 85 else 100)
-                        toneGenerator.startTone(
-                            if (isCycling) ToneGenerator.TONE_PROP_BEEP2 else ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD,
-                            3500
-                        )
+                        val toneGenerator = ToneGenerator(AudioManager.STREAM_ALARM, 95)
+                        toneGenerator.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 3500)
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
                 }
 
-                // 4. Haptic pattern: Vibration for all activities (walking, cycling, running)
+                // Native Double-Pulse Haptic Pattern: [0, 350, 150, 350]
                 try {
-                    val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-                    val pattern = if (isWalking) {
-                        longArrayOf(0, 600, 300, 600)
-                    } else {
-                        longArrayOf(0, 800, 200, 800, 200, 800)
-                    }
+                    val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+                    val doublePulse = longArrayOf(0, 350, 150, 350)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
+                        vibrator?.vibrate(VibrationEffect.createWaveform(doublePulse, -1))
                     } else {
                         @Suppress("DEPRECATION")
-                        vibrator.vibrate(pattern, -1)
+                        vibrator?.vibrate(doublePulse, -1)
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
 
-                // 5. Update ongoing notification to high urgency state
-                updateNotification("TURN BACK NOW! Turnaround window reached.")
+                updateLiveNotification("TURN BACK NOW! Turnaround reached (~44.6% window)")
             } else {
-                // Update ongoing tracking notification description
-                if (isPowerSaveModeActive) {
-                    updateNotification("Power Save Active (Stationary). Limit: ${outboundLimitSeconds / 60}m")
-                } else {
-                    updateNotification("Tracking active. Elapsed: ${elapsedSeconds / 60}m / Limit: ${outboundLimitSeconds / 60}m")
-                }
+                val distKm = totalDistanceMeters / 1000.0
+                val remainingOutbound = (outboundLimitSeconds - elapsedSec).coerceAtLeast(0)
+                val status = if (turnBackAlerted) "Returning" else "Outbound (${remainingOutbound / 60}m left)"
+                updateLiveNotification(status)
             }
         } else {
-            // Free Run Mode: Continuous tracking with real-time dynamic return prediction
-            val elapsedSeconds = totalActiveMovingTimeMs / 1000
-            val predReturnMinutes = (elapsedSeconds * (1.0 + (safetyBufferPct / 100.0)) / 60.0).toInt()
-            updateNotification("Free Run Active. Moving: ${elapsedSeconds / 60}m | Est. Return: +${predReturnMinutes}m")
+            // Free Run Mode
+            val predReturnMin = (elapsedSec * (1.0 + (safetyBufferPct / 100.0)) / 60.0).toInt()
+            updateLiveNotification("Free Run: Est. Return +${predReturnMin}m")
         }
     }
 
-    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
-    override fun onProviderEnabled(provider: String) {}
-    override fun onProviderDisabled(provider: String) {
-        updateNotification("Warning: GPS Provider Disabled")
-    }
+    // -------------------------------------------------------------------------
+    // High-Priority System Status Bar Notification
+    // -------------------------------------------------------------------------
 
-    private fun createNotificationChannel() {
+    private fun createHighPriorityNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val serviceChannel = NotificationChannel(
                 CHANNEL_ID,
-                "Out-and-Back Telemetry Tracker",
-                NotificationManager.IMPORTANCE_LOW
-            )
+                "TurnBack Active Tracking",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Live high-frequency GPS tracking and turnaround telemetry updates"
+                setShowBadge(true)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(serviceChannel)
         }
     }
 
-    private fun buildNotification(text: String): Notification {
+    private fun buildOngoingNotification(statusText: String): Notification {
+        val distKm = totalDistanceMeters / 1000.0
+        val elapsedSec = totalActiveMovingTimeMs / 1000
+        val distStr = String.format(Locale.US, "%.2f km", distKm)
+        val durationStr = String.format(Locale.US, "%02d:%02d", elapsedSec / 60, elapsedSec % 60)
+
+        val title = "TurnBack: $distStr • $durationStr"
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            packageManager.getLaunchIntentForPackage(packageName),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("TurnBack Tracking Running")
-            .setContentText(text)
+            .setContentTitle(title)
+            .setContentText(statusText)
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+            .setContentIntent(pendingIntent)
             .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_WORKOUT)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOnlyAlertOnce(true)
             .build()
     }
 
-    private fun updateNotification(text: String) {
+    private fun updateLiveNotification(statusText: String) {
         val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIFICATION_ID, buildNotification(text))
+        manager.notify(NOTIFICATION_ID, buildOngoingNotification(statusText))
+    }
+
+    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+    override fun onProviderEnabled(provider: String) {}
+    override fun onProviderDisabled(provider: String) {
+        updateLiveNotification("Warning: GPS Disabled")
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        locationCallback?.let { fusedLocationClient?.removeLocationUpdates(it) }
         locationManager.removeUpdates(this)
-        wakeLock?.let {
-            if (it.isHeld) it.release()
-        }
+        releaseWakeLock()
         isRunning = false
         telemetryListener = null
     }
