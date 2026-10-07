@@ -50,5 +50,9 @@
 	<array>
 		<string>location</string>
 	</array>
+
+	<!-- Camera Permission for QR code scanner -->
+	<key>NSCameraUsageDescription</key>
+	<string>TurnBack requires camera access to scan QR codes for Colab Mesh sessions.</string>
 </dict>
 </plist>

@@ -1,7 +1,7 @@
 import UIKit
 import Flutter
 
-@UIApplicationMain
+@main
 @objc class AppDelegate: FlutterAppDelegate {
   
   private var eventSink: FlutterEventSink?
@@ -66,7 +66,7 @@ import Flutter
 }
 
 extension AppDelegate: FlutterStreamHandler {
-    func onListen(arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+    func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
         self.eventSink = events
         
         LocationService.telemetryListener = { [weak self] lat, lng, alt, acc, speed, timestamp in
@@ -86,7 +86,7 @@ extension AppDelegate: FlutterStreamHandler {
         return nil
     }
     
-    func onCancel(arguments: Any?) -> FlutterError? {
+    func onCancel(withArguments arguments: Any?) -> FlutterError? {
         self.eventSink = nil
         LocationService.telemetryListener = nil
         return nil
