@@ -11,6 +11,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     
+    <!-- Battery optimization exemption for uninterrupted long-distance tracking -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <!-- Network permissions for offline OSM cache & debug VM service -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -39,10 +42,6 @@
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
             
-            <!-- Specifies an Android theme to apply to this Activity as soon as
-                 the Android process has started. This theme determines the style
-                 of the Android screen that is visible immediately after the app has
-                 launched and before the first Flutter frame is drawn. -->
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme" />
@@ -72,6 +71,17 @@
                 <action android:name="org.opensource.tracker.GET_CURRENT_STATS" />
             </intent-filter>
         </receiver>
+
+        <!-- FileProvider for 1-click GPX and File Sharing -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <meta-data
             android:name="flutterEmbedding"

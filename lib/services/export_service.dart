@@ -442,17 +442,20 @@ class ExportService {
       try {
         final extDir = await getExternalStorageDirectory();
         if (extDir != null) {
-          final rootPath = extDir.path.split('/Android/data/')[0];
-          directory = Directory(p.join(rootPath, 'Documents', 'TurnBack'));
+          final exportDir = Directory(p.join(extDir.path, 'Exports'));
+          if (!await exportDir.exists()) {
+            await exportDir.create(recursive: true);
+          }
+          return exportDir;
         }
       } catch (_) {}
     }
-    directory ??= await getApplicationDocumentsDirectory();
-
-    if (!await directory.exists()) {
-      await directory.create(recursive: true);
+    directory = await getApplicationDocumentsDirectory();
+    final fallbackDir = Directory(p.join(directory.path, 'exports'));
+    if (!await fallbackDir.exists()) {
+      await fallbackDir.create(recursive: true);
     }
-    return directory;
+    return fallbackDir;
   }
 
   String _sanitizeFilename(String name) {

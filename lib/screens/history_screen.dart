@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/db_service.dart';
 import '../services/export_service.dart';
+import '../services/gpx_service.dart';
 import '../services/platform_service.dart';
 import '../widgets/breadcrumb_painter.dart';
 import '../widgets/strava_upload_dialog.dart';
@@ -12,6 +13,7 @@ import 'hud_screen.dart';
 /// Screen widget that displays the history list of completed activities.
 ///
 /// Features:
+/// - 1-Click Instant GPX Sharing & Downloads
 /// - Direct multi-format export (.ZIP, GPX, KML, GeoJSON, CSV)
 /// - Post-run editing (Crop, Merge, Split)
 /// - Offline vector map preview with RDP simplification
@@ -206,6 +208,21 @@ class _HistoryScreenState extends State<HistoryScreen> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
+                  // Prominent 1-Click GPX Download / Share Button
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF3B82F6),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      elevation: 0,
+                    ),
+                    icon: const Icon(Icons.share_rounded, size: 14),
+                    label: const Text('SHARE GPX', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11, letterSpacing: 0.5)),
+                    onPressed: () => _quickShareGpx(id, type),
+                  ),
+                  const SizedBox(width: 6),
+
                   // Prominent Continue Completed Run Button
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
@@ -268,6 +285,23 @@ class _HistoryScreenState extends State<HistoryScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _quickShareGpx(int sessionId, String type) async {
+    HapticFeedback.mediumImpact();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Exporting & opening GPX share...'), duration: Duration(seconds: 1)),
+    );
+    try {
+      final file = await GpxService.instance.saveGpxFile(sessionId, type);
+      await PlatformService.instance.shareFile(file.path, title: 'Share GPX: $type');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to share GPX: $e')),
+        );
+      }
+    }
   }
 
   void _showContinueRunModal(int sessionId, String activityType, int originalTargetSec, double buffer) {
@@ -507,13 +541,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
     // Reactivate session in SQLite
     await DbService.instance.reactivateSession(sessionId, newTargetDurationSeconds: targetSec);
 
-    // Start Kotlin GPS foreground tracking service
+    // Start Kotlin GPS foreground tracking service with high accuracy 1000ms
     await PlatformService.instance.startTracking(
       sessionId: sessionId,
       activityType: activityType.toLowerCase(),
       targetDurationSeconds: targetSec,
       safetyBufferPct: buffer,
-      gpsIntervalMs: 5000,
+      gpsIntervalMs: 1000,
     );
 
     if (mounted) {
@@ -554,7 +588,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  '100% serverless, local file generation.',
+                  '100% serverless, local file generation with instant share sheet.',
                   style: TextStyle(fontSize: 12, color: textColor.withOpacity(0.6)),
                 ),
                 const SizedBox(height: 16),
@@ -657,35 +691,31 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           side: BorderSide(color: Colors.tealAccent.shade400),
                           shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
                         ),
-                        icon: const Icon(Icons.video_camera_back, size: 16),
+                        icon: const Icon(Icons.threed_rotation, size: 18),
+                        label: const Text('RELIVE 3D GPX', style: TextStyle(fontWeight: FontWeight.bold)),
                         onPressed: () {
                           Navigator.pop(context);
                           _exportSingleFormat(sessionId, activityType, 'relive');
                         },
-                        label: const Text('Relive 3D GPX', style: TextStyle(fontWeight: FontWeight.bold)),
                       ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFFC4C02),
-                          foregroundColor: Colors.white,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.deepOrangeAccent,
+                          side: const BorderSide(color: Colors.deepOrangeAccent),
                           shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
                         ),
-                        icon: const Icon(Icons.cloud_upload, size: 16),
+                        icon: const Icon(Icons.cloud_upload_outlined, size: 18),
+                        label: const Text('STRAVA SYNC', style: TextStyle(fontWeight: FontWeight.bold)),
                         onPressed: () {
                           Navigator.pop(context);
                           showDialog(
                             context: context,
-                            builder: (dCtx) => StravaUploadDialog(
-                              sessionId: sessionId,
-                              activityName: activityType,
-                              activityType: activityType,
-                            ),
+                            builder: (context) => StravaUploadDialog(sessionId: sessionId, activityName: activityType),
                           );
                         },
-                        label: const Text('Strava Upload', style: TextStyle(fontWeight: FontWeight.bold)),
                       ),
                     ),
                   ],
@@ -702,12 +732,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     try {
       final file = await ExportService.instance.exportSessionZipBundle(sessionId, type);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('ZIP Package Exported:\n${file.path}'),
-            duration: const Duration(seconds: 5),
-          ),
-        );
+        await PlatformService.instance.shareFile(file.path, title: 'Share ZIP: $type');
       }
     } catch (e) {
       if (mounted) {
@@ -726,8 +751,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
         format: format,
       );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${format.toUpperCase()} Exported:\n${file.path}'), duration: const Duration(seconds: 4)),
+        await PlatformService.instance.shareFile(
+          file.path,
+          title: 'Share ${format.toUpperCase()}: $type',
         );
       }
     } catch (e) {
@@ -743,12 +769,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     try {
       final zipFile = await ExportService.instance.exportLifetimeZipBackup();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Full Lifetime Backup (.ZIP) Generated:\n${zipFile.path}'),
-            duration: const Duration(seconds: 6),
-          ),
-        );
+        await PlatformService.instance.shareFile(zipFile.path, title: 'Lifetime Backup');
       }
     } catch (e) {
       if (mounted) {

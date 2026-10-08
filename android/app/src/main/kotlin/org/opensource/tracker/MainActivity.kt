@@ -1,24 +1,32 @@
 package org.opensource.tracker
 
 import android.Manifest
+import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Build
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
-import io.flutter.embedding.android.FlutterActivity
-import io.flutter.embedding.engine.FlutterEngine
-import io.flutter.plugin.common.EventChannel
-import io.flutter.plugin.common.MethodChannel
-
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.ToneGenerator
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
+import android.provider.MediaStore
+import android.provider.Settings
 import android.view.KeyEvent
 import android.view.WindowManager
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
+import io.flutter.plugin.common.MethodChannel
+import java.io.File
 
 class MainActivity : FlutterActivity() {
 
@@ -103,7 +111,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        // MethodChannel: Start/Stop Tracking, Media Control, and Hardware Power Management
+        // MethodChannel: Start/Stop Tracking, Media Control, Sharing, and Hardware Power Management
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CONTROL_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "checkPermissions" -> {
@@ -122,7 +130,8 @@ class MainActivity : FlutterActivity() {
                     val activityType = call.argument<String>("activityType") ?: "run"
                     val targetDurationSeconds = call.argument<Int>("targetDurationSeconds") ?: 0
                     val safetyBufferPct = call.argument<Double>("safetyBufferPct") ?: 8.0
-                    val gpsIntervalMs = call.argument<Int>("gpsIntervalMs") ?: 5000
+                    val gpsIntervalMs = call.argument<Int>("gpsIntervalMs") ?: 1000
+                    val googleMapsMode = call.argument<Boolean>("googleMapsMode") ?: false
 
                     val startAction = {
                         val serviceIntent = Intent(this, GpsLoggingService::class.java).apply {
@@ -131,6 +140,7 @@ class MainActivity : FlutterActivity() {
                             putExtra("targetDurationSeconds", targetDurationSeconds)
                             putExtra("safetyBufferPct", safetyBufferPct)
                             putExtra("gpsIntervalMs", gpsIntervalMs)
+                            putExtra("googleMapsMode", googleMapsMode)
                         }
 
                         try {
@@ -153,6 +163,19 @@ class MainActivity : FlutterActivity() {
                     val serviceIntent = Intent(this, GpsLoggingService::class.java)
                     val stopped = stopService(serviceIntent)
                     result.success(stopped)
+                }
+                "setGoogleMapsMode" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    val serviceIntent = Intent(this, GpsLoggingService::class.java).apply {
+                        action = GpsLoggingService.ACTION_SET_GOOGLE_MAPS_MODE
+                        putExtra("googleMapsMode", enabled)
+                    }
+                    try {
+                        startService(serviceIntent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
                 }
                 "sendMediaAction" -> {
                     val action = call.argument<String>("action") ?: ""
@@ -250,7 +273,6 @@ class MainActivity : FlutterActivity() {
                 }
                 "setPowerSaveDisplay" -> {
                     val enable = call.argument<Boolean>("enable") ?: false
-                    // Clamps to 30Hz or lowest supported mode when power saver is active, 0f restores default
                     val targetFps = if (enable) 30f else 0f
                     try {
                         setAdaptiveRefreshRate(targetFps)
@@ -258,6 +280,117 @@ class MainActivity : FlutterActivity() {
                     } catch (e: Exception) {
                         result.success(false)
                     }
+                }
+                "shareFile" -> {
+                    val filePath = call.argument<String>("filePath")
+                    val title = call.argument<String>("title") ?: "Share Activity File"
+                    if (filePath == null) {
+                        result.error("INVALID_PATH", "File path is required", null)
+                        return@setMethodCallHandler
+                    }
+                    val file = File(filePath)
+                    if (!file.exists()) {
+                        result.error("FILE_NOT_FOUND", "File does not exist: $filePath", null)
+                        return@setMethodCallHandler
+                    }
+
+                    try {
+                        val uri = FileProvider.getUriForFile(
+                            this,
+                            "${applicationContext.packageName}.fileprovider",
+                            file
+                        )
+                        val mimeType = when {
+                            filePath.endsWith(".gpx", ignoreCase = true) -> "application/gpx+xml"
+                            filePath.endsWith(".kml", ignoreCase = true) -> "application/vnd.google-earth.kml+xml"
+                            filePath.endsWith(".geojson", ignoreCase = true) -> "application/geo+json"
+                            filePath.endsWith(".csv", ignoreCase = true) -> "text/csv"
+                            filePath.endsWith(".zip", ignoreCase = true) -> "application/zip"
+                            else -> "application/octet-stream"
+                        }
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = mimeType
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            putExtra(Intent.EXTRA_SUBJECT, title)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        val chooser = Intent.createChooser(shareIntent, title).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        startActivity(chooser)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("SHARE_FAILED", e.message, null)
+                    }
+                }
+                "saveFileToDownloads" -> {
+                    val filePath = call.argument<String>("filePath")
+                    if (filePath == null) {
+                        result.error("INVALID_PATH", "File path is required", null)
+                        return@setMethodCallHandler
+                    }
+                    val srcFile = File(filePath)
+                    if (!srcFile.exists()) {
+                        result.error("FILE_NOT_FOUND", "File does not exist: $filePath", null)
+                        return@setMethodCallHandler
+                    }
+
+                    try {
+                        val fileName = srcFile.name
+                        val mimeType = when {
+                            fileName.endsWith(".gpx", ignoreCase = true) -> "application/gpx+xml"
+                            fileName.endsWith(".kml", ignoreCase = true) -> "application/vnd.google-earth.kml+xml"
+                            fileName.endsWith(".geojson", ignoreCase = true) -> "application/geo+json"
+                            fileName.endsWith(".csv", ignoreCase = true) -> "text/csv"
+                            fileName.endsWith(".zip", ignoreCase = true) -> "application/zip"
+                            else -> "application/octet-stream"
+                        }
+
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            val contentValues = ContentValues().apply {
+                                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                                put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/TurnBack")
+                            }
+                            val resolver = contentResolver
+                            val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                            if (uri != null) {
+                                resolver.openOutputStream(uri)?.use { out ->
+                                    srcFile.inputStream().use { input ->
+                                        input.copyTo(out)
+                                    }
+                                }
+                                result.success(uri.toString())
+                            } else {
+                                result.error("INSERT_FAILED", "Failed to create download entry in MediaStore", null)
+                            }
+                        } else {
+                            @Suppress("DEPRECATION")
+                            val destDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "TurnBack")
+                            if (!destDir.exists()) destDir.mkdirs()
+                            val destFile = File(destDir, fileName)
+                            srcFile.copyTo(destFile, overwrite = true)
+                            result.success(destFile.absolutePath)
+                        }
+                    } catch (e: Exception) {
+                        result.error("SAVE_FAILED", e.message, null)
+                    }
+                }
+                "requestIgnoreBatteryOptimizations" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                        if (powerManager != null && !powerManager.isIgnoringBatteryOptimizations(packageName)) {
+                            try {
+                                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                    data = Uri.parse("package:$packageName")
+                                }
+                                startActivity(intent)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    }
+                    result.success(true)
                 }
                 else -> result.notImplemented()
             }
@@ -296,4 +429,3 @@ class MainActivity : FlutterActivity() {
         )
     }
 }
-

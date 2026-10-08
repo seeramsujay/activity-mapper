@@ -55,6 +55,7 @@ class PlatformService {
     required int targetDurationSeconds,
     required double safetyBufferPct,
     required int gpsIntervalMs,
+    bool googleMapsMode = false,
   }) async {
     try {
       final bool? success = await _controlChannel.invokeMethod<bool>('startTracking', {
@@ -63,10 +64,26 @@ class PlatformService {
         'targetDurationSeconds': targetDurationSeconds,
         'safetyBufferPct': safetyBufferPct,
         'gpsIntervalMs': gpsIntervalMs,
+        'googleMapsMode': googleMapsMode,
       }).timeout(const Duration(seconds: 8), onTimeout: () => true);
       return success ?? true;
     } on PlatformException catch (e) {
       print("Failed to start tracking service: ${e.message}");
+      return false;
+    }
+  }
+
+  /// Sets Google Maps Co-Navigation Passive Piggybacking Mode.
+  /// When active, the native location engine requests updates using Priority.PRIORITY_PASSIVE,
+  /// consuming minimal extra battery by intercepting Google Maps' high-accuracy GPS fixes.
+  Future<bool> setGoogleMapsMode(bool enabled) async {
+    try {
+      final bool? success = await _controlChannel.invokeMethod<bool>('setGoogleMapsMode', {
+        'enabled': enabled,
+      }).timeout(const Duration(seconds: 4), onTimeout: () => false);
+      return success ?? false;
+    } on PlatformException catch (e) {
+      print("Failed to set Google Maps mode: ${e.message}");
       return false;
     }
   }
@@ -132,11 +149,46 @@ class PlatformService {
     }
   }
 
+  /// Shares a file using the native system share sheet (AirDrop, WhatsApp, Google Drive, Files, etc.).
+  Future<bool> shareFile(String filePath, {String? title}) async {
+    try {
+      final bool? success = await _controlChannel.invokeMethod<bool>('shareFile', {
+        'filePath': filePath,
+        'title': title ?? 'Share GPX',
+      });
+      return success ?? false;
+    } on PlatformException catch (e) {
+      print("Failed to share file: ${e.message}");
+      return false;
+    }
+  }
+
+  /// Copies a generated file directly into the device's public Downloads directory.
+  Future<String?> saveFileToDownloads(String filePath) async {
+    try {
+      final String? dest = await _controlChannel.invokeMethod<String>('saveFileToDownloads', {
+        'filePath': filePath,
+      });
+      return dest;
+    } on PlatformException catch (e) {
+      print("Failed to save to downloads: ${e.message}");
+      return null;
+    }
+  }
+
+  /// Requests battery optimization exemption so background GPS tracking isn't killed.
+  Future<bool> requestIgnoreBatteryOptimizations() async {
+    try {
+      final bool? success = await _controlChannel.invokeMethod<bool>('requestIgnoreBatteryOptimizations');
+      return success ?? false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
   /// Exposes a broadcast stream to receive real-time location coordinate updates from the native GPS service.
   Stream<dynamic> get telemetryStream {
     _telemetryStream ??= _telemetryChannel.receiveBroadcastStream();
     return _telemetryStream!;
   }
 }
-
-

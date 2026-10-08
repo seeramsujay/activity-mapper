@@ -52,7 +52,32 @@ import Flutter
       case "stopTracking":
         LocationService.shared.stopTracking()
         result(true)
-        
+
+      case "setGoogleMapsMode":
+        let enabled = (call.arguments as? [String: Any])?["enabled"] as? Bool ?? false
+        LocationService.shared.setGoogleMapsMode(enabled: enabled)
+        result(true)
+
+      case "shareFile":
+        guard let args = call.arguments as? [String: Any],
+              let filePath = args["filePath"] as? String else {
+          result(FlutterError(code: "INVALID_ARGUMENTS", message: "filePath is required", details: nil))
+          return
+        }
+        let fileUrl = URL(fileURLWithPath: filePath)
+        if !FileManager.default.fileExists(atPath: filePath) {
+          result(FlutterError(code: "FILE_NOT_FOUND", message: "File does not exist: \(filePath)", details: nil))
+          return
+        }
+        let activityVC = UIActivityViewController(activityItems: [fileUrl], applicationActivities: nil)
+        if let popover = activityVC.popoverPresentationController {
+          popover.sourceView = controller.view
+          popover.sourceRect = CGRect(x: controller.view.bounds.midX, y: controller.view.bounds.midY, width: 0, height: 0)
+          popover.permittedArrowDirections = []
+        }
+        controller.present(activityVC, animated: true, completion: nil)
+        result(true)
+
       default:
         result(FlutterMethodNotImplemented)
       }

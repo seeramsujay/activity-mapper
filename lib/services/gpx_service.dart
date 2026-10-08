@@ -3,7 +3,7 @@ import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'db_service.dart';
 import 'elevation_filter_service.dart';
-
+import 'platform_service.dart';
 
 /// Service responsible for serializing active session data into GPX XML formatted files.
 class GpxService {
@@ -60,10 +60,7 @@ class GpxService {
     return buffer.toString();
   }
 
-  /// Writes a GPX XML string to a file in the system's public Documents directory.
-  ///
-  /// On Android, resolves the external `/Documents/TurnBack` directory using path logic.
-  /// Falls back to the sandboxed App Documents folder on failure or non-Android OS platforms.
+  /// Writes a GPX XML string to a file in the app documents directory.
   Future<File> saveGpxFile(int sessionId, String activityName) async {
     final gpxContent = await generateGpxString(sessionId, activityName);
     
@@ -72,17 +69,15 @@ class GpxService {
       try {
         final extDir = await getExternalStorageDirectory();
         if (extDir != null) {
-          final rootPath = extDir.path.split('/Android/data/')[0];
-          directory = Directory(join(rootPath, 'Documents', 'TurnBack'));
+          final exportDir = Directory(join(extDir.path, 'Exports'));
+          if (!await exportDir.exists()) {
+            await exportDir.create(recursive: true);
+          }
+          directory = exportDir;
         }
-      } catch (e) {
-        print("Failed to resolve external Documents directory: $e");
-      }
+      } catch (_) {}
     }
-    
-    // Fallback if not Android or path lookup failed
     directory ??= await getApplicationDocumentsDirectory();
-
     if (!await directory.exists()) {
       await directory.create(recursive: true);
     }
@@ -93,5 +88,11 @@ class GpxService {
     
     return await file.writeAsString(gpxContent, flush: true);
   }
-}
 
+  /// Exports GPX and launches the native system share sheet (AirDrop, Files, Drive, WhatsApp, etc.).
+  Future<File> shareGpxFile(int sessionId, String activityName) async {
+    final file = await saveGpxFile(sessionId, activityName);
+    await PlatformService.instance.shareFile(file.path, title: 'Share GPX: $activityName');
+    return file;
+  }
+}

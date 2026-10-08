@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../services/db_service.dart';
 import '../services/exercise_stats_service.dart';
 import '../services/export_service.dart';
+import '../services/platform_service.dart';
 import '../services/settings_service.dart';
 import '../widgets/interactive_telemetry_graph.dart';
 import '../widgets/vector_map_view.dart';
@@ -153,6 +154,11 @@ class _WorkoutSummaryScreenState extends State<WorkoutSummaryScreen> with Single
             backgroundColor: const Color(0xFF10B981),
             duration: const Duration(seconds: 3),
           ),
+        );
+        // Promptly launch system native share sheet
+        await PlatformService.instance.shareFile(
+          filePath,
+          title: 'Share $format: $name',
         );
       }
     } catch (e) {
