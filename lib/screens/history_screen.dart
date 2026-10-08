@@ -713,7 +713,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                           Navigator.pop(context);
                           showDialog(
                             context: context,
-                            builder: (context) => StravaUploadDialog(sessionId: sessionId, activityName: activityType),
+                            builder: (context) => StravaUploadDialog(sessionId: sessionId, activityName: activityType, activityType: activityType),
                           );
                         },
                       ),
