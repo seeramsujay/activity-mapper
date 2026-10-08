@@ -29,6 +29,7 @@ class HudScreen extends StatefulWidget {
   final int? referenceSessionId;
   final double fatigueGamma;
   final bool hasReturnElevationPenalty;
+  final bool initialGoogleMapsMode;
 
   const HudScreen({
     super.key,
@@ -40,6 +41,7 @@ class HudScreen extends StatefulWidget {
     this.referenceSessionId,
     this.fatigueGamma = 0.08,
     this.hasReturnElevationPenalty = false,
+    this.initialGoogleMapsMode = false,
   });
 
   @override
@@ -47,6 +49,9 @@ class HudScreen extends StatefulWidget {
 }
 
 class _HudScreenState extends State<HudScreen> {
+  // Google Maps Co-Navigation Passive Piggyback Mode
+  late bool _googleMapsMode;
+
   // Telemetry list
   final List<Point<double>> _points = [];
   final List<TelemetrySample> _chartSamples = [];
@@ -131,6 +136,7 @@ class _HudScreenState extends State<HudScreen> {
   void initState() {
     super.initState();
     _activeTargetDuration = widget.targetDuration;
+    _googleMapsMode = widget.initialGoogleMapsMode;
     _startTime = DateTime.now();
     _isSpeedMode = widget.activityType == 'ride';
 
@@ -149,6 +155,52 @@ class _HudScreenState extends State<HudScreen> {
     _initRollingMedianHysteresis();
     _startTimer();
     _startTelemetryStream();
+  }
+
+  Future<void> _toggleGoogleMapsMode() async {
+    HapticFeedback.heavyImpact();
+    final newMode = !_googleMapsMode;
+    setState(() => _googleMapsMode = newMode);
+    await PlatformService.instance.setGoogleMapsMode(newMode);
+    if (mounted) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(
+                newMode ? Icons.battery_charging_full_rounded : Icons.gps_fixed_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      newMode ? 'GOOGLE MAPS ECO ACTIVE' : 'STANDALONE GPS ACTIVE',
+                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                    ),
+                    Text(
+                      newMode
+                          ? 'Passively sampling Google Maps GPS stream (Battery Saver)'
+                          : 'TurnBack directly powering high-precision GNSS',
+                      style: const TextStyle(fontSize: 10.5, color: Colors.white70),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: newMode ? const Color(0xFF10B981) : const Color(0xFF3B82F6),
+          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
   }
 
   Future<void> _initRollingMedianHysteresis() async {
@@ -888,10 +940,50 @@ class _HudScreenState extends State<HudScreen> {
                     ],
                   ),
                   Text(
-                    _isPaused ? 'PAUSED' : 'LIVE GPS',
-                    style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5)),
+                    _isPaused ? 'PAUSED' : (_googleMapsMode ? 'G-MAPS ECO' : 'LIVE GPS'),
+                    style: TextStyle(
+                      fontSize: 8.5,
+                      fontWeight: FontWeight.bold,
+                      color: _googleMapsMode ? const Color(0xFF10B981) : textColor.withValues(alpha: 0.5),
+                    ),
                   ),
                 ],
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: _toggleGoogleMapsMode,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: _googleMapsMode
+                        ? const Color(0xFF10B981).withValues(alpha: 0.2)
+                        : (isDark ? Colors.white10 : Colors.black12),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: _googleMapsMode ? const Color(0xFF10B981) : borderColor,
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        _googleMapsMode ? Icons.battery_charging_full_rounded : Icons.navigation_outlined,
+                        size: 11,
+                        color: _googleMapsMode ? const Color(0xFF10B981) : textColor.withValues(alpha: 0.6),
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        _googleMapsMode ? 'G-MAPS' : 'GPS',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                          color: _googleMapsMode ? const Color(0xFF10B981) : textColor.withValues(alpha: 0.7),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
               const Spacer(),
               GestureDetector(
@@ -1100,6 +1192,50 @@ class _HudScreenState extends State<HudScreen> {
                         Text(
                           'STATS',
                           style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: accentColor, letterSpacing: 0.5),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+
+              // 2. Google Maps Passive Piggyback Toggle (Heavy-Glove >=68dp touch target)
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(16),
+                  onTap: _toggleGoogleMapsMode,
+                  child: Container(
+                    constraints: const BoxConstraints(minWidth: 68, minHeight: 68),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: _googleMapsMode
+                          ? const Color(0xFF10B981).withValues(alpha: 0.18)
+                          : (isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.04)),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: _googleMapsMode ? const Color(0xFF10B981) : borderColor,
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          _googleMapsMode ? Icons.battery_charging_full_rounded : Icons.navigation_outlined,
+                          color: _googleMapsMode ? const Color(0xFF10B981) : textColor.withValues(alpha: 0.7),
+                          size: 24,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _googleMapsMode ? 'G-MAPS' : 'GPS',
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w900,
+                            color: _googleMapsMode ? const Color(0xFF10B981) : textColor.withValues(alpha: 0.7),
+                            letterSpacing: 0.4,
+                          ),
                         ),
                       ],
                     ),

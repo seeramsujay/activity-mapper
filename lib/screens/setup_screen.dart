@@ -52,7 +52,7 @@ class _SetupScreenState extends State<SetupScreen> {
   String _activityType = 'run';
   int _targetDurationMinutes = 90;
   double _safetyBufferPct = 8.0;
-  int _gpsIntervalMs = 5000;
+  int _gpsIntervalMs = 1000;
   int? _selectedReferenceSessionId;
   bool _isLaunching = false;
 
@@ -202,7 +202,7 @@ class _SetupScreenState extends State<SetupScreen> {
         activityType: activityType.toLowerCase(),
         targetDurationSeconds: targetSec,
         safetyBufferPct: buffer,
-        gpsIntervalMs: 5000,
+        gpsIntervalMs: 1000,
       );
     }
     _loadDashboardData();
@@ -953,6 +953,126 @@ class _SetupScreenState extends State<SetupScreen> {
     );
   }
 
+  Future<bool?> _promptGoogleMapsDialog(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : const Color(0xFF111827);
+    final cardBg = isDark ? const Color(0xFF14171C) : Colors.white;
+    final borderColor = isDark ? const Color(0xFF2D333F) : const Color(0xFFE5E7EB);
+
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: cardBg,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+            side: BorderSide(color: borderColor),
+          ),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.navigation_rounded, color: Color(0xFF10B981), size: 24),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'USING GOOGLE MAPS?',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.6,
+                    color: textColor,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Are you using Google Maps for navigation during this ride?',
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                  color: textColor,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.battery_charging_full_rounded, color: Color(0xFF10B981), size: 20),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Battery Saver: TurnBack will passively piggyback on Google Maps\' 1Hz GPS stream, saving up to 60-80% battery without losing any resolution.',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w500,
+                          color: textColor.withValues(alpha: 0.85),
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'You can also toggle this anytime mid-ride right from your HUD screen.',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontStyle: FontStyle.italic,
+                  color: textColor.withValues(alpha: 0.6),
+                ),
+              ),
+            ],
+          ),
+          actionsPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          actions: [
+            OutlinedButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: textColor,
+                side: BorderSide(color: borderColor),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              ),
+              child: const Text('NO, STANDALONE GPS', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5)),
+            ),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.bolt_rounded, size: 18),
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF10B981),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              ),
+              label: const Text('YES, USE GOOGLE MAPS', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11.5)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   IconData _getActivityIcon(String type) {
     switch (type.toLowerCase()) {
       case 'ride':
@@ -1034,6 +1154,19 @@ class _SetupScreenState extends State<SetupScreen> {
         }
       }
 
+      bool useGoogleMaps = false;
+      if (_activityType == 'ride') {
+        final selected = await _promptGoogleMapsDialog(context);
+        if (selected == null) {
+          if (mounted) {
+            if (setModalState != null) setModalState(() => _isLaunching = false);
+            setState(() => _isLaunching = false);
+          }
+          return;
+        }
+        useGoogleMaps = selected;
+      }
+
       final dbHelper = DbService.instance;
       final bool isFreeRun = _activityType == 'freerun';
       final int targetSeconds = isFreeRun ? 0 : _targetDurationMinutes * 60;
@@ -1052,6 +1185,7 @@ class _SetupScreenState extends State<SetupScreen> {
         targetDurationSeconds: targetSeconds,
         safetyBufferPct: _safetyBufferPct,
         gpsIntervalMs: _gpsIntervalMs,
+        googleMapsMode: useGoogleMaps,
       );
 
       if (startSuccess && mounted) {
@@ -1065,6 +1199,7 @@ class _SetupScreenState extends State<SetupScreen> {
               activityType: _activityType,
               isFreeRun: isFreeRun,
               referenceSessionId: _selectedReferenceSessionId,
+              initialGoogleMapsMode: useGoogleMaps,
             ),
           ),
         ).then((_) => _loadDashboardData());
@@ -2213,7 +2348,7 @@ class _SetupScreenState extends State<SetupScreen> {
       activityType: activityType.toLowerCase(),
       targetDurationSeconds: targetSec,
       safetyBufferPct: buffer,
-      gpsIntervalMs: 5000,
+      gpsIntervalMs: 1000,
     );
 
     if (mounted) {

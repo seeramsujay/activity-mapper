@@ -56,6 +56,16 @@ class LocationService: NSObject, CLLocationManagerDelegate {
         }
     }
 
+    func setGoogleMapsMode(enabled: Bool) {
+        if enabled {
+            locationManager.activityType = .automotiveNavigation
+            locationManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        } else {
+            locationManager.activityType = .fitness
+            locationManager.desiredAccuracy = kCLLocationAccuracyBest
+        }
+    }
+
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard isTracking, let location = locations.last else { return }
 
@@ -66,12 +76,13 @@ class LocationService: NSObject, CLLocationManagerDelegate {
 
         let timestampMs = location.timestamp.timeIntervalSince1970 * 1000.0
 
-        // Kalman coordinate smoothing
+        // Kalman coordinate smoothing with metric dynamics
         let (filteredLat, filteredLng) = kalmanFilter.filter(
             measuredLat: location.coordinate.latitude,
             measuredLng: location.coordinate.longitude,
             measuredAccuracyMeters: location.horizontalAccuracy,
-            timestampMs: timestampMs
+            timestampMs: timestampMs,
+            speedMetersPerSec: max(0.0, location.speed)
         )
 
         // Native SQL persistence (safe checkpointing)
