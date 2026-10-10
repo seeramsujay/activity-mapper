@@ -7,10 +7,12 @@ import '../services/platform_service.dart';
 import '../services/gpx_service.dart';
 import '../services/settings_service.dart';
 import '../services/p2p_mesh_service.dart';
-import '../widgets/breadcrumb_painter.dart';
 import '../widgets/mesh_qr_widget.dart';
+import '../widgets/session_feed_card.dart';
 import 'editor_screen.dart';
 import 'hud_screen.dart';
+
+export '../widgets/session_feed_card.dart';
 
 /// The onboarding, settings, and main dashboard screen of the application.
 ///
@@ -2062,14 +2064,31 @@ class _SetupScreenState extends State<SetupScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    'ACTIVITY HISTORY',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: textColor, letterSpacing: 0.8),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'ACTIVITY HISTORY',
+                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: textColor, letterSpacing: 0.8),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Tap to inspect • Long-press for magic menu',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: textColor.withValues(alpha: 0.45)),
+                      ),
+                    ],
                   ),
                   if (_completedSessions.isNotEmpty)
-                    Text(
-                      '${_completedSessions.length} total',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5)),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.06),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '${_completedSessions.length} total',
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.6)),
+                      ),
                     ),
                 ],
               ),
@@ -2092,6 +2111,7 @@ class _SetupScreenState extends State<SetupScreen> {
                                 onDelete: () => _confirmDelete(session['id'] as int),
                                 onEdit: () => _editActivity(session['id'] as int, session['activity_type'] as String),
                                 onContinue: () => _showContinueCompletedRunModal(session),
+                                onRefresh: _loadDashboardData,
                               );
                             },
                           ),
@@ -2410,313 +2430,3 @@ class _SetupScreenState extends State<SetupScreen> {
   }
 }
 
-class SessionFeedCard extends StatefulWidget {
-  final Map<String, dynamic> session;
-  final Color textColor;
-  final Brightness brightness;
-  final VoidCallback onDelete;
-  final VoidCallback onEdit;
-  final VoidCallback? onContinue;
-
-  const SessionFeedCard({
-    super.key,
-    required this.session,
-    required this.textColor,
-    required this.brightness,
-    required this.onDelete,
-    required this.onEdit,
-    this.onContinue,
-  });
-
-  @override
-  State<SessionFeedCard> createState() => _SessionFeedCardState();
-}
-
-class _SessionFeedCardState extends State<SessionFeedCard> {
-  List<Point<double>> _mapPoints = [];
-  double _distanceKm = 0.0;
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadPoints();
-  }
-
-  double _distanceBetween(double lat1, double lon1, double lat2, double lon2) {
-    const pVal = 0.017453292519943295;
-    final a = 0.5 - cos((lat2 - lat1) * pVal) / 2 +
-          cos(lat1 * pVal) * cos(lat2 * pVal) *
-          (1 - cos((lon2 - lon1) * pVal)) / 2;
-    return 12742 * asin(sqrt(a));
-  }
-
-  Future<void> _loadPoints() async {
-    final dbHelper = DbService.instance;
-    final points = await dbHelper.getPoints(widget.session['id'] as int);
-    
-    double dist = 0.0;
-    List<Point<double>> parsed = [];
-    
-    for (int i = 0; i < points.length; i++) {
-      final lat = ((points[i]['lat'] ?? 0.0) as num).toDouble();
-      final lng = ((points[i]['lng'] ?? 0.0) as num).toDouble();
-      parsed.add(Point(lat, lng));
-      
-      if (i > 0) {
-        dist += _distanceBetween(parsed[i-1].x, parsed[i-1].y, lat, lng);
-      }
-    }
-
-    if (mounted) {
-      setState(() {
-        _mapPoints = parsed;
-        _distanceKm = dist;
-        _isLoading = false;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final session = widget.session;
-    final int id = session['id'] as int;
-    final String type = (session['activity_type'] as String).toUpperCase();
-    final int targetSec = session['target_duration'] as int;
-    final int startMs = session['start_time'] as int;
-    final int? endMs = session['end_time'] as int?;
-
-    final startDate = DateTime.fromMillisecondsSinceEpoch(startMs);
-    final duration = endMs != null ? Duration(milliseconds: endMs - startMs) : Duration.zero;
-
-    final String dateString = '${startDate.day}/${startDate.month}/${startDate.year}';
-    final String durationString = '${duration.inMinutes}m ${duration.inSeconds.remainder(60)}s';
-    final bool triggered = session['turn_back_triggered_at'] != null;
-
-    final isDark = widget.brightness == Brightness.dark;
-    final cardBg = isDark ? const Color(0xFF14171C) : Colors.white;
-    final borderColor = isDark ? const Color(0xFF23272F) : const Color(0xFFE5E7EB);
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16.0),
-      decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: borderColor, width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.03),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Header Card
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF1A1E24) : const Color(0xFFF3F4F6),
-              border: Border(bottom: BorderSide(color: borderColor)),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      type == 'RIDE' ? Icons.directions_bike : type == 'HIKE' ? Icons.hiking : Icons.directions_run,
-                      size: 18,
-                      color: const Color(0xFFFF5722),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      '$type #$id',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 14,
-                        color: widget.textColor,
-                      ),
-                    ),
-                  ],
-                ),
-                Text(
-                  dateString,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: widget.textColor.withValues(alpha: 0.6),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Main stats + Map Grid
-          IntrinsicHeight(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Stats details
-                Expanded(
-                  flex: 3,
-                  child: Padding(
-                    padding: const EdgeInsets.all(14.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'TOTAL DISTANCE',
-                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: widget.textColor.withValues(alpha: 0.5)),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              _isLoading ? '...' : '${_distanceKm.toStringAsFixed(2)} KM',
-                              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: widget.textColor),
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text('DURATION', style: TextStyle(fontSize: 9, color: widget.textColor.withValues(alpha: 0.5))),
-                                    Text(durationString, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: widget.textColor)),
-                                  ],
-                                ),
-                                const SizedBox(width: 14),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text('TARGET', style: TextStyle(fontSize: 9, color: widget.textColor.withValues(alpha: 0.5))),
-                                    Text('${targetSec ~/ 60}m', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: widget.textColor)),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Icon(
-                              triggered ? Icons.warning_amber_rounded : Icons.check_circle_outline,
-                              size: 14,
-                              color: triggered ? const Color(0xFFDC2626) : const Color(0xFF10B981),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              triggered ? 'Turned back on signal' : 'Completed outbound safely',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: triggered ? const Color(0xFFDC2626) : const Color(0xFF10B981),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                // Map Thumbnail
-                Expanded(
-                  flex: 2,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      border: Border(left: BorderSide(color: borderColor)),
-                      color: isDark ? const Color(0xFF0F1115) : const Color(0xFFF8F9FA),
-                    ),
-                    child: _isLoading
-                        ? const Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.0)))
-                        : _mapPoints.isEmpty
-                            ? Center(child: Text("NO GPS", style: TextStyle(fontSize: 10, color: widget.textColor.withValues(alpha: 0.4))))
-                            : ClipRect(
-                                child: CustomPaint(
-                                  painter: BreadcrumbPainter(points: _mapPoints, brightness: widget.brightness),
-                                ),
-                              ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Actions row
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF1A1E24) : const Color(0xFFF8F9FA),
-              border: Border(top: BorderSide(color: borderColor)),
-            ),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  if (widget.onContinue != null) ...[
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF10B981),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        elevation: 0,
-                      ),
-                      onPressed: widget.onContinue,
-                      icon: const Icon(Icons.play_arrow_rounded, size: 15),
-                      label: const Text('CONTINUE', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
-                    ),
-                    const SizedBox(width: 8),
-                  ],
-                  TextButton.icon(
-                    style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
-                    onPressed: widget.onEdit,
-                    icon: Icon(Icons.content_cut, size: 14, color: widget.textColor.withValues(alpha: 0.7)),
-                    label: Text('EDIT', style: TextStyle(color: widget.textColor, fontWeight: FontWeight.bold, fontSize: 11)),
-                  ),
-                  const SizedBox(width: 4),
-                  TextButton.icon(
-                    style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8)),
-                    onPressed: () => _exportGpx(id, type, context),
-                    icon: Icon(Icons.file_download_outlined, size: 14, color: widget.textColor.withValues(alpha: 0.7)),
-                    label: Text('GPX', style: TextStyle(color: widget.textColor, fontWeight: FontWeight.bold, fontSize: 11)),
-                  ),
-                  const SizedBox(width: 4),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline, color: Color(0xFFDC2626), size: 18),
-                    onPressed: widget.onDelete,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _exportGpx(int sessionId, String type, BuildContext context) async {
-    try {
-      final file = await GpxService.instance.saveGpxFile(sessionId, type);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('GPX saved to TurnBack folder:\n${file.path}'), duration: const Duration(seconds: 4)),
-        );
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Export failed: $e')),
-        );
-      }
-    }
-  }
-}
