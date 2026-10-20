@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../services/db_service.dart';
 import '../services/export_service.dart';
 import '../services/platform_service.dart';
+import '../services/session_control_service.dart';
 import '../widgets/session_feed_card.dart';
 import 'editor_screen.dart';
 import 'hud_screen.dart';
@@ -37,6 +38,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   Future<void> _loadSessions() async {
     setState(() => _isLoading = true);
     final completed = await DbService.instance.getCompletedSessions();
+    if (!mounted) return;
     setState(() {
       _sessions = completed;
       _isLoading = false;
@@ -87,6 +89,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                     itemBuilder: (context, index) {
                       final session = _sessions[index];
                       return SessionFeedCard(
+                        key: ValueKey(session['id']),
                         session: session,
                         textColor: textColor,
                         brightness: brightness,
@@ -365,17 +368,19 @@ class _HistoryScreenState extends State<HistoryScreen> {
   void _launchContinuedSession(int sessionId, String activityType, int targetSec, double buffer, {required bool resetTimer}) async {
     Navigator.pop(context); // close modal
 
-    // Reactivate session in SQLite
-    await DbService.instance.reactivateSession(sessionId, newTargetDurationSeconds: targetSec);
-
-    // Start Kotlin GPS foreground tracking service with high accuracy 1000ms
-    await PlatformService.instance.startTracking(
+    // Reactivate session in SQLite and restart the Kotlin GPS foreground service
+    final ok = await SessionControlService.instance.continueCompletedSession(
       sessionId: sessionId,
-      activityType: activityType.toLowerCase(),
+      activityType: activityType,
       targetDurationSeconds: targetSec,
       safetyBufferPct: buffer,
-      gpsIntervalMs: 1000,
+      resetTimer: resetTimer,
     );
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not restart GPS tracking. Check location permission.')),
+      );
+    }
 
     if (mounted) {
       Navigator.push(

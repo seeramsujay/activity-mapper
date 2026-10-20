@@ -1,6 +1,4 @@
-import 'dart:math';
 import 'elevation_filter_service.dart';
-import '../models/location_point.dart';
 
 /// Service generating specialized GPX 1.1 tracks formatted for the Relive 3D Aerial Route Video Engine.
 ///
@@ -53,11 +51,6 @@ class ReliveService {
           turnBackIdx = i;
         }
       }
-    }
-
-    // If no explicit turn_back timestamp was logged, estimate at middle point
-    if (turnBackIdx == -1 && rawPoints.length > 4) {
-      turnBackIdx = rawPoints.length ~/ 2;
     }
 
     final buffer = StringBuffer();

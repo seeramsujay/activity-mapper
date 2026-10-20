@@ -6,6 +6,7 @@ import '../services/export_service.dart';
 import '../services/gpx_service.dart';
 import '../services/platform_service.dart';
 import '../services/settings_service.dart';
+import '../services/unit_format.dart';
 import '../screens/editor_screen.dart';
 import '../screens/workout_summary_screen.dart';
 import 'breadcrumb_painter.dart';
@@ -33,8 +34,14 @@ class TrackMagicSheet extends StatelessWidget {
   final VoidCallback? onDelete;
   final VoidCallback? onRefresh;
 
+  /// Context of the screen that opened the sheet. Actions that outlive the sheet (export
+  /// sheets, dialogs, snackbars after async work) must use it, because the sheet's own context
+  /// is unmounted once it closes.
+  final BuildContext? hostContext;
+
   const TrackMagicSheet({
     super.key,
+    this.hostContext,
     required this.session,
     required this.distanceKm,
     required this.duration,
@@ -70,6 +77,7 @@ class TrackMagicSheet extends StatelessWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (ctx) => TrackMagicSheet(
+        hostContext: context,
         session: session,
         distanceKm: distanceKm,
         duration: duration,
@@ -80,6 +88,11 @@ class TrackMagicSheet extends StatelessWidget {
         onRefresh: onRefresh,
       ),
     );
+  }
+
+  BuildContext _host(BuildContext fallback) {
+    final host = hostContext;
+    return host != null && host.mounted ? host : fallback;
   }
 
   IconData _getActivityIcon(String type) {
@@ -116,14 +129,8 @@ class TrackMagicSheet extends StatelessWidget {
     }
   }
 
-  String _formatPace(double distKm, Duration dur) {
-    if (distKm <= 0.05 || dur.inSeconds <= 0) return '--';
-    final secPerKm = dur.inSeconds / distKm;
-    if (secPerKm > 3600) return '>60m/km';
-    final m = (secPerKm ~/ 60);
-    final s = (secPerKm % 60).round().toString().padLeft(2, '0');
-    return "$m'$s\"/km";
-  }
+  String _formatPace(double distKm, Duration dur) => UnitFormat.paceFromDistance(distKm, dur);
+
 
   @override
   Widget build(BuildContext context) {
@@ -255,7 +262,7 @@ class TrackMagicSheet extends StatelessWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    _buildMetricItem('DISTANCE', '${distanceKm.toStringAsFixed(2)} KM', textColor),
+                    _buildMetricItem('DISTANCE', UnitFormat.distance(distanceKm, upper: true), textColor),
                     _buildDivider(textColor),
                     _buildMetricItem('DURATION', durationString, textColor),
                     _buildDivider(textColor),
@@ -388,27 +395,30 @@ class TrackMagicSheet extends StatelessWidget {
                 onTap: () => _showFormatExportSheet(context, id, type, isDark, textColor, surfaceBg, borderColor),
               ),
               const SizedBox(height: 8),
-              _buildActionTile(
-                icon: Icons.cloud_upload_outlined,
-                iconColor: const Color(0xFFFF5722),
-                title: 'Upload to Strava',
-                subtitle: 'Sync GPS polyline, pace splits, and elevation directly',
-                textColor: textColor,
-                surfaceBg: surfaceBg,
-                borderColor: borderColor,
-                onTap: () {
-                  Navigator.pop(context);
-                  showDialog(
-                    context: context,
-                    builder: (_) => StravaUploadDialog(
-                      sessionId: id,
-                      activityName: '$type #$id',
-                      activityType: type.toLowerCase(),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 8),
+              if (PlatformService.isColabMode) ...[
+                _buildActionTile(
+                  icon: Icons.cloud_upload_outlined,
+                  iconColor: const Color(0xFFFF5722),
+                  title: 'Upload to Strava',
+                  subtitle: 'Sync GPS polyline, pace splits, and elevation directly',
+                  textColor: textColor,
+                  surfaceBg: surfaceBg,
+                  borderColor: borderColor,
+                  onTap: () {
+                    final host = _host(context);
+                    Navigator.pop(context);
+                    showDialog(
+                      context: host,
+                      builder: (_) => StravaUploadDialog(
+                        sessionId: id,
+                        activityName: '$type #$id',
+                        activityType: type.toLowerCase(),
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 8),
+              ],
               _buildActionTile(
                 icon: Icons.copy_rounded,
                 iconColor: textColor.withValues(alpha: 0.7),
@@ -433,8 +443,9 @@ class TrackMagicSheet extends StatelessWidget {
                 surfaceBg: const Color(0xFFEF4444).withValues(alpha: 0.06),
                 borderColor: const Color(0xFFEF4444).withValues(alpha: 0.3),
                 onTap: () {
+                  final host = _host(context);
                   Navigator.pop(context);
-                  _confirmDelete(context, id);
+                  _confirmDelete(host, id);
                 },
               ),
             ],
@@ -549,8 +560,9 @@ class TrackMagicSheet extends StatelessWidget {
     );
   }
 
-  Future<void> _handleShareGpx(BuildContext context, int sessionId, String type) async {
-    Navigator.pop(context);
+  Future<void> _handleShareGpx(BuildContext sheetContext, int sessionId, String type) async {
+    final context = _host(sheetContext);
+    Navigator.pop(sheetContext);
     HapticFeedback.mediumImpact();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Exporting & opening GPX share sheet...'), duration: Duration(seconds: 1)),
@@ -579,7 +591,7 @@ class TrackMagicSheet extends StatelessWidget {
     final summary = '🏃 TurnBack Activity #$id\n'
         '• Type: $type\n'
         '• Date: $dateString\n'
-        '• Distance: ${distanceKm.toStringAsFixed(2)} km\n'
+        '• Distance: ${UnitFormat.distance(distanceKm)}\n'
         '• Duration: $durationString\n'
         '• Pace: $paceString\n'
         'Logged offline via TurnBack Endurance Tracker.';
@@ -653,10 +665,11 @@ class TrackMagicSheet extends StatelessWidget {
     Color surfaceBg,
     Color borderColor,
   ) {
+    final host = _host(context);
     Navigator.pop(context);
 
     showModalBottomSheet(
-      context: context,
+      context: host,
       backgroundColor: isDark ? const Color(0xFF14171C) : Colors.white,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (ctx) {
@@ -691,12 +704,12 @@ class TrackMagicSheet extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  _buildFormatBtn(ctx, 'GPX 1.1', Icons.file_present_rounded, () => _runExport(context, sessionId, type, 'gpx')),
-                  _buildFormatBtn(ctx, 'KML (Earth)', Icons.public_rounded, () => _runExport(context, sessionId, type, 'kml')),
-                  _buildFormatBtn(ctx, 'GeoJSON', Icons.data_object_rounded, () => _runExport(context, sessionId, type, 'geojson')),
-                  _buildFormatBtn(ctx, 'CSV Table', Icons.table_chart_rounded, () => _runExport(context, sessionId, type, 'csv')),
-                  _buildFormatBtn(ctx, 'Relive 3D', Icons.threed_rotation_rounded, () => _runExport(context, sessionId, type, 'relive')),
-                  _buildFormatBtn(ctx, 'Full ZIP', Icons.archive_rounded, () => _runExport(context, sessionId, type, 'zip')),
+                  _buildFormatBtn(ctx, 'GPX 1.1', Icons.file_present_rounded, () => _runExport(host, sessionId, type, 'gpx')),
+                  _buildFormatBtn(ctx, 'KML (Earth)', Icons.public_rounded, () => _runExport(host, sessionId, type, 'kml')),
+                  _buildFormatBtn(ctx, 'GeoJSON', Icons.data_object_rounded, () => _runExport(host, sessionId, type, 'geojson')),
+                  _buildFormatBtn(ctx, 'CSV Table', Icons.table_chart_rounded, () => _runExport(host, sessionId, type, 'csv')),
+                  _buildFormatBtn(ctx, 'Relive 3D', Icons.threed_rotation_rounded, () => _runExport(host, sessionId, type, 'relive')),
+                  _buildFormatBtn(ctx, 'Full ZIP', Icons.archive_rounded, () => _runExport(host, sessionId, type, 'zip')),
                 ],
               ),
               const SizedBox(height: 16),

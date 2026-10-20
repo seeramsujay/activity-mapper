@@ -5,20 +5,14 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.media.AudioAttributes
-import android.media.AudioFocusRequest
 import android.media.AudioManager
-import android.media.ToneGenerator
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.PowerManager
-import android.os.VibrationEffect
-import android.os.Vibrator
 import android.provider.MediaStore
 import android.provider.Settings
 import android.view.KeyEvent
-import android.view.WindowManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
@@ -121,6 +115,7 @@ class MainActivity : FlutterActivity() {
                     if (hasLocationPermissions()) {
                         result.success(true)
                     } else {
+                        pendingResult?.success(false)
                         pendingResult = result
                         requestRequiredPermissions()
                     }
@@ -132,6 +127,12 @@ class MainActivity : FlutterActivity() {
                     val safetyBufferPct = call.argument<Double>("safetyBufferPct") ?: 8.0
                     val gpsIntervalMs = call.argument<Int>("gpsIntervalMs") ?: 1000
                     val googleMapsMode = call.argument<Boolean>("googleMapsMode") ?: false
+                    val elapsedBaseSeconds = (call.argument<Number>("elapsedBaseSeconds") ?: 0).toLong()
+                    val maxAccuracyM = (call.argument<Number>("maxAccuracyM") ?: 50.0).toFloat()
+                    val minDistanceM = (call.argument<Number>("minDistanceM") ?: 0.0).toFloat()
+                    val audioAlarms = call.argument<Boolean>("audioAlarms") ?: true
+                    val hapticAlarms = call.argument<Boolean>("hapticAlarms") ?: true
+                    val autoPauseMusic = call.argument<Boolean>("autoPauseMusic") ?: true
 
                     val startAction = {
                         val serviceIntent = Intent(this, GpsLoggingService::class.java).apply {
@@ -141,6 +142,12 @@ class MainActivity : FlutterActivity() {
                             putExtra("safetyBufferPct", safetyBufferPct)
                             putExtra("gpsIntervalMs", gpsIntervalMs)
                             putExtra("googleMapsMode", googleMapsMode)
+                            putExtra(GpsLoggingService.EXTRA_ELAPSED_BASE_MS, elapsedBaseSeconds * 1000L)
+                            putExtra("maxAccuracyM", maxAccuracyM)
+                            putExtra("minDistanceM", minDistanceM)
+                            putExtra("audioAlarms", audioAlarms)
+                            putExtra("hapticAlarms", hapticAlarms)
+                            putExtra("autoPauseMusic", autoPauseMusic)
                         }
 
                         try {
@@ -157,6 +164,19 @@ class MainActivity : FlutterActivity() {
                         pendingStartTrackingCall = startAction
                         pendingResult = result
                         requestRequiredPermissions()
+                    }
+                }
+                "getTrackingState" -> {
+                    val service = GpsLoggingService.current
+                    if (service != null && GpsLoggingService.isRunning) {
+                        result.success(mapOf(
+                            "isRunning" to true,
+                            "sessionId" to service.sessionId,
+                            "elapsedMs" to service.activeElapsedMs(),
+                            "turnBackAlerted" to service.turnBackAlerted
+                        ))
+                    } else {
+                        result.success(mapOf("isRunning" to false))
                     }
                 }
                 "stopTracking" -> {
@@ -200,43 +220,14 @@ class MainActivity : FlutterActivity() {
                     result.success(success)
                 }
                 "triggerTurnBackAlert" -> {
-                    val activityType = (call.argument<String>("activityType") ?: "run").lowercase()
-                    val isWalking = activityType.contains("walk") || activityType.contains("hike")
-                    val isCycling = activityType.contains("ride") || activityType.contains("cycle") || activityType.contains("bike")
-
-                    // 1. Cycling: Auto-pause media playback
-                    if (isCycling) {
-                        try {
-                            dispatchMediaKey(KeyEvent.KEYCODE_MEDIA_PAUSE)
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
-                    }
-
-                    // 2. Audio Tone: ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD
-                    if (!isWalking) {
-                        try {
-                            val toneGenerator = ToneGenerator(AudioManager.STREAM_ALARM, 95)
-                            toneGenerator.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 3500)
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
-                    }
-
-                    // 3. Double-pulse haptic vibration pattern
-                    try {
-                        val vibrator = getSystemService(VIBRATOR_SERVICE) as? Vibrator
-                        val pattern = longArrayOf(0, 350, 150, 350)
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            vibrator?.vibrate(VibrationEffect.createWaveform(pattern, -1))
-                        } else {
-                            @Suppress("DEPRECATION")
-                            vibrator?.vibrate(pattern, -1)
-                        }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-
+                    val activityType = call.argument<String>("activityType") ?: "run"
+                    TurnBackAlert.fire(
+                        this,
+                        activityType,
+                        audioEnabled = call.argument<Boolean>("audioAlarms") ?: true,
+                        hapticsEnabled = call.argument<Boolean>("hapticAlarms") ?: true,
+                        autoPauseMusic = call.argument<Boolean>("autoPauseMusic") ?: true
+                    )
                     result.success(true)
                 }
                 "launchMusicApp" -> {

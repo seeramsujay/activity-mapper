@@ -7,6 +7,7 @@ import '../services/exercise_stats_service.dart';
 import '../services/export_service.dart';
 import '../services/platform_service.dart';
 import '../services/settings_service.dart';
+import '../services/unit_format.dart';
 import '../widgets/interactive_telemetry_graph.dart';
 import '../widgets/vector_map_view.dart';
 
@@ -345,7 +346,7 @@ class _WorkoutSummaryScreenState extends State<WorkoutSummaryScreen> with Single
             Expanded(
               child: _buildHeroMetricCard(
                 title: 'DISTANCE',
-                value: '${stats.distanceKm.toStringAsFixed(2)} km',
+                value: UnitFormat.distance(stats.distanceKm),
                 icon: Icons.straighten_rounded,
                 accentColor: accentColor,
                 cardBg: cardBg,
@@ -385,7 +386,7 @@ class _WorkoutSummaryScreenState extends State<WorkoutSummaryScreen> with Single
             Expanded(
               child: _buildHeroMetricCard(
                 title: 'AVG SPEED',
-                value: '${stats.avgSpeedKmh.toStringAsFixed(1)} km/h',
+                value: UnitFormat.speedKmh(stats.avgSpeedKmh),
                 icon: Icons.speed_rounded,
                 accentColor: const Color(0xFF3B82F6),
                 cardBg: cardBg,
@@ -508,15 +509,15 @@ class _WorkoutSummaryScreenState extends State<WorkoutSummaryScreen> with Single
           ),
           const SizedBox(height: 12),
           _buildDetailRow('Calories Burnt', '${stats.caloriesBurntKcal.toStringAsFixed(0)} kcal', textColor),
-          _buildDetailRow('Average Speed', '${stats.avgSpeedKmh.toStringAsFixed(1)} km/h', textColor),
-          _buildDetailRow('Maximum Speed', '${stats.maxSpeedKmh.toStringAsFixed(1)} km/h', textColor),
-          _buildDetailRow('Average Pace', '${stats.avgPaceMinKm} min/km', textColor),
-          _buildDetailRow('Best Pace', '${stats.bestPaceMinKm} min/km', textColor),
+          _buildDetailRow('Average Speed', UnitFormat.speedKmh(stats.avgSpeedKmh), textColor),
+          _buildDetailRow('Maximum Speed', UnitFormat.speedKmh(stats.maxSpeedKmh), textColor),
+          _buildDetailRow('Average Pace', '${UnitFormat.paceFromMps(stats.avgSpeedKmh / 3.6)} min${UnitFormat.paceUnit}', textColor),
+          _buildDetailRow('Best Pace', '${UnitFormat.paceFromMps(stats.bestMovingSpeedKmh / 3.6)} min${UnitFormat.paceUnit}', textColor),
           const Divider(height: 16),
-          _buildDetailRow('Elevation Gain', '+${stats.elevationGainMeters.toStringAsFixed(0)} m', textColor),
-          _buildDetailRow('Elevation Loss', '-${stats.elevationLossMeters.toStringAsFixed(0)} m', textColor),
+          _buildDetailRow('Elevation Gain', UnitFormat.elevation(stats.elevationGainMeters, sign: '+'), textColor),
+          _buildDetailRow('Elevation Loss', UnitFormat.elevation(stats.elevationLossMeters, sign: '-'), textColor),
           _buildDetailRow('Altitude Range', '${stats.minAltitudeMeters.toStringAsFixed(0)}m – ${stats.maxAltitudeMeters.toStringAsFixed(0)}m', textColor),
-          _buildDetailRow('Average Altitude', '${stats.avgAltitudeMeters.toStringAsFixed(0)} m', textColor),
+          _buildDetailRow('Average Altitude', UnitFormat.elevation(stats.avgAltitudeMeters), textColor),
           const Divider(height: 16),
           _buildDetailRow('Active Moving Duration', _formatDuration(stats.movingDuration), textColor),
           _buildDetailRow('Total Elapsed Duration', _formatDuration(stats.totalDuration), textColor),

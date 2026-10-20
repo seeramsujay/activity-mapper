@@ -110,8 +110,8 @@ class SettingsService extends ChangeNotifier {
             orElse: () => AppThemeMode.dark,
           );
         }
-        if (map.containsKey('isOled')) {
-          _isOled = map['isOled'] ?? true;
+        if (map['isOled'] is bool) {
+          _isOled = map['isOled'] as bool;
         }
         if (map.containsKey('accentColor')) {
           _accentColor = AccentColorChoice.values.firstWhere(
@@ -137,19 +137,25 @@ class SettingsService extends ChangeNotifier {
             orElse: () => ChartXAxis.distance,
           );
         }
-        _gpsSamplingRateMs = map['gpsSamplingRateMs'] ?? _gpsSamplingRateMs;
+        // Each field is read defensively: one wrong-typed value must not discard the rest.
+        T pick<T>(String key, T fallback) {
+          final v = map[key];
+          return v is T ? v : fallback;
+        }
+
+        _gpsSamplingRateMs = (map['gpsSamplingRateMs'] as num?)?.toInt() ?? _gpsSamplingRateMs;
         _minDistanceFilter = (map['minDistanceFilter'] as num?)?.toDouble() ?? _minDistanceFilter;
         _maxAccuracyFilter = (map['maxAccuracyFilter'] as num?)?.toDouble() ?? _maxAccuracyFilter;
-        _extraFiltering = map['extraFiltering'] ?? _extraFiltering;
-        _autoMarkStops = map['autoMarkStops'] ?? _autoMarkStops;
-        _confirmStopRecording = map['confirmStopRecording'] ?? _confirmStopRecording;
-        _hapticsEnabled = map['hapticsEnabled'] ?? _hapticsEnabled;
-        _audioAlarmsEnabled = map['audioAlarmsEnabled'] ?? _audioAlarmsEnabled;
-        _useImperialUnits = map['useImperialUnits'] ?? _useImperialUnits;
-        _mapTileSource = map['mapTileSource'] ?? _mapTileSource;
-        _showHudMediaController = map['showHudMediaController'] ?? _showHudMediaController;
-        _autoPauseCyclingMusic = map['autoPauseCyclingMusic'] ?? _autoPauseCyclingMusic;
-        _isHeadingUp = map['isHeadingUp'] ?? _isHeadingUp;
+        _extraFiltering = pick('extraFiltering', _extraFiltering);
+        _autoMarkStops = pick('autoMarkStops', _autoMarkStops);
+        _confirmStopRecording = pick('confirmStopRecording', _confirmStopRecording);
+        _hapticsEnabled = pick('hapticsEnabled', _hapticsEnabled);
+        _audioAlarmsEnabled = pick('audioAlarmsEnabled', _audioAlarmsEnabled);
+        _useImperialUnits = pick('useImperialUnits', _useImperialUnits);
+        _mapTileSource = pick('mapTileSource', _mapTileSource);
+        _showHudMediaController = pick('showHudMediaController', _showHudMediaController);
+        _autoPauseCyclingMusic = pick('autoPauseCyclingMusic', _autoPauseCyclingMusic);
+        _isHeadingUp = pick('isHeadingUp', _isHeadingUp);
         notifyListeners();
       }
     } catch (e) {
@@ -157,7 +163,16 @@ class SettingsService extends ChangeNotifier {
     }
   }
 
-  Future<void> _saveSettings() async {
+  Future<void> _pendingSave = Future.value();
+
+  /// Persists settings. Saves are serialized and written atomically (temp file + rename), so
+  /// overlapping saves or a crash mid-write can never leave a corrupt settings file.
+  Future<void> _saveSettings() {
+    _pendingSave = _pendingSave.then((_) => _writeSettings());
+    return _pendingSave;
+  }
+
+  Future<void> _writeSettings() async {
     try {
       final file = await _getSettingsFile();
       final map = {
@@ -181,9 +196,23 @@ class SettingsService extends ChangeNotifier {
         'autoPauseCyclingMusic': _autoPauseCyclingMusic,
         'isHeadingUp': _isHeadingUp,
       };
-      await file.writeAsString(jsonEncode(map), flush: true);
+      final tmp = File('${file.path}.tmp');
+      await tmp.writeAsString(jsonEncode(map), flush: true);
+      await tmp.rename(file.path);
     } catch (e) {
       debugPrint("Error saving settings: $e");
+    }
+  }
+
+  /// The [ThemeMode] to hand to MaterialApp; "system" follows the OS live.
+  ThemeMode get materialThemeMode {
+    switch (_themeMode) {
+      case AppThemeMode.light:
+        return ThemeMode.light;
+      case AppThemeMode.dark:
+        return ThemeMode.dark;
+      case AppThemeMode.system:
+        return ThemeMode.system;
     }
   }
 
@@ -334,8 +363,10 @@ class SettingsService extends ChangeNotifier {
     }
   }
 
-  ThemeData getThemeData(BuildContext context) {
-    final light = isLightMode(context);
+  ThemeData getThemeData(BuildContext context) => buildTheme(light: isLightMode(context));
+
+  /// Builds the light or dark app theme with the current accent/OLED settings.
+  ThemeData buildTheme({required bool light}) {
     final accent = _accentColor.color;
 
     if (light) {

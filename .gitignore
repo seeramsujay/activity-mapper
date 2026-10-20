@@ -78,3 +78,8 @@ future_checklist.md
 .idea/
 .metadata
 *.iml
+
+# Release signing secrets
+android/key.properties
+*.jks
+*.keystore

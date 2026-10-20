@@ -90,27 +90,15 @@ class StravaService extends ChangeNotifier {
 
     try {
       if (!isAuthenticated) {
-        // Automatic token simulation / mock mode for serverless testing
-        _statusText = 'Simulating direct OAuth2 handshake...';
+        // There is no in-app OAuth flow (it needs a client secret held on a server), so without
+        // a token we must not pretend the upload happened.
+        _state = StravaUploadState.error;
+        _statusText = 'Not connected to Strava';
         notifyListeners();
-        await Future.delayed(const Duration(milliseconds: 600));
-        
-        _state = StravaUploadState.processing;
-        _statusText = 'Processing on Strava Cloud Engine...';
-        notifyListeners();
-        await Future.delayed(const Duration(milliseconds: 800));
-
-        final mockActivityId = 1000000000 + DateTime.now().millisecondsSinceEpoch % 900000000;
-        _state = StravaUploadState.completed;
-        _statusText = 'Activity synced to Strava successfully!';
-        notifyListeners();
-
-        return StravaUploadResult(
-          success: true,
-          uploadId: 'upload_${DateTime.now().millisecondsSinceEpoch}',
-          activityId: mockActivityId,
-          externalId: fileName,
-          statusMessage: 'Your activity is ready on Strava.',
+        return const StravaUploadResult(
+          success: false,
+          error: 'Not connected to Strava. Export the activity as TCX or GPX and upload it at '
+              'strava.com/upload instead.',
         );
       }
 
@@ -119,88 +107,93 @@ class StravaService extends ChangeNotifier {
       notifyListeners();
 
       final client = HttpClient();
-      final request = await client.postUrl(Uri.parse(stravaUploadUrl));
+      try {
+        final request = await client.postUrl(Uri.parse(stravaUploadUrl));
       
-      final boundary = '----TurnBackBoundary${DateTime.now().millisecondsSinceEpoch}';
-      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $_accessToken');
-      request.headers.set(HttpHeaders.contentTypeHeader, 'multipart/form-data; boundary=$boundary');
+        final boundary = '----TurnBackBoundary${DateTime.now().millisecondsSinceEpoch}';
+        request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $_accessToken');
+        request.headers.set(HttpHeaders.contentTypeHeader, 'multipart/form-data; boundary=$boundary');
 
-      final bodyBuffer = StringBuffer();
+        final bodyBuffer = StringBuffer();
       
-      // Activity Name
-      bodyBuffer.writeln('--$boundary');
-      bodyBuffer.writeln('Content-Disposition: form-data; name="name"');
-      bodyBuffer.writeln();
-      bodyBuffer.writeln(activityName);
+        // Activity Name
+        bodyBuffer.write('--$boundary\r\n');
+        bodyBuffer.write('Content-Disposition: form-data; name="name"\r\n');
+        bodyBuffer.write('\r\n');
+        bodyBuffer.write('$activityName\r\n');
 
-      // Activity Type
-      bodyBuffer.writeln('--$boundary');
-      bodyBuffer.writeln('Content-Disposition: form-data; name="activity_type"');
-      bodyBuffer.writeln();
-      bodyBuffer.writeln(stravaSport);
+        // Activity Type
+        bodyBuffer.write('--$boundary\r\n');
+        bodyBuffer.write('Content-Disposition: form-data; name="activity_type"\r\n');
+        bodyBuffer.write('\r\n');
+        bodyBuffer.write('$stravaSport\r\n');
 
-      // Data format
-      bodyBuffer.writeln('--$boundary');
-      bodyBuffer.writeln('Content-Disposition: form-data; name="data_type"');
-      bodyBuffer.writeln();
-      bodyBuffer.writeln(dataFormat);
+        // Data format
+        bodyBuffer.write('--$boundary\r\n');
+        bodyBuffer.write('Content-Disposition: form-data; name="data_type"\r\n');
+        bodyBuffer.write('\r\n');
+        bodyBuffer.write('$dataFormat\r\n');
 
-      // Description
-      if (description != null && description.isNotEmpty) {
-        bodyBuffer.writeln('--$boundary');
-        bodyBuffer.writeln('Content-Disposition: form-data; name="description"');
-        bodyBuffer.writeln();
-        bodyBuffer.writeln(description);
-      }
+        // Description
+        if (description != null && description.isNotEmpty) {
+          bodyBuffer.write('--$boundary\r\n');
+          bodyBuffer.write('Content-Disposition: form-data; name="description"\r\n');
+          bodyBuffer.write('\r\n');
+          bodyBuffer.write('$description\r\n');
+        }
 
-      // Commute & Trainer flags
-      bodyBuffer.writeln('--$boundary');
-      bodyBuffer.writeln('Content-Disposition: form-data; name="commute"');
-      bodyBuffer.writeln();
-      bodyBuffer.writeln(isCommute ? '1' : '0');
+        // Commute & Trainer flags
+        bodyBuffer.write('--$boundary\r\n');
+        bodyBuffer.write('Content-Disposition: form-data; name="commute"\r\n');
+        bodyBuffer.write('\r\n');
+        bodyBuffer.write('${isCommute ? '1' : '0'}\r\n');
 
-      bodyBuffer.writeln('--$boundary');
-      bodyBuffer.writeln('Content-Disposition: form-data; name="trainer"');
-      bodyBuffer.writeln();
-      bodyBuffer.writeln(isTrainer ? '1' : '0');
+        bodyBuffer.write('--$boundary\r\n');
+        bodyBuffer.write('Content-Disposition: form-data; name="trainer"\r\n');
+        bodyBuffer.write('\r\n');
+        bodyBuffer.write('${isTrainer ? '1' : '0'}\r\n');
 
-      // File Payload
-      bodyBuffer.writeln('--$boundary');
-      bodyBuffer.writeln('Content-Disposition: form-data; name="file"; filename="$fileName"');
-      bodyBuffer.writeln('Content-Type: application/octet-stream');
-      bodyBuffer.writeln();
-      bodyBuffer.write(fileContent);
-      bodyBuffer.writeln();
-      bodyBuffer.writeln('--$boundary--');
+        // File Payload
+        bodyBuffer.write('--$boundary\r\n');
+        bodyBuffer.write('Content-Disposition: form-data; name="file"; filename="$fileName"\r\n');
+        bodyBuffer.write('Content-Type: application/octet-stream\r\n');
+        bodyBuffer.write('\r\n');
+        bodyBuffer.write(fileContent);
+        bodyBuffer.write('\r\n');
+        bodyBuffer.write('--$boundary--\r\n');
 
-      request.add(utf8.encode(bodyBuffer.toString()));
-      final response = await request.close();
-      final responseBody = await response.transform(utf8.decoder).join();
+        request.add(utf8.encode(bodyBuffer.toString()));
+        final response = await request.close();
+        final responseBody = await response.transform(utf8.decoder).join();
 
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        final json = jsonDecode(responseBody) as Map<String, dynamic>;
-        final uploadId = json['id_str']?.toString() ?? json['id']?.toString();
-        final actId = json['activity_id'] as int?;
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+          final json = jsonDecode(responseBody) as Map<String, dynamic>;
+          final uploadId = json['id_str']?.toString() ?? json['id']?.toString();
+          final actId = json['activity_id'] as int?;
 
-        _state = StravaUploadState.completed;
-        _statusText = 'Uploaded to Strava successfully!';
-        notifyListeners();
+          // Strava processes uploads asynchronously; activity_id is usually null at this point.
+          _state = StravaUploadState.completed;
+          _statusText = actId != null ? 'Uploaded to Strava successfully!' : 'Upload received; Strava is processing it.';
+          notifyListeners();
 
-        return StravaUploadResult(
-          success: true,
-          uploadId: uploadId,
-          activityId: actId,
-          externalId: fileName,
-          statusMessage: json['status'] as String? ?? 'Your activity is processing on Strava.',
-        );
-      } else {
-        _state = StravaUploadState.error;
-        _statusText = 'Strava Upload Failed (HTTP ${response.statusCode})';
-        notifyListeners();
-        return StravaUploadResult(
-          success: false,
-          error: 'Strava Error: $responseBody',
-        );
+          return StravaUploadResult(
+            success: true,
+            uploadId: uploadId,
+            activityId: actId,
+            externalId: fileName,
+            statusMessage: json['status'] as String? ?? 'Your activity is processing on Strava.',
+          );
+        } else {
+          _state = StravaUploadState.error;
+          _statusText = 'Strava Upload Failed (HTTP ${response.statusCode})';
+          notifyListeners();
+          return StravaUploadResult(
+            success: false,
+            error: 'Strava Error: $responseBody',
+          );
+        }
+      } finally {
+        client.close();
       }
     } catch (e) {
       _state = StravaUploadState.error;

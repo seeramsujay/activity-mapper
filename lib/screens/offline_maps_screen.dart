@@ -35,6 +35,7 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
   }
 
   Future<void> _loadMetricsAndAreas() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     final metrics = await TileCacheService.instance.getCacheMetrics();
     final areas = await TileCacheService.instance.getSavedOfflineAreas();
@@ -371,6 +372,15 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
           _downloadStatus = progress.status;
         });
 
+        if (progress.isDone && progress.saved == 0 && progress.failed > 0) {
+          // Nothing was stored (offline, blocked, invalid area): don't record a fake pack.
+          setState(() => _isDownloading = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(progress.status), backgroundColor: const Color(0xFFEF4444)),
+          );
+          return;
+        }
+
         if (progress.isDone) {
           final area = OfflineMapArea(
             id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -389,8 +399,10 @@ class _OfflineMapsScreenState extends State<OfflineMapsScreen> {
           setState(() => _isDownloading = false);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Offline Area "$name" downloaded successfully!'),
-              backgroundColor: const Color(0xFF10B981),
+              content: Text(progress.isComplete
+                  ? 'Offline Area "$name" downloaded successfully!'
+                  : 'Offline Area "$name" saved partially: ${progress.status}'),
+              backgroundColor: progress.isComplete ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
             ),
           );
         }

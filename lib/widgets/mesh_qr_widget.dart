@@ -12,6 +12,19 @@ class MeshQrDisplayDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // STUN discovery finishes after the session starts; rebuild so the QR picks up the public
+    // IP/port as soon as it is known.
+    return AnimatedBuilder(
+      animation: P2pMeshService.instance,
+      builder: (context, _) {
+        final live = P2pMeshService.instance.activeConfig;
+        final current = live != null && live.sessionId == config.sessionId ? live : config;
+        return _buildDialog(context, current);
+      },
+    );
+  }
+
+  Widget _buildDialog(BuildContext context, MeshSessionConfig config) {
     final uri = config.toUri();
     final theme = Theme.of(context);
 

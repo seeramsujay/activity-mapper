@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/db_service.dart';
+import '../services/unit_format.dart';
 import '../widgets/breadcrumb_painter.dart';
 
 /// Screen widget that provides post-run adjustment tools:
@@ -33,6 +34,10 @@ class _EditorScreenState extends State<EditorScreen> with SingleTickerProviderSt
   List<Map<String, dynamic>> _availableSessions = [];
   bool _isLoading = true;
 
+  // Original session settings, carried over to cropped / chopped copies.
+  int? _originalTargetSeconds;
+  double _originalSafetyBuffer = 8.0;
+
   // Cropping variables
   RangeValues _cropRange = const RangeValues(0, 1);
   int _startIndex = 0;
@@ -59,9 +64,13 @@ class _EditorScreenState extends State<EditorScreen> with SingleTickerProviderSt
   Future<void> _loadData() async {
     final points = await DbService.instance.getPoints(widget.sessionId);
     final allSessions = await DbService.instance.getCompletedSessions();
+    final source = await DbService.instance.getSession(widget.sessionId);
     final candidates = allSessions.where((s) => s['id'] != widget.sessionId).toList();
+    if (!mounted) return;
 
     setState(() {
+      _originalTargetSeconds = (source?['target_duration'] as num?)?.toInt();
+      _originalSafetyBuffer = (source?['safety_buffer'] as num?)?.toDouble() ?? 8.0;
       _rawPoints = points;
       _availableSessions = candidates;
       _isLoading = false;
@@ -92,10 +101,10 @@ class _EditorScreenState extends State<EditorScreen> with SingleTickerProviderSt
     double dist = 0.0;
     for (int i = start; i < end; i++) {
       dist += _distanceBetween(
-        pts[i]['lat'] as double,
-        pts[i]['lng'] as double,
-        pts[i + 1]['lat'] as double,
-        pts[i + 1]['lng'] as double,
+        (pts[i]['lat'] as num).toDouble(),
+        (pts[i]['lng'] as num).toDouble(),
+        (pts[i + 1]['lat'] as num).toDouble(),
+        (pts[i + 1]['lng'] as num).toDouble(),
       );
     }
     return dist;
@@ -138,7 +147,7 @@ class _EditorScreenState extends State<EditorScreen> with SingleTickerProviderSt
       ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator(color: textColor))
-          : _rawPoints.isEmpty
+          : _rawPoints.length < 2
               ? _buildEmptyState(textColor)
               : TabBarView(
                   controller: _tabController,
@@ -154,7 +163,7 @@ class _EditorScreenState extends State<EditorScreen> with SingleTickerProviderSt
 
   Widget _buildEmptyState(Color textColor) {
     return Center(
-      child: Text('No coordinates found for this trip.', style: TextStyle(color: textColor)),
+      child: Text('At least 2 GPS points are needed to edit this trip.', style: TextStyle(color: textColor)),
     );
   }
 
@@ -163,7 +172,7 @@ class _EditorScreenState extends State<EditorScreen> with SingleTickerProviderSt
   // ----------------------------------------------------------------------------
   Widget _buildCropTab(Color textColor, Color scaffoldBg) {
     final croppedPoints = _rawPoints.sublist(_startIndex, _endIndex + 1);
-    final mapPoints = croppedPoints.map((p) => Point(p['lat'] as double, p['lng'] as double)).toList();
+    final mapPoints = croppedPoints.map((p) => Point((p['lat'] as num).toDouble(), (p['lng'] as num).toDouble())).toList();
 
     final double distance = _calculateDistanceInRange(_rawPoints, _startIndex, _endIndex);
     final int startMs = _rawPoints[_startIndex]['timestamp'] as int;
@@ -194,7 +203,7 @@ class _EditorScreenState extends State<EditorScreen> with SingleTickerProviderSt
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _buildPanelStat('CROPPED DISTANCE', '${distance.toStringAsFixed(2)} km', textColor),
+              _buildPanelStat('CROPPED DISTANCE', UnitFormat.distance(distance), textColor),
               _buildPanelStat('CROPPED TIME', _formatDuration(durationMs), textColor),
               _buildPanelStat('POINTS', '${croppedPoints.length}', textColor),
             ],
@@ -236,8 +245,8 @@ class _EditorScreenState extends State<EditorScreen> with SingleTickerProviderSt
   Future<void> _executeCrop(List<Map<String, dynamic>> points, int startMs, int endMs) async {
     final int newId = await DbService.instance.cloneSessionWithPoints(
       activityType: widget.activityType,
-      targetDuration: (endMs - startMs) ~/ 1000,
-      safetyBuffer: 8.0,
+      targetDuration: _originalTargetSeconds ?? (endMs - startMs) ~/ 1000,
+      safetyBuffer: _originalSafetyBuffer,
       startTime: startMs,
       endTime: endMs,
       status: 'completed',
@@ -271,7 +280,7 @@ class _EditorScreenState extends State<EditorScreen> with SingleTickerProviderSt
 
     final combinedList = [..._rawPoints, ..._mergeCandidatePoints];
     combinedList.sort((a, b) => (a['timestamp'] as int).compareTo(b['timestamp'] as int));
-    final mapPoints = combinedList.map((p) => Point(p['lat'] as double, p['lng'] as double)).toList();
+    final mapPoints = combinedList.map((p) => Point((p['lat'] as num).toDouble(), (p['lng'] as num).toDouble())).toList();
     final double combinedDist = _calculateDistanceInRange(combinedList, 0, max(0, combinedList.length - 1));
 
     return Padding(
@@ -299,7 +308,7 @@ class _EditorScreenState extends State<EditorScreen> with SingleTickerProviderSt
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _buildPanelStat('COMBINED DISTANCE', '${combinedDist.toStringAsFixed(2)} km', textColor),
+              _buildPanelStat('COMBINED DISTANCE', UnitFormat.distance(combinedDist), textColor),
               _buildPanelStat('TOTAL POINTS', '${combinedList.length}', textColor),
             ],
           ),
@@ -367,11 +376,19 @@ class _EditorScreenState extends State<EditorScreen> with SingleTickerProviderSt
   Future<void> _executeMerge() async {
     if (_selectedMergeSessionId == null) return;
 
-    final newId = await DbService.instance.mergeSessions(
-      targetSessionId: widget.sessionId,
-      sourceSessionId: _selectedMergeSessionId!,
-      deleteSourceAfterMerge: _deleteSourceOnMerge,
-    );
+    final int newId;
+    try {
+      newId = await DbService.instance.mergeSessions(
+        targetSessionId: widget.sessionId,
+        sourceSessionId: _selectedMergeSessionId!,
+        deleteSourceAfterMerge: _deleteSourceOnMerge,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Merge failed: $e')));
+      }
+      return;
+    }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -453,9 +470,9 @@ class _EditorScreenState extends State<EditorScreen> with SingleTickerProviderSt
         final endMs = segment.last['timestamp'] as int;
 
         final newId = await DbService.instance.cloneSessionWithPoints(
-          activityType: '${widget.activityType}_part_${i + 1}',
+          activityType: widget.activityType,
           targetDuration: (endMs - startMs) ~/ 1000,
-          safetyBuffer: 8.0,
+          safetyBuffer: _originalSafetyBuffer,
           startTime: startMs,
           endTime: endMs,
           status: 'completed',
@@ -467,7 +484,7 @@ class _EditorScreenState extends State<EditorScreen> with SingleTickerProviderSt
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Created ${_partsCount} segmented sessions (${createdIds.join(", ")})')),
+        SnackBar(content: Text('Created ${createdIds.length} segmented sessions (${createdIds.join(", ")})')),
       );
       Navigator.pop(context, true);
     }
@@ -559,9 +576,9 @@ class _EditorScreenState extends State<EditorScreen> with SingleTickerProviderSt
         final sEnd = segmentPoints.last['timestamp'] as int;
 
         final newId = await DbService.instance.cloneSessionWithPoints(
-          activityType: '${widget.activityType}_chunk_$chunkIdx',
+          activityType: widget.activityType,
           targetDuration: _chunkMinutes * 60,
-          safetyBuffer: 8.0,
+          safetyBuffer: _originalSafetyBuffer,
           startTime: sStart,
           endTime: sEnd,
           status: 'completed',

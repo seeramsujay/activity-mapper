@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'package:pointycastle/export.dart';
 import '../models/location_point.dart';
 import '../models/teammate.dart';
 import '../models/colab_models.dart';
@@ -131,6 +132,16 @@ class P2pMeshService extends ChangeNotifier {
   String get localUsername => _localUsername;
   int get localColorValue => _localColorValue;
   List<Teammate> get teammates => _teammates.values.toList();
+
+  /// Inserts or replaces a teammate directly (tests only; normally fed by decrypted packets).
+  @visibleForTesting
+  void debugUpsertTeammate(Teammate teammate) {
+    _teammates[teammate.peerId] = teammate;
+  }
+
+  /// Removes all teammates (tests only).
+  @visibleForTesting
+  void debugClearTeammates() => _teammates.clear();
   int get activeTeammatesCount => _teammates.values.where((t) => t.isActive).length;
 
   MeshPing? get latestPing => _latestPing;
@@ -143,10 +154,19 @@ class P2pMeshService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Returns active teammates who have dropped behind the user past the gap threshold.
-  List<Teammate> get droppedTeammates => _teammates.values
-      .where((t) => t.isActive && t.distanceToUserMeters > _gapAlertThresholdMeters)
-      .toList();
+  /// Returns active teammates who are further from the user than the gap threshold.
+  ///
+  /// Peers without a GPS fix broadcast 0,0, and the gap is meaningless until we have our own
+  /// fix, so both cases are excluded instead of showing thousands of kilometres.
+  List<Teammate> get droppedTeammates {
+    if (_lastUserLat == 0.0 && _lastUserLng == 0.0) return const [];
+    return _teammates.values
+        .where((t) =>
+            t.isActive &&
+            !(t.lastLat == 0.0 && t.lastLng == 0.0) &&
+            t.distanceToUserMeters > _gapAlertThresholdMeters)
+        .toList();
+  }
 
   /// Generates a 256-bit symmetric session encryption key (URL-safe Base64).
   static String generate256BitKey() {
@@ -162,53 +182,46 @@ class P2pMeshService extends ChangeNotifier {
     return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 
-  /// Encrypts plaintext JSON payload using 256-bit symmetric key with XOR stream & integrity tag.
-  static String encryptPayload(String payload, String base64Key) {
-    final keyBytes = base64Url.decode(base64Key);
-    final textBytes = utf8.encode(payload);
-    final encrypted = List<int>.filled(textBytes.length, 0);
+  // Wire format: base64url( version(1) | nonce(12) | AES-256-GCM ciphertext + 128-bit tag ).
+  static const int _cipherVersion = 1;
+  static const int _nonceLength = 12;
+  static final Random _secureRandom = Random.secure();
 
-    for (int i = 0; i < textBytes.length; i++) {
-      final keyByte = keyBytes[i % keyBytes.length];
-      encrypted[i] = textBytes[i] ^ keyByte ^ ((i * 31) & 0xFF);
+  static GCMBlockCipher _gcm(bool forEncryption, List<int> key, Uint8List nonce) {
+    if (key.length != 32) {
+      throw ArgumentError('Mesh session key must be 256 bits, got ${key.length * 8}');
     }
-
-    // Checksum byte for quick validation
-    int checksum = 0;
-    for (final b in textBytes) {
-      checksum = (checksum + b) & 0xFF;
-    }
-
-    final combined = <int>[checksum, ...encrypted];
-    return base64UrlEncode(combined);
+    return GCMBlockCipher(AESEngine())
+      ..init(forEncryption, AEADParameters(KeyParameter(Uint8List.fromList(key)), 128, nonce, Uint8List(0)));
   }
 
-  /// Decrypts ciphertext back to plaintext JSON using 256-bit symmetric key.
+  /// Encrypts a plaintext JSON payload with AES-256-GCM (authenticated encryption).
+  ///
+  /// A fresh random nonce is used per packet, so identical payloads never produce identical
+  /// ciphertexts and any tampering is detected on decryption.
+  static String encryptPayload(String payload, String base64Key) {
+    final key = base64Url.decode(base64Key);
+    final nonce = Uint8List.fromList(List<int>.generate(_nonceLength, (_) => _secureRandom.nextInt(256)));
+    final cipherText = _gcm(true, key, nonce).process(Uint8List.fromList(utf8.encode(payload)));
+    return base64UrlEncode([_cipherVersion, ...nonce, ...cipherText]);
+  }
+
+  /// Decrypts and authenticates a payload produced by [encryptPayload].
+  ///
+  /// Returns null for a wrong key, tampered/corrupted data or an unknown format.
   static String? decryptPayload(String encryptedBase64, String base64Key) {
     try {
-      final keyBytes = base64Url.decode(base64Key);
+      final key = base64Url.decode(base64Key);
       final combined = base64Url.decode(encryptedBase64);
-      if (combined.isEmpty) return null;
+      // version + nonce + at least the 16-byte tag
+      if (combined.length < 1 + _nonceLength + 16 || combined[0] != _cipherVersion) return null;
 
-      final expectedChecksum = combined[0];
-      final cipherBytes = combined.sublist(1);
-      final decrypted = List<int>.filled(cipherBytes.length, 0);
-
-      int actualChecksum = 0;
-      for (int i = 0; i < cipherBytes.length; i++) {
-        final keyByte = keyBytes[i % keyBytes.length];
-        final plainByte = cipherBytes[i] ^ keyByte ^ ((i * 31) & 0xFF);
-        decrypted[i] = plainByte;
-        actualChecksum = (actualChecksum + plainByte) & 0xFF;
-      }
-
-      if (actualChecksum != expectedChecksum) {
-        return null; // Key mismatch or corrupted data
-      }
-
-      return utf8.decode(decrypted);
+      final nonce = Uint8List.fromList(combined.sublist(1, 1 + _nonceLength));
+      final cipherText = Uint8List.fromList(combined.sublist(1 + _nonceLength));
+      final plain = _gcm(false, key, nonce).process(cipherText);
+      return utf8.decode(plain);
     } catch (_) {
-      return null;
+      return null; // InvalidCipherTextException (auth failure), FormatException, ...
     }
   }
 
@@ -303,30 +316,71 @@ class P2pMeshService extends ChangeNotifier {
     _startTimers();
     notifyListeners();
 
-    // Also discover own STUN endpoint in background
-    unawaited(_discoverPublicEndpoint());
+    // Also discover own STUN endpoint in background, and advertise it in our own QR so the host
+    // (or another teammate) can scan us to open the return path through their NAT.
+    unawaited(_discoverPublicEndpoint().then((endpoint) {
+      if (endpoint != null && _activeConfig != null) {
+        _activeConfig = _activeConfig!.copyWith(publicIp: endpoint.ip, publicPort: endpoint.port);
+        notifyListeners();
+      }
+    }));
   }
 
+  /// Rendezvous for NATs that drop unsolicited packets: scanning a teammate's QR from the same
+  /// session adds their public endpoint and punches towards it, making the tunnel two-way.
+  ///
+  /// Returns false if [config] is for another session or carries no public endpoint.
+  bool addPeerFromConfig(MeshSessionConfig config) {
+    if (!_isMeshActive || _activeConfig == null || config.sessionId != _activeConfig!.sessionId) return false;
+    final ip = config.publicIp;
+    final port = config.publicPort;
+    if (ip == null || port == null || InternetAddress.tryParse(ip) == null) return false;
+    _knownPeerEndpoints.add('$ip:$port');
+    _punchUdpHole(ip, port);
+    return true;
+  }
+
+  // Pending STUN request on the mesh socket. Replies arrive through _handleIncomingDatagram,
+  // because a RawDatagramSocket stream can only be listened to once.
+  Completer<StunEndpoint?>? _stunCompleter;
+  List<int>? _stunTransactionId;
+
+  /// Discovers this device's public IP:port on the mesh socket itself, so the NAT mapping
+  /// that teammates are told about is the one the mesh actually uses.
   Future<StunEndpoint?> _discoverPublicEndpoint() async {
-    try {
-      final ep = await StunService.discoverPublicEndpoint(localSocket: _socket);
-      if (ep != null) {
-        _publicEndpoint = ep;
-        debugPrint('STUN NAT Public Endpoint Discovered: $ep');
-        broadcastTelemetry();
+    for (final host in [StunService.primaryStunServer, StunService.fallbackStunServer]) {
+      final socket = _socket;
+      if (socket == null) return null;
+      try {
+        final addresses = await InternetAddress.lookup(host, type: InternetAddressType.IPv4);
+        if (addresses.isEmpty) continue;
+        final request = StunService.buildBindingRequest();
+        _stunTransactionId = request.sublist(8, 20);
+        final completer = Completer<StunEndpoint?>();
+        _stunCompleter = completer;
+        socket.send(request, addresses.first, StunService.stunDefaultPort);
+        final ep = await completer.future.timeout(const Duration(seconds: 4), onTimeout: () => null);
+        if (ep != null) {
+          _publicEndpoint = ep;
+          debugPrint('STUN NAT Public Endpoint Discovered: $ep');
+          broadcastTelemetry();
+          return ep;
+        }
+      } catch (e) {
+        debugPrint('STUN discovery error on $host: $e');
+      } finally {
+        _stunCompleter = null;
+        _stunTransactionId = null;
       }
-      return ep;
-    } catch (e) {
-      debugPrint('STUN discovery error: $e');
-      return null;
     }
+    return null;
   }
 
   /// Punches a UDP hole directly to the remote peer's public reflexive IP and port.
   void _punchUdpHole(String ip, int port) {
     try {
-      final addr = InternetAddress(ip);
-      // Send 3 rapid punch packets
+      if (InternetAddress.tryParse(ip) == null) return;
+      // Send 3 rapid punch packets (the endpoint is already in _knownPeerEndpoints)
       for (int i = 0; i < 3; i++) {
         Future.delayed(Duration(milliseconds: i * 80), () {
           broadcastTelemetry();
@@ -502,6 +556,9 @@ class P2pMeshService extends ChangeNotifier {
       'spd': _lastUserSpeedKmh,
       'alt': _lastUserAlt,
       'ts': DateTime.now().millisecondsSinceEpoch,
+      // Our public (STUN) endpoint, so peers behind NAT can send back to us (two-way punching).
+      if (_publicEndpoint != null) 'pip': _publicEndpoint!.ip,
+      if (_publicEndpoint != null) 'pport': _publicEndpoint!.port,
     };
 
     final rawJson = jsonEncode(packet);
@@ -546,9 +603,15 @@ class P2pMeshService extends ChangeNotifier {
   void _handleIncomingDatagram(Datagram datagram) {
     if (_activeConfig == null) return;
 
+    final stun = _stunCompleter;
+    if (stun != null && StunService.isStunPacket(datagram.data)) {
+      final ep = StunService.parseBindingResponse(datagram.data, _stunTransactionId ?? const []);
+      if (ep != null && !stun.isCompleted) stun.complete(ep);
+      return;
+    }
+
     final senderEndpoint = '${datagram.address.address}:${datagram.port}';
     final isNewPeer = !_knownPeerEndpoints.contains(senderEndpoint);
-    _knownPeerEndpoints.add(senderEndpoint);
 
     try {
       final rawCipher = utf8.decode(datagram.data);
@@ -557,6 +620,21 @@ class P2pMeshService extends ChangeNotifier {
 
       final data = jsonDecode(plainJson) as Map<String, dynamic>;
       if (data['sid'] != _activeConfig!.sessionId) return; // Different session
+
+      // Only authenticated session members become unicast targets; random LAN traffic, STUN
+      // replies and foreign broadcasts must not.
+      _knownPeerEndpoints.add(senderEndpoint);
+
+      // A peer advertising its public endpoint (e.g. a joiner on mobile data): send to it too,
+      // which opens our NAT towards it and makes the tunnel two-way.
+      final pip = data['pip'] as String?;
+      final pport = (data['pport'] as num?)?.toInt();
+      if (pip != null && pport != null && InternetAddress.tryParse(pip) != null) {
+        final advertised = '$pip:$pport';
+        if (advertised != senderEndpoint && _knownPeerEndpoints.add(advertised)) {
+          _punchUdpHole(pip, pport);
+        }
+      }
 
       final packetType = data['t'] as String? ?? 'telem';
 
@@ -637,7 +715,8 @@ class P2pMeshService extends ChangeNotifier {
         lastLng: lng,
         speedKmh: spd,
         altitude: alt,
-        lastTimestamp: ts,
+        // Local receive time: comparing the sender's clock with ours breaks with clock skew.
+        lastTimestamp: DateTime.now().millisecondsSinceEpoch,
         breadcrumbTrail: trail,
         distanceToUserMeters: distMeters,
         relativeStatus: relStatus,

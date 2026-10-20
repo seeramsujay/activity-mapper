@@ -6,8 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import 'db_service.dart';
 import 'relive_service.dart';
-import 'p2p_mesh_service.dart';
-import '../models/location_point.dart';
+import 'track_formats.dart';
 
 /// Comprehensive multi-format telemetry exporter and ZIP packaging service.
 ///
@@ -22,177 +21,25 @@ class ExportService {
   /// Generates a standard GPX 1.1 XML string for the specified session.
   Future<String> generateGpxString(int sessionId, String activityName) async {
     final points = await DbService.instance.getPoints(sessionId);
-    final buffer = StringBuffer();
-
-    buffer.writeln('<?xml version="1.0" encoding="UTF-8"?>');
-    buffer.writeln('<gpx version="1.1" creator="TurnBack - Serverless Endurance Tracker" '
-        'xmlns="http://www.topografix.com/GPX/1/1" '
-        'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
-        'xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">');
-
-    final now = DateTime.now().toUtc().toIso8601String();
-    buffer.writeln('  <metadata>');
-    buffer.writeln('    <name><![CDATA[$activityName]]></name>');
-    buffer.writeln('    <time>$now</time>');
-    buffer.writeln('  </metadata>');
-
-    buffer.writeln('  <trk>');
-    buffer.writeln('    <name><![CDATA[$activityName]]></name>');
-    buffer.writeln('    <trkseg>');
-
-    for (final point in points) {
-      final lat = point['lat'];
-      final lng = point['lng'];
-      final altitude = point['altitude'] ?? 0.0;
-      final speed = point['speed'] ?? 0.0;
-      final timestamp = point['timestamp'] as int;
-      final timeStr = DateTime.fromMillisecondsSinceEpoch(timestamp).toUtc().toIso8601String();
-
-      buffer.write('      <trkpt lat="$lat" lon="$lng">');
-      buffer.write('<ele>$altitude</ele>');
-      buffer.write('<time>$timeStr</time>');
-      buffer.write('<extensions><speed>$speed</speed></extensions>');
-      buffer.writeln('</trkpt>');
-    }
-
-    buffer.writeln('    </trkseg>');
-    buffer.writeln('  </trk>');
-    buffer.writeln('</gpx>');
-
-    return buffer.toString();
+    return TrackFormats.buildGpx(points, activityName);
   }
 
   /// Generates a Google Earth compatible KML string for the session.
   Future<String> generateKmlString(int sessionId, String activityName) async {
     final points = await DbService.instance.getPoints(sessionId);
-    final buffer = StringBuffer();
-
-    buffer.writeln('<?xml version="1.0" encoding="UTF-8"?>');
-    buffer.writeln('<kml xmlns="http://www.opengis.net/kml/2.2">');
-    buffer.writeln('  <Document>');
-    buffer.writeln('    <name><![CDATA[$activityName]]></name>');
-    buffer.writeln('    <Style id="trackLine">');
-    buffer.writeln('      <LineStyle>');
-    buffer.writeln('        <color>ff0000ff</color>'); // Red line (AABBGGRR)
-    buffer.writeln('        <width>4</width>');
-    buffer.writeln('      </LineStyle>');
-    buffer.writeln('    </Style>');
-
-    if (points.isNotEmpty) {
-      final first = points.first;
-      final last = points.last;
-
-      // Start Placemark
-      buffer.writeln('    <Placemark>');
-      buffer.writeln('      <name>Start</name>');
-      buffer.writeln('      <Point>');
-      buffer.writeln('        <coordinates>${first['lng']},${first['lat']},${first['altitude'] ?? 0}</coordinates>');
-      buffer.writeln('      </Point>');
-      buffer.writeln('    </Placemark>');
-
-      // Finish Placemark
-      buffer.writeln('    <Placemark>');
-      buffer.writeln('      <name>Finish</name>');
-      buffer.writeln('      <Point>');
-      buffer.writeln('        <coordinates>${last['lng']},${last['lat']},${last['altitude'] ?? 0}</coordinates>');
-      buffer.writeln('      </Point>');
-      buffer.writeln('    </Placemark>');
-    }
-
-    // Path LineString
-    buffer.writeln('    <Placemark>');
-    buffer.writeln('      <name><![CDATA[$activityName Route]]></name>');
-    buffer.writeln('      <styleUrl>#trackLine</styleUrl>');
-    buffer.writeln('      <LineString>');
-    buffer.writeln('        <extrude>1</extrude>');
-    buffer.writeln('        <tessellate>1</tessellate>');
-    buffer.writeln('        <altitudeMode>clampToGround</altitudeMode>');
-    buffer.writeln('        <coordinates>');
-
-    for (final point in points) {
-      final lat = point['lat'];
-      final lng = point['lng'];
-      final alt = point['altitude'] ?? 0.0;
-      buffer.writeln('          $lng,$lat,$alt');
-    }
-
-    buffer.writeln('        </coordinates>');
-    buffer.writeln('      </LineString>');
-    buffer.writeln('    </Placemark>');
-
-    buffer.writeln('  </Document>');
-    buffer.writeln('</kml>');
-
-    return buffer.toString();
+    return TrackFormats.buildKml(points, activityName);
   }
 
   /// Generates an RFC 7946 compliant GeoJSON string for the session.
   Future<String> generateGeoJsonString(int sessionId, String activityName) async {
     final points = await DbService.instance.getPoints(sessionId);
-
-    final List<List<dynamic>> coordinates = [];
-    final List<Map<String, dynamic>> pointProperties = [];
-
-    for (final p in points) {
-      coordinates.add([
-        p['lng'],
-        p['lat'],
-        p['altitude'] ?? 0.0,
-      ]);
-      pointProperties.add({
-        'timestamp': p['timestamp'],
-        'time_iso': DateTime.fromMillisecondsSinceEpoch(p['timestamp'] as int).toUtc().toIso8601String(),
-        'speed_mps': p['speed'] ?? 0.0,
-        'accuracy_m': p['accuracy'] ?? 0.0,
-      });
-    }
-
-    final geoJson = {
-      'type': 'FeatureCollection',
-      'features': [
-        {
-          'type': 'Feature',
-          'properties': {
-            'sessionId': sessionId,
-            'activityName': activityName,
-            'pointCount': points.length,
-            'exportedAt': DateTime.now().toUtc().toIso8601String(),
-            'telemetry': pointProperties,
-          },
-          'geometry': {
-            'type': 'LineString',
-            'coordinates': coordinates,
-          },
-        }
-      ],
-    };
-
-    return const JsonEncoder.withIndent('  ').convert(geoJson);
+    return TrackFormats.buildGeoJson(points, activityName, sessionId: sessionId);
   }
 
   /// Generates a CSV string containing detailed point telemetry.
   Future<String> generateCsvString(int sessionId, String activityName) async {
     final points = await DbService.instance.getPoints(sessionId);
-    final buffer = StringBuffer();
-
-    // CSV Header
-    buffer.writeln('index,timestamp_epoch_ms,datetime_utc,latitude,longitude,altitude_m,accuracy_m,speed_mps,speed_kmh');
-
-    for (int i = 0; i < points.length; i++) {
-      final p = points[i];
-      final ts = p['timestamp'] as int;
-      final iso = DateTime.fromMillisecondsSinceEpoch(ts).toUtc().toIso8601String();
-      final lat = p['lat'];
-      final lng = p['lng'];
-      final alt = (p['altitude'] as num?)?.toStringAsFixed(2) ?? '0.00';
-      final acc = (p['accuracy'] as num?)?.toStringAsFixed(2) ?? '0.00';
-      final speedMps = (p['speed'] as num?)?.toDouble() ?? 0.0;
-      final speedKmh = (speedMps * 3.6).toStringAsFixed(2);
-
-      buffer.writeln('$i,$ts,$iso,$lat,$lng,$alt,$acc,${speedMps.toStringAsFixed(2)},$speedKmh');
-    }
-
-    return buffer.toString();
+    return TrackFormats.buildCsv(points);
   }
 
   /// Creates a unified ZIP bundle containing GPX, KML, GeoJSON, and CSV files for a single session.
@@ -274,21 +121,22 @@ class ExportService {
       dbPath = p.join(dbFolder.path, 'turnback.db');
     }
 
+    // Fold the WAL into the main file first so the copied database is a consistent snapshot.
+    try {
+      final db = await dbHelper.database;
+      await db.rawQuery('PRAGMA wal_checkpoint(FULL)');
+    } catch (_) {}
+
     final dbFile = File(dbPath);
     if (await dbFile.exists()) {
       final dbBytes = await dbFile.readAsBytes();
       archive.addFile(ArchiveFile('database/turnback.db', dbBytes.length, dbBytes));
 
+      // Only present if a writer raced the checkpoint; restore it alongside the DB file.
       final walFile = File('$dbPath-wal');
-      if (await walFile.exists()) {
+      if (await walFile.exists() && await walFile.length() > 0) {
         final walBytes = await walFile.readAsBytes();
         archive.addFile(ArchiveFile('database/turnback.db-wal', walBytes.length, walBytes));
-      }
-
-      final shmFile = File('$dbPath-shm');
-      if (await shmFile.exists()) {
-        final shmBytes = await shmFile.readAsBytes();
-        archive.addFile(ArchiveFile('database/turnback.db-shm', shmBytes.length, shmBytes));
       }
     }
 
@@ -310,74 +158,9 @@ class ExportService {
   /// Generates a Garmin/Wahoo Training Center Database (TCX) XML file string.
   Future<String> generateTcxString(int sessionId, String activityName) async {
     final points = await DbService.instance.getPoints(sessionId);
-
-    final buffer = StringBuffer();
-    final startTime = points.isNotEmpty
-        ? DateTime.fromMillisecondsSinceEpoch(points.first['timestamp'] as int).toUtc().toIso8601String()
-        : DateTime.now().toUtc().toIso8601String();
-
-    int totalSeconds = 0;
-    if (points.length >= 2) {
-      final first = points.first['timestamp'] as int;
-      final last = points.last['timestamp'] as int;
-      totalSeconds = ((last - first) / 1000).round();
-    }
-
-    double maxSpeedMs = 0.0;
-    for (final p in points) {
-      final spdKmh = ((p['speed'] as num?)?.toDouble()) ?? 0.0;
-      final ms = spdKmh / 3.6;
-      if (ms > maxSpeedMs) maxSpeedMs = ms;
-    }
-
-    buffer.writeln('<?xml version="1.0" encoding="UTF-8"?>');
-    buffer.writeln('<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2" '
-        'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
-        'xsi:schemaLocation="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2 http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd">');
-    buffer.writeln('  <Activities>');
-    buffer.writeln('    <Activity Sport="Running">');
-    buffer.writeln('      <Id>$startTime</Id>');
-    buffer.writeln('      <Lap StartTime="$startTime">');
-    buffer.writeln('        <TotalTimeSeconds>$totalSeconds</TotalTimeSeconds>');
-    buffer.writeln('        <MaximumSpeed>${maxSpeedMs.toStringAsFixed(2)}</MaximumSpeed>');
-    buffer.writeln('        <Calories>0</Calories>');
-    buffer.writeln('        <Intensity>Active</Intensity>');
-    buffer.writeln('        <TriggerMethod>Manual</TriggerMethod>');
-    buffer.writeln('        <Track>');
-
-    double runningDistance = 0.0;
-    for (int i = 0; i < points.length; i++) {
-      final point = points[i];
-      final lat = point['lat'];
-      final lng = point['lng'];
-      final altitude = point['altitude'] ?? 0.0;
-      final speedKmh = ((point['speed'] as num?)?.toDouble()) ?? 0.0;
-      final speedMs = speedKmh / 3.6;
-      final timestamp = point['timestamp'] as int;
-      final timeStr = DateTime.fromMillisecondsSinceEpoch(timestamp).toUtc().toIso8601String();
-
-      buffer.writeln('          <Trackpoint>');
-      buffer.writeln('            <Time>$timeStr</Time>');
-      buffer.writeln('            <Position>');
-      buffer.writeln('              <LatitudeDegrees>$lat</LatitudeDegrees>');
-      buffer.writeln('              <LongitudeDegrees>$lng</LongitudeDegrees>');
-      buffer.writeln('            </Position>');
-      buffer.writeln('            <AltitudeMeters>$altitude</AltitudeMeters>');
-      buffer.writeln('            <Extensions>');
-      buffer.writeln('              <TPX xmlns="http://www.garmin.com/xmlschemas/ActivityExtension/v2">');
-      buffer.writeln('                <Speed>${speedMs.toStringAsFixed(2)}</Speed>');
-      buffer.writeln('              </TPX>');
-      buffer.writeln('            </Extensions>');
-      buffer.writeln('          </Trackpoint>');
-    }
-
-    buffer.writeln('        </Track>');
-    buffer.writeln('      </Lap>');
-    buffer.writeln('    </Activity>');
-    buffer.writeln('  </Activities>');
-    buffer.writeln('</TrainingCenterDatabase>');
-
-    return buffer.toString();
+    final session = await DbService.instance.getSession(sessionId);
+    final activityType = session?['activity_type'] as String? ?? activityName;
+    return TrackFormats.buildTcx(points, activityType);
   }
 
   /// Generates a Relive 3D compliant GPX file string with Kalman-smoothed elevations and waypoints.

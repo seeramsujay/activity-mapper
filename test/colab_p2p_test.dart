@@ -27,6 +27,38 @@ void main() {
       expect(decrypted, equals(payload));
     });
 
+    test('uses a fresh nonce: identical payloads never produce identical ciphertexts', () {
+      final key = P2pMeshService.generate256BitKey();
+      const payload = '{"v":1,"t":"telem","sid":"abc"}';
+      final a = P2pMeshService.encryptPayload(payload, key);
+      final b = P2pMeshService.encryptPayload(payload, key);
+      expect(a, isNot(equals(b)));
+      expect(P2pMeshService.decryptPayload(a, key), payload);
+      expect(P2pMeshService.decryptPayload(b, key), payload);
+    });
+
+    test('rejects any tampered byte (authenticated encryption)', () {
+      final key = P2pMeshService.generate256BitKey();
+      const payload = '{"t":"ping","type":"sos"}';
+      final bytes = base64Url.decode(P2pMeshService.encryptPayload(payload, key));
+      for (final index in [1, 13, bytes.length - 1]) {
+        final tampered = List<int>.from(bytes);
+        tampered[index] ^= 0x01;
+        expect(P2pMeshService.decryptPayload(base64UrlEncode(tampered), key), isNull, reason: 'byte $index');
+      }
+    });
+
+    test('does not leak plaintext structure into the ciphertext', () {
+      final key = P2pMeshService.generate256BitKey();
+      const payload = '{"v":1,"t":"telem","sid":"0123456789abcdef0123456789abcdef"}';
+      final cipher = base64Url.decode(P2pMeshService.encryptPayload(payload, key));
+      // The old XOR scheme let the key be recovered from known plaintext; with GCM the
+      // ciphertext XOR plaintext must not repeat with the 32-byte key period.
+      final stream = [for (int i = 0; i < payload.length; i++) cipher[13 + i] ^ payload.codeUnitAt(i)];
+      final repeats = [for (int i = 32; i < stream.length; i++) stream[i] == stream[i - 32]].where((r) => r).length;
+      expect(repeats, lessThan(5));
+    });
+
     test('fails decryption gracefully on wrong key or corrupted ciphertext', () {
       final key1 = P2pMeshService.generate256BitKey();
       final key2 = P2pMeshService.generate256BitKey();
@@ -190,10 +222,29 @@ void main() {
       expect(parsed.creatorName, equals('Leader'));
     });
 
-    test('P2pMeshService detects teammates dropped behind gap threshold', () {
-      final meshService = P2pMeshService.instance;
-      meshService.gapAlertThresholdMeters = 400.0;
-      expect(meshService.gapAlertThresholdMeters, equals(400.0));
+    test('P2pMeshService flags teammates beyond the gap threshold, ignoring peers without a fix', () {
+      final mesh = P2pMeshService.instance;
+      mesh.debugClearTeammates();
+      mesh.gapAlertThresholdMeters = 400.0;
+      mesh.updateLocalPosition(lat: 12.9716, lng: 77.5946, speedKmh: 10, altitude: 900);
+
+      Teammate mate(String id, double lat, double lng, double dist) => Teammate(
+            peerId: id,
+            username: id,
+            colorValue: 0xFF00FF00,
+            lastLat: lat,
+            lastLng: lng,
+            speedKmh: 10,
+            altitude: 900,
+            lastTimestamp: DateTime.now().millisecondsSinceEpoch,
+            distanceToUserMeters: dist,
+          );
+      mesh.debugUpsertTeammate(mate('near', 12.972, 77.595, 120));
+      mesh.debugUpsertTeammate(mate('far', 12.99, 77.60, 2100));
+      mesh.debugUpsertTeammate(mate('nofix', 0.0, 0.0, 1400000));
+
+      expect(mesh.droppedTeammates.map((t) => t.peerId), ['far']);
+      mesh.debugClearTeammates();
     });
   });
 }

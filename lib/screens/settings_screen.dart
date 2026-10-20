@@ -23,9 +23,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   int _cachedTileCount = 0;
   int _cachedTileBytes = 0;
-  bool _isDownloadingTiles = false;
-  double _downloadProgress = 0.0;
-  String _downloadStatus = '';
 
   @override
   void initState() {
@@ -45,12 +42,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadDbStats() async {
-    final sessions = await DbService.instance.getCompletedSessions();
-    int count = 0;
-    for (final s in sessions) {
-      final points = await DbService.instance.getPoints(s['id'] as int);
-      count += points.length;
-    }
+    final count = await DbService.instance.getTotalPointCount();
     if (mounted) setState(() => _pointCount = count);
   }
 
@@ -185,47 +177,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
 
                       const SizedBox(height: 20),
-                      Text('MEASUREMENT UNITS & COORDINATES', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.6))),
+                      Text('MEASUREMENT UNITS', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.6))),
                       const SizedBox(height: 10),
-                      _buildToggleRow(
-                        title: 'Coordinate Format',
-                        subtitle: _settings.coordFormat == CoordFormat.decimal ? 'Decimal Degrees (e.g. 12.9716° N, 77.5946° E)' : 'DMS (e.g. 12°58\'17"N, 77°35\'40"E)',
-                        trailing: DropdownButton<CoordFormat>(
-                          value: _settings.coordFormat,
-                          dropdownColor: cardBg,
-                          underline: const SizedBox(),
-                          items: const [
-                            DropdownMenuItem(value: CoordFormat.decimal, child: Text('Decimal (°)')),
-                            DropdownMenuItem(value: CoordFormat.dms, child: Text('DMS (° \' ")')),
-                          ],
-                          onChanged: (val) {
-                            if (val != null) _settings.setCoordFormat(val);
-                          },
-                        ),
-                        textColor: textColor,
-                      ),
-                      const Divider(height: 16),
-                      _buildToggleRow(
-                        title: 'Default X-Axis for Charts',
-                        subtitle: _settings.chartXAxis == ChartXAxis.distance ? 'Distance (Kilometers)' : 'Duration (Seconds / Minutes)',
-                        trailing: DropdownButton<ChartXAxis>(
-                          value: _settings.chartXAxis,
-                          dropdownColor: cardBg,
-                          underline: const SizedBox(),
-                          items: const [
-                            DropdownMenuItem(value: ChartXAxis.distance, child: Text('Distance')),
-                            DropdownMenuItem(value: ChartXAxis.duration, child: Text('Duration')),
-                          ],
-                          onChanged: (val) {
-                            if (val != null) _settings.setChartXAxis(val);
-                          },
-                        ),
-                        textColor: textColor,
-                      ),
-                      const Divider(height: 16),
                       _buildSwitchRow(
                         title: 'Imperial Units (Miles / Feet)',
-                        subtitle: _settings.useImperialUnits ? 'Miles, Feet, mph' : 'Kilometers, Meters, km/h',
+                        subtitle: _settings.useImperialUnits ? 'Miles, Feet, mph, min/mi' : 'Kilometers, Meters, km/h, min/km',
                         value: _settings.useImperialUnits,
                         onChanged: (v) => _settings.setUseImperialUnits(v),
                         textColor: textColor,
@@ -307,9 +263,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           dropdownColor: cardBg,
                           underline: const SizedBox(),
                           items: const [
+                            DropdownMenuItem(value: 0.0, child: Text('Off')),
                             DropdownMenuItem(value: 5.0, child: Text('5 m')),
                             DropdownMenuItem(value: 10.0, child: Text('10 m')),
+                            DropdownMenuItem(value: 15.0, child: Text('15 m')),
                             DropdownMenuItem(value: 20.0, child: Text('20 m')),
+                            DropdownMenuItem(value: 30.0, child: Text('30 m')),
                             DropdownMenuItem(value: 50.0, child: Text('50 m')),
                           ],
                           onChanged: (val) {
@@ -328,7 +287,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           underline: const SizedBox(),
                           items: const [
                             DropdownMenuItem(value: 25.0, child: Text('25 m')),
+                            DropdownMenuItem(value: 30.0, child: Text('30 m')),
                             DropdownMenuItem(value: 50.0, child: Text('50 m')),
+                            DropdownMenuItem(value: 75.0, child: Text('75 m')),
                             DropdownMenuItem(value: 100.0, child: Text('100 m')),
                           ],
                           onChanged: (val) {
@@ -336,15 +297,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           },
                         ),
                         textColor: textColor,
-                      ),
-                      const Divider(height: 16),
-                      _buildSwitchRow(
-                        title: 'Extra Kalman & RDP Filtering',
-                        subtitle: 'Smoothes speed spikes and noisy GPS drift',
-                        value: _settings.extraFiltering,
-                        onChanged: (v) => _settings.setExtraFiltering(v),
-                        textColor: textColor,
-                        accentColor: accentColor,
                       ),
                       const Divider(height: 16),
                       _buildSwitchRow(
@@ -920,215 +872,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           },
         ),
       ],
-    );
-  }
-
-  void _showDownloadRegionDialog() {
-    HapticFeedback.selectionClick();
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textColor = isDark ? Colors.white : const Color(0xFF111827);
-    final cardBg = isDark ? const Color(0xFF14171C) : Colors.white;
-    final borderColor = isDark ? const Color(0xFF242933) : const Color(0xFFE5E7EB);
-    final accentColor = SettingsService.instance.accentColor.color;
-
-    double selectedRadiusKm = 5.0;
-    final nameController = TextEditingController(text: 'My Workout Area');
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: cardBg,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setModalState) {
-            final metrics = TileCacheService.estimateAreaMetrics(selectedRadiusKm, const [13, 14, 15, 16]);
-            final estimatedTiles = metrics['tileCount'] as int;
-            final estimatedMb = (metrics['estimatedMb'] as double).toStringAsFixed(1);
-
-            return Padding(
-              padding: EdgeInsets.only(
-                left: 20.0,
-                right: 20.0,
-                top: 20.0,
-                bottom: MediaQuery.of(context).viewInsets.bottom + 24.0,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: textColor.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: accentColor.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(Icons.offline_pin_rounded, color: accentColor, size: 22),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'DOWNLOAD OFFLINE MAP',
-                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: textColor, letterSpacing: 0.8),
-                            ),
-                            Text(
-                              'Google Maps-style full offline navigation',
-                              style: TextStyle(fontSize: 11, color: textColor.withValues(alpha: 0.6)),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Area Name Field
-                  TextField(
-                    controller: nameController,
-                    style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.bold),
-                    decoration: InputDecoration(
-                      labelText: 'AREA NAME',
-                      labelStyle: TextStyle(color: textColor.withValues(alpha: 0.6), fontSize: 11, fontWeight: FontWeight.bold),
-                      prefixIcon: Icon(Icons.label_outline, color: accentColor, size: 18),
-                      filled: true,
-                      fillColor: isDark ? const Color(0xFF1E232B) : const Color(0xFFF9FAFB),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: borderColor)),
-                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: borderColor)),
-                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: accentColor, width: 1.5)),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Radius Slider & Metrics Preview Card
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: isDark ? const Color(0xFF1E232B) : const Color(0xFFF9FAFB),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: borderColor),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'DOWNLOAD RADIUS: ${selectedRadiusKm.toInt()} KM',
-                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: accentColor),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                              decoration: BoxDecoration(
-                                color: accentColor.withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                '~$estimatedTiles TILES • ~$estimatedMb MB',
-                                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: accentColor),
-                              ),
-                            ),
-                          ],
-                        ),
-                        Slider(
-                          value: selectedRadiusKm,
-                          min: 2.0,
-                          max: 20.0,
-                          divisions: 18,
-                          activeColor: accentColor,
-                          label: '${selectedRadiusKm.toInt()} km (~$estimatedMb MB)',
-                          onChanged: (val) => setModalState(() => selectedRadiusKm = val),
-                        ),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text('2 km (Quick Trail)', style: TextStyle(fontSize: 9.5, color: textColor.withValues(alpha: 0.5))),
-                            Text('10 km (City/Park)', style: TextStyle(fontSize: 9.5, color: textColor.withValues(alpha: 0.5))),
-                            Text('20 km (Region)', style: TextStyle(fontSize: 9.5, color: textColor.withValues(alpha: 0.5))),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: accentColor,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      elevation: 0,
-                    ),
-                    onPressed: () async {
-                      Navigator.pop(ctx);
-                      setState(() {
-                        _isDownloadingTiles = true;
-                        _downloadProgress = 0.0;
-                        _downloadStatus = 'Preparing offline map download...';
-                      });
-
-                      // Default to latest known track coordinates or city center
-                      double centerLat = 37.7749;
-                      double centerLng = -122.4194;
-
-                      final latestSession = await DbService.instance.getCompletedSessions();
-                      if (latestSession.isNotEmpty) {
-                        final points = await DbService.instance.getPoints(latestSession.first['id'] as int);
-                        if (points.isNotEmpty) {
-                          centerLat = points.last['lat'] as double;
-                          centerLng = points.last['lng'] as double;
-                        }
-                      }
-
-                      final stream = TileCacheService.instance.downloadOfflineRegion(
-                        centerLat: centerLat,
-                        centerLng: centerLng,
-                        radiusKm: selectedRadiusKm,
-                        zoomLevels: const [13, 14, 15, 16],
-                        tileUrlTemplate: SettingsService.instance.mapTileSource,
-                      );
-
-                      await for (final progress in stream) {
-                        if (mounted) {
-                          setState(() {
-                            _downloadProgress = progress.progressRatio;
-                            _downloadStatus = progress.status;
-                            if (progress.isDone) {
-                              _isDownloadingTiles = false;
-                            }
-                          });
-                        }
-                      }
-
-                      await _loadTileCacheStats();
-                    },
-                    icon: const Icon(Icons.cloud_download_rounded, size: 20),
-                    label: const Text('DOWNLOAD OFFLINE MAP', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.8)),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
     );
   }
 }

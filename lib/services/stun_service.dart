@@ -97,6 +97,20 @@ class StunService {
     }
   }
 
+  /// True if [data] looks like a STUN message (RFC 5389 magic cookie at bytes 4..7).
+  static bool isStunPacket(List<int> data) {
+    if (data.length < 20) return false;
+    final cookie = (data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7];
+    return cookie == magicCookie;
+  }
+
+  /// Builds a Binding Request; bytes 8..19 are its transaction id.
+  static Uint8List buildBindingRequest() => _buildBindingRequest();
+
+  /// Parses a Binding Success Response matching [transactionId], or returns null.
+  static StunEndpoint? parseBindingResponse(Uint8List data, List<int> transactionId) =>
+      _parseBindingResponse(data, transactionId);
+
   /// Builds a 20-byte RFC 5389 Binding Request packet.
   static Uint8List _buildBindingRequest() {
     final buffer = ByteData(20);
@@ -108,7 +122,7 @@ class StunService {
     buffer.setUint32(4, magicCookie, Endian.big);
 
     // 12-byte Transaction ID (random cryptographically strong values)
-    final rng = Random();
+    final rng = Random.secure();
     for (int i = 8; i < 20; i++) {
       buffer.setUint8(i, rng.nextInt(256));
     }

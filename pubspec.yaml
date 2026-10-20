@@ -17,6 +17,9 @@ dependencies:
   path_provider: ^2.1.1
   archive: ^3.3.0
 
+  # AES-256-GCM authenticated encryption for the Colab mesh (synchronous API)
+  pointycastle: ^3.9.1
+
   # Cupertion & Material Icons
   cupertino_icons: ^1.0.5
 
@@ -28,6 +31,8 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
+  sqflite_common_ffi: ^2.4.4
+  xml: ^7.1.0
 
 flutter:
   uses-material-design: true

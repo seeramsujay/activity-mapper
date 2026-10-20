@@ -3,8 +3,8 @@ import 'package:turnback/services/strava_service.dart';
 import 'package:turnback/services/relive_service.dart';
 
 void main() {
-  group('StravaService Activity Upload Simulation Tests', () {
-    test('simulates 1-tap OAuth2 upload in serverless mode', () async {
+  group('StravaService upload without credentials', () {
+    test('reports failure instead of faking a successful upload', () async {
       final strava = StravaService.instance;
       strava.logout();
 
@@ -16,10 +16,11 @@ void main() {
         activityType: 'cycling',
       );
 
-      expect(result.success, isTrue);
-      expect(result.activityId, isNotNull);
-      expect(result.stravaActivityUrl, contains('https://www.strava.com/activities/'));
-      expect(strava.state, equals(StravaUploadState.completed));
+      expect(result.success, isFalse);
+      expect(result.activityId, isNull);
+      expect(result.stravaActivityUrl, isEmpty);
+      expect(result.error, contains('Not connected to Strava'));
+      expect(strava.state, equals(StravaUploadState.error));
     });
   });
 

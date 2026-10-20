@@ -4,8 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/db_service.dart';
 import '../services/platform_service.dart';
-import '../services/gpx_service.dart';
+import '../services/session_control_service.dart';
 import '../services/settings_service.dart';
+import '../services/unit_format.dart';
 import '../services/p2p_mesh_service.dart';
 import '../widgets/mesh_qr_widget.dart';
 import '../widgets/session_feed_card.dart';
@@ -54,7 +55,6 @@ class _SetupScreenState extends State<SetupScreen> {
   String _activityType = 'run';
   int _targetDurationMinutes = 90;
   double _safetyBufferPct = 8.0;
-  int _gpsIntervalMs = 1000;
   int? _selectedReferenceSessionId;
   bool _isLaunching = false;
 
@@ -99,17 +99,8 @@ class _SetupScreenState extends State<SetupScreen> {
     int totalTimeMs = 0;
 
     for (final s in completed) {
-      final points = await dbHelper.getPoints(s['id'] as int);
-      double sDist = 0.0;
-      for (int i = 1; i < points.length; i++) {
-        sDist += _distanceBetween(
-          points[i-1]['lat'] as double,
-          points[i-1]['lng'] as double,
-          points[i]['lat'] as double,
-          points[i]['lng'] as double,
-        );
-      }
-      totalDist += sDist;
+      // Cached per completed session, so the dashboard no longer re-reads every GPS point.
+      totalDist += await dbHelper.getSessionDistanceKm(s['id'] as int);
 
       final start = s['start_time'] as int;
       final end = s['end_time'] as int?;
@@ -129,83 +120,88 @@ class _SetupScreenState extends State<SetupScreen> {
     }
   }
 
-  void _startActiveTrackingTimer(Map<String, dynamic> session) async {
+  Future<void> _startActiveTrackingTimer(Map<String, dynamic> session) async {
     _activeTimer?.cancel();
     _activeTelemetrySub?.cancel();
 
     _activeSession = session;
     _activeTurnBackTriggered = session['turn_back_triggered_at'] != null;
 
-    final dbHelper = DbService.instance;
-    final points = await dbHelper.getPoints(session['id'] as int);
-    
-    double dist = 0.0;
-    int activeMs = 0;
-    for (int i = 1; i < points.length; i++) {
-      dist += _distanceBetween(
-        points[i-1]['lat'] as double,
-        points[i-1]['lng'] as double,
-        points[i]['lat'] as double,
-        points[i]['lng'] as double,
-      );
-      final int diff = (points[i]['timestamp'] as num).toInt() - (points[i-1]['timestamp'] as num).toInt();
-      final double spd = (points[i]['speed'] as num?)?.toDouble() ?? 0.0;
-      if (diff > 0 && diff < 15000 && spd > 0.2) {
-        activeMs += diff;
-      }
+    final int sessionId = session['id'] as int;
+    final bool isPaused = session['status'] == 'paused';
+    final points = await DbService.instance.getPoints(sessionId);
+    final Duration recovered = await SessionControlService.instance.recoverElapsed(session);
+    if (!mounted) return;
+
+    // Restart logging if the app/phone was restarted while this session was active.
+    if (!isPaused) {
+      SessionControlService.instance.ensureNativeTracking(session, recovered);
     }
 
-    _activeDistanceKm = dist;
-    _activeElapsed = Duration(milliseconds: activeMs);
+    final DateTime anchor = DateTime.now();
+    setState(() {
+      _activeDistanceKm = DbService.trackDistanceKm(points);
+      _activeElapsed = recovered;
+    });
+    double? lastLat = points.isNotEmpty ? (points.last['lat'] as num).toDouble() : null;
+    double? lastLng = points.isNotEmpty ? (points.last['lng'] as num).toDouble() : null;
+
+    final int outboundLimitSeconds = SessionControlService.outboundLimitSeconds(
+      targetDurationSeconds: session['target_duration'] as int,
+      safetyBufferPct: (session['safety_buffer'] as num).toDouble(),
+      activityType: session['activity_type'] as String? ?? 'run',
+    );
 
     _activeTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_activeSession == null || _activeSession!['status'] == 'paused') return;
+      if (!mounted || _activeSession == null || isPaused) return;
 
       setState(() {
-        _activeElapsed += const Duration(seconds: 1);
-        
-        final double outboundRatio = (100.0 - (_activeSession!['safety_buffer'] as double)) / 200.0;
-        final int outboundLimitSeconds = ((_activeSession!['target_duration'] as int) * outboundRatio).toInt();
-
-        if (_activeElapsed.inSeconds >= outboundLimitSeconds && !_activeTurnBackTriggered) {
+        _activeElapsed = recovered + DateTime.now().difference(anchor);
+        if (outboundLimitSeconds > 0 && _activeElapsed.inSeconds >= outboundLimitSeconds && !_activeTurnBackTriggered) {
           _activeTurnBackTriggered = true;
-          dbHelper.markTurnBackTriggered(_activeSession!['id'] as int);
+          SessionControlService.instance.fireTurnBackIfUnclaimed(
+            sessionId,
+            session['activity_type'] as String? ?? 'run',
+          );
         }
       });
     });
 
     _activeTelemetrySub = PlatformService.instance.telemetryStream.listen((event) {
-      if (_activeSession == null || _activeSession!['status'] == 'paused') return;
-      
+      if (!mounted || _activeSession == null || isPaused) return;
+
       final double lat = ((event['lat'] ?? 0.0) as num).toDouble();
       final double lng = ((event['lng'] ?? 0.0) as num).toDouble();
 
       setState(() {
-        if (points.isNotEmpty) {
-          final lastPoint = points.last;
-          _activeDistanceKm += _distanceBetween(lastPoint['lat'] as double, lastPoint['lng'] as double, lat, lng);
+        if (lastLat != null && lastLng != null) {
+          _activeDistanceKm += _distanceBetween(lastLat!, lastLng!, lat, lng);
         }
+        lastLat = lat;
+        lastLng = lng;
       });
     });
   }
 
-  void _toggleActivePause(int sessionId, String activityType, int targetSec, double buffer) async {
-    final dbHelper = DbService.instance;
+  Future<void> _toggleActivePause(int sessionId, String activityType, int targetSec, double buffer) async {
     final status = _activeSession!['status'] as String;
     final isPaused = status == 'paused';
 
     if (!isPaused) {
-      await dbHelper.updateSessionStatus(sessionId, 'paused');
-      await PlatformService.instance.stopTracking();
+      await SessionControlService.instance.pause(sessionId, _activeElapsed);
     } else {
-      await dbHelper.updateSessionStatus(sessionId, 'active');
-      await PlatformService.instance.startTracking(
+      final ok = await SessionControlService.instance.resume(
         sessionId: sessionId,
-        activityType: activityType.toLowerCase(),
+        activityType: activityType,
         targetDurationSeconds: targetSec,
         safetyBufferPct: buffer,
-        gpsIntervalMs: 1000,
+        elapsedBase: _activeElapsed,
       );
+      if (!ok && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not restart GPS tracking. Check location permission.')),
+        );
+      }
     }
     _loadDashboardData();
   }
@@ -245,14 +241,16 @@ class _SetupScreenState extends State<SetupScreen> {
   }
 
   Future<void> _finishActiveSession(int sessionId, String activityType) async {
-    await PlatformService.instance.stopTracking();
-    await DbService.instance.updateSessionStatus(sessionId, 'completed');
-    final activityName = '${activityType.toUpperCase()} - Out and Back';
-    final file = await GpxService.instance.saveGpxFile(sessionId, activityName);
-    
+    final file = await SessionControlService.instance.finish(sessionId, activityType, elapsed: _activeElapsed);
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('GPX saved to TurnBack folder:\n${file.path}'), duration: const Duration(seconds: 4)),
+        SnackBar(
+          content: Text(file != null
+              ? 'GPX saved to TurnBack folder:\n${file.path}'
+              : 'Session saved (GPX file could not be written)'),
+          duration: const Duration(seconds: 4),
+        ),
       );
     }
     _loadDashboardData();
@@ -327,10 +325,13 @@ class _SetupScreenState extends State<SetupScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setModalState) {
-            // Live math preview
-            final double outboundRatio = (100.0 - _safetyBufferPct) / 200.0;
+            // Live math preview (same formula the HUD and native service alarm on)
             final int totalSeconds = _targetDurationMinutes * 60;
-            final int outboundSeconds = (totalSeconds * outboundRatio).toInt();
+            final int outboundSeconds = SessionControlService.outboundLimitSeconds(
+              targetDurationSeconds: totalSeconds,
+              safetyBufferPct: _safetyBufferPct,
+              activityType: _activityType,
+            );
             final int returnSeconds = totalSeconds - outboundSeconds;
             final int safetyCushionSeconds = (returnSeconds - outboundSeconds).clamp(0, 3600 * 24);
 
@@ -638,7 +639,7 @@ class _SetupScreenState extends State<SetupScreen> {
                                     '${outboundSeconds ~/ 60}m ${outboundSeconds % 60}s',
                                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: const Color(0xFF3B82F6)),
                                   ),
-                                  Text('(${(outboundRatio * 100).toStringAsFixed(0)}% time)', style: TextStyle(fontSize: 10, color: textColor.withValues(alpha: 0.5))),
+                                  Text('(${totalSeconds > 0 ? (outboundSeconds * 100 / totalSeconds).toStringAsFixed(1) : '0'}% time)', style: TextStyle(fontSize: 10, color: textColor.withValues(alpha: 0.5))),
                                 ],
                               ),
                               Icon(Icons.sync_alt, color: textColor.withValues(alpha: 0.3)),
@@ -1186,7 +1187,7 @@ class _SetupScreenState extends State<SetupScreen> {
         activityType: _activityType,
         targetDurationSeconds: targetSeconds,
         safetyBufferPct: _safetyBufferPct,
-        gpsIntervalMs: _gpsIntervalMs,
+        gpsIntervalMs: SettingsService.instance.gpsSamplingRateMs,
         googleMapsMode: useGoogleMaps,
       );
 
@@ -1331,6 +1332,22 @@ class _SetupScreenState extends State<SetupScreen> {
                         ),
                       ),
                     const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.qr_code_scanner, color: Color(0xFF10B981), size: 20),
+                      tooltip: "Scan a teammate's QR (connect over mobile data)",
+                      onPressed: () async {
+                        final scanned = await MeshQrCameraScannerDialog.scan(context);
+                        if (scanned == null || scanned.isEmpty) return;
+                        final cfg = MeshSessionConfig.fromUri(scanned.trim());
+                        final added = cfg != null && P2pMeshService.instance.addPeerFromConfig(cfg);
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(added
+                              ? 'Teammate endpoint added: ${cfg.publicIp}:${cfg.publicPort}'
+                              : 'That QR is for another group or has no internet endpoint yet (wait a few seconds and retry).'),
+                        ));
+                      },
+                    ),
                     IconButton(
                       icon: const Icon(Icons.exit_to_app, color: Colors.redAccent, size: 20),
                       tooltip: 'Leave Group',
@@ -1700,13 +1717,16 @@ class _SetupScreenState extends State<SetupScreen> {
 
     final int id = _activeSession!['id'] as int;
     final String type = (_activeSession!['activity_type'] as String).toUpperCase();
-    final double buffer = _activeSession!['safety_buffer'] as double;
+    final double buffer = (_activeSession!['safety_buffer'] as num).toDouble();
     final int targetSec = _activeSession!['target_duration'] as int;
     final String status = _activeSession!['status'] as String;
     final bool isPaused = status == 'paused';
 
-    final double outboundRatio = (100.0 - buffer) / 200.0;
-    final int outboundLimitSeconds = (targetSec * outboundRatio).toInt();
+    final int outboundLimitSeconds = SessionControlService.outboundLimitSeconds(
+      targetDurationSeconds: targetSec,
+      safetyBufferPct: buffer,
+      activityType: type,
+    );
     final int remainingSeconds = max(0, outboundLimitSeconds - _activeElapsed.inSeconds);
 
     final isDark = brightness == Brightness.dark;
@@ -1781,7 +1801,7 @@ class _SetupScreenState extends State<SetupScreen> {
                         Text('DISTANCE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.6))),
                         const SizedBox(height: 2),
                         Text(
-                          '${_activeDistanceKm.toStringAsFixed(2)} km',
+                          UnitFormat.distance(_activeDistanceKm),
                           style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: textColor),
                         ),
                       ],
@@ -2052,7 +2072,7 @@ class _SetupScreenState extends State<SetupScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         _buildStatBox('ACTIVITIES', '${_completedSessions.length}', textColor),
-                        _buildStatBox('DISTANCE', '${_lifetimeDistance.toStringAsFixed(1)} km', textColor),
+                        _buildStatBox('DISTANCE', UnitFormat.distance(_lifetimeDistance, decimals: 1), textColor),
                         _buildStatBox('MOVING TIME', '${_lifetimeDuration.inHours}h ${_lifetimeDuration.inMinutes % 60}m', textColor),
                       ],
                     ),
@@ -2105,6 +2125,7 @@ class _SetupScreenState extends State<SetupScreen> {
                             itemBuilder: (context, index) {
                               final session = _completedSessions[index];
                               return SessionFeedCard(
+                                key: ValueKey(session['id']),
                                 session: session,
                                 textColor: textColor,
                                 brightness: brightness,
@@ -2208,7 +2229,7 @@ class _SetupScreenState extends State<SetupScreen> {
                     textColor: textColor,
                     surfaceBg: surfaceBg,
                     borderColor: borderColor,
-                    onTap: () => _executeContinueSession(sessionId, activityType, originalTargetSec, buffer),
+                    onTap: () => _executeContinueSession(sessionId, activityType, originalTargetSec, buffer, resetTimer: false),
                   ),
                   const SizedBox(height: 10),
 
@@ -2221,7 +2242,7 @@ class _SetupScreenState extends State<SetupScreen> {
                     textColor: textColor,
                     surfaceBg: surfaceBg,
                     borderColor: borderColor,
-                    onTap: () => _executeContinueSession(sessionId, activityType, originalTargetSec, buffer),
+                    onTap: () => _executeContinueSession(sessionId, activityType, originalTargetSec, buffer, resetTimer: true),
                   ),
                   const SizedBox(height: 10),
 
@@ -2287,7 +2308,7 @@ class _SetupScreenState extends State<SetupScreen> {
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                               padding: const EdgeInsets.symmetric(vertical: 12),
                             ),
-                            onPressed: () => _executeContinueSession(sessionId, activityType, targetMinutes * 60, buffer),
+                            onPressed: () => _executeContinueSession(sessionId, activityType, targetMinutes * 60, buffer, resetTimer: true),
                             child: const Text('APPLY NEW DURATION & CONTINUE', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
                           ),
                         ),
@@ -2358,18 +2379,21 @@ class _SetupScreenState extends State<SetupScreen> {
     );
   }
 
-  void _executeContinueSession(int sessionId, String activityType, int targetSec, double buffer) async {
+  void _executeContinueSession(int sessionId, String activityType, int targetSec, double buffer, {required bool resetTimer}) async {
     Navigator.pop(context); // close modal
 
-    await DbService.instance.reactivateSession(sessionId, newTargetDurationSeconds: targetSec);
-
-    await PlatformService.instance.startTracking(
+    final ok = await SessionControlService.instance.continueCompletedSession(
       sessionId: sessionId,
-      activityType: activityType.toLowerCase(),
+      activityType: activityType,
       targetDurationSeconds: targetSec,
       safetyBufferPct: buffer,
-      gpsIntervalMs: 1000,
+      resetTimer: resetTimer,
     );
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not restart GPS tracking. Check location permission.')),
+      );
+    }
 
     if (mounted) {
       Navigator.push(

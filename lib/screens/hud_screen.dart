@@ -7,10 +7,11 @@ import '../services/adaptive_pacing_service.dart';
 import '../services/ble_sensor_service.dart';
 import '../services/db_service.dart';
 import '../services/exercise_stats_service.dart';
-import '../services/gpx_service.dart';
 import '../services/platform_service.dart';
 import '../services/rally_service.dart';
+import '../services/session_control_service.dart';
 import '../services/settings_service.dart';
+import '../services/unit_format.dart';
 import '../services/p2p_mesh_service.dart';
 import '../widgets/musicolet_4x1_widget.dart';
 import '../widgets/interactive_telemetry_graph.dart';
@@ -64,7 +65,17 @@ class _HudScreenState extends State<HudScreen> {
   double _accuracy = 0.0;
 
   late DateTime _startTime;
-  Duration _elapsed = Duration.zero; // moving time
+  // Active workout time = _elapsedBase + (now - _segmentStart); _segmentStart is null while paused.
+  // Same definition as the native GPS service, so both agree on when to turn back.
+  Duration _elapsedBase = Duration.zero;
+  DateTime? _segmentStart;
+  Duration get _elapsed {
+    final seg = _segmentStart;
+    if (seg == null) return _elapsedBase;
+    final delta = DateTime.now().difference(seg);
+    return _elapsedBase + (delta.isNegative ? Duration.zero : delta);
+  }
+
   Duration _totalElapsed = Duration.zero; // total time
   Timer? _timer;
   StreamSubscription? _telemetrySub;
@@ -74,8 +85,8 @@ class _HudScreenState extends State<HudScreen> {
   double _minAltitude = double.maxFinite;
   double _maxAltitude = -double.maxFinite;
   double _totalAscent = 0.0;
+  ElevationAccumulator _elevation = ElevationAccumulator();
   double _totalDescent = 0.0;
-  double? _prevAltitude;
 
   // Dynamic unit switching hysteresis
   bool _isSpeedMode = false;
@@ -91,10 +102,7 @@ class _HudScreenState extends State<HudScreen> {
     elevationGainMeters: _totalAscent,
   );
 
-  bool get _isMotorVehicle {
-    final type = widget.activityType.toLowerCase();
-    return type.contains('vehicle') || type.contains('drive') || type.contains('car') || type.contains('motor');
-  }
+  bool get _isMotorVehicle => SessionControlService.isMotorVehicle(widget.activityType);
 
   // Tracking control state
   bool _isPaused = false;
@@ -105,6 +113,7 @@ class _HudScreenState extends State<HudScreen> {
 
   // Rally navigation state variables
   RallyNavigationEngine? _rallyEngine;
+  RallyNavigationState? _rallyState;
 
   // Flashing turn-back indicator
   bool _flashToggle = false;
@@ -138,6 +147,7 @@ class _HudScreenState extends State<HudScreen> {
     _activeTargetDuration = widget.targetDuration;
     _googleMapsMode = widget.initialGoogleMapsMode;
     _startTime = DateTime.now();
+    _segmentStart = DateTime.now();
     _isSpeedMode = widget.activityType == 'ride';
 
     PlatformService.instance.setPowerSaveDisplay(true);
@@ -313,7 +323,7 @@ class _HudScreenState extends State<HudScreen> {
                     borderColor: borderColor,
                     onTap: () {
                       Navigator.pop(ctx);
-                      setState(() => _isPaused = false);
+                      _resumeTracking();
                     },
                   ),
                   const SizedBox(height: 10),
@@ -327,16 +337,14 @@ class _HudScreenState extends State<HudScreen> {
                     textColor: textColor,
                     surfaceBg: surfaceBg,
                     borderColor: borderColor,
-                    onTap: () {
+                    onTap: () async {
                       Navigator.pop(ctx);
-                      setState(() {
-                        _elapsed = Duration.zero;
-                        _turnBackTriggered = false;
-                        _isPaused = false;
-                      });
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('RETURN TIMER RESET TO START')),
-                      );
+                      final ok = await _resumeTracking(resetCountdown: true);
+                      if (ok && mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('RETURN TIMER RESET TO START')),
+                        );
+                      }
                     },
                   ),
                   const SizedBox(height: 10),
@@ -413,19 +421,17 @@ class _HudScreenState extends State<HudScreen> {
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                               padding: const EdgeInsets.symmetric(vertical: 12),
                             ),
-                            onPressed: () {
+                            onPressed: () async {
                               Navigator.pop(ctx);
-                              setState(() {
-                                _activeTargetDuration = Duration(minutes: tempMinutes);
-                                _elapsed = Duration.zero;
-                                _turnBackTriggered = false;
-                                _isPaused = false;
-                              });
-                              // Update SQLite session target duration
-                              DbService.instance.updateSessionTargetDuration(widget.sessionId, tempMinutes * 60);
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('NEW TARGET SET TO $tempMinutes MINUTES')),
+                              final ok = await _resumeTracking(
+                                resetCountdown: true,
+                                newTarget: Duration(minutes: tempMinutes),
                               );
+                              if (ok && mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('NEW TARGET SET TO $tempMinutes MINUTES')),
+                                );
+                              }
                             },
                             child: const Text('APPLY NEW DURATION & RESUME', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12)),
                           ),
@@ -441,6 +447,68 @@ class _HudScreenState extends State<HudScreen> {
         );
       },
     );
+  }
+
+  /// Pauses the workout: stops GPS logging natively and freezes the elapsed clock.
+  Future<void> _pauseTracking() async {
+    final frozen = _elapsed;
+    setState(() {
+      _elapsedBase = frozen;
+      _segmentStart = null;
+      _isPaused = true;
+    });
+    await SessionControlService.instance.pause(widget.sessionId, frozen);
+  }
+
+  /// Resumes GPS logging. [resetCountdown] restarts the turn-back countdown from zero (and
+  /// re-arms the alarm); [newTarget] also replaces the target duration.
+  Future<bool> _resumeTracking({bool resetCountdown = false, Duration? newTarget}) async {
+    final target = newTarget ?? _activeTargetDuration;
+    final base = resetCountdown ? Duration.zero : _elapsedBase;
+    final ok = await SessionControlService.instance.resume(
+      sessionId: widget.sessionId,
+      activityType: widget.activityType,
+      targetDurationSeconds: target.inSeconds,
+      safetyBufferPct: widget.safetyBufferPct,
+      elapsedBase: base,
+      resetTurnBack: resetCountdown,
+      googleMapsMode: _googleMapsMode,
+    );
+    if (!mounted) return ok;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not restart GPS tracking. Check location permission.')),
+      );
+      return false;
+    }
+    setState(() {
+      _activeTargetDuration = target;
+      _elapsedBase = base;
+      _segmentStart = DateTime.now();
+      _isPaused = false;
+      if (resetCountdown) {
+        _flashTimer?.cancel();
+        _turnBackTriggered = false;
+        _userDismissedTurnBack = false;
+      }
+    });
+    return true;
+  }
+
+  /// Fires the turn-back alert once the outbound limit is reached. The DB flag is shared with
+  /// the native service, so only whichever side reaches the limit first sounds the alarm.
+  void _checkTurnBack() {
+    if (widget.isFreeRun || _turnBackTriggered || _userDismissedTurnBack || _isPaused) return;
+    if (_activeTargetDuration.inSeconds <= 0) return;
+    final limit = SessionControlService.outboundLimitSeconds(
+      targetDurationSeconds: _activeTargetDuration.inSeconds,
+      safetyBufferPct: widget.safetyBufferPct,
+      activityType: widget.activityType,
+    );
+    if (_elapsed.inSeconds < limit) return;
+    _turnBackTriggered = true;
+    _startFlashingTimer();
+    SessionControlService.instance.fireTurnBackIfUnclaimed(widget.sessionId, widget.activityType);
   }
 
   Widget _buildResumeActionCard({
@@ -502,7 +570,7 @@ class _HudScreenState extends State<HudScreen> {
     try {
       final dbHelper = DbService.instance;
       final refPoints = await dbHelper.getPoints(widget.referenceSessionId!);
-      if (refPoints.isNotEmpty) {
+      if (refPoints.isNotEmpty && mounted) {
         setState(() {
           _rallyEngine = RallyNavigationEngine(referencePoints: refPoints);
         });
@@ -512,36 +580,65 @@ class _HudScreenState extends State<HudScreen> {
 
   Future<void> _loadExistingData() async {
     final dbHelper = DbService.instance;
+    final session = await dbHelper.getSession(widget.sessionId);
+    if (session == null) return;
     final storedPoints = await dbHelper.getPoints(widget.sessionId);
-    final activeSession = await dbHelper.getActiveSession();
+    final recoveredElapsed = await SessionControlService.instance.recoverElapsed(session);
+    final bool isPausedInDb = session['status'] == 'paused';
 
-    if (activeSession != null) {
-      final storedStartTime = activeSession['start_time'] as int;
-      final storedTurnBackTriggered = activeSession['turn_back_triggered_at'] != null;
+    // Rebuild chart history with real cumulative distance and time offsets.
+    final List<TelemetrySample> samples = [];
+    double runningKm = 0.0;
+    final int firstTs = storedPoints.isNotEmpty ? (storedPoints.first['timestamp'] as num).toInt() : 0;
+    for (int i = 0; i < storedPoints.length; i++) {
+      final p = storedPoints[i];
+      if (i > 0) {
+        final prev = storedPoints[i - 1];
+        runningKm += _distanceBetween(
+          (prev['lat'] as num).toDouble(),
+          (prev['lng'] as num).toDouble(),
+          (p['lat'] as num).toDouble(),
+          (p['lng'] as num).toDouble(),
+        );
+      }
+      samples.add(TelemetrySample(
+        distanceKm: runningKm,
+        elapsedSeconds: ((p['timestamp'] as num).toInt() - firstTs) / 1000.0,
+        speedKmh: ((p['speed'] ?? 0.0) as num).toDouble() * 3.6,
+        altitudeMeters: ((p['altitude'] ?? 0.0) as num).toDouble(),
+      ));
+    }
 
-      setState(() {
-        _startTime = DateTime.fromMillisecondsSinceEpoch(storedStartTime);
-        _turnBackTriggered = storedTurnBackTriggered;
-        _points.clear();
-        _chartSamples.clear();
-        for (final p in storedPoints) {
-          final lat = ((p['lat'] ?? 0.0) as num).toDouble();
-          final lng = ((p['lng'] ?? 0.0) as num).toDouble();
-          final spd = ((p['speed'] ?? 0.0) as num).toDouble();
-          final alt = ((p['altitude'] ?? 0.0) as num).toDouble();
-          _points.add(Point(lat, lng));
-          _chartSamples.add(TelemetrySample(
-            distanceKm: _distanceKm,
-            elapsedSeconds: _elapsed.inSeconds.toDouble(),
-            speedKmh: spd * 3.6,
-            altitudeMeters: alt,
-          ));
-        }
-        _calculateSummaryMetrics(storedPoints);
-      });
+    if (!mounted) return;
+    setState(() {
+      _startTime = DateTime.fromMillisecondsSinceEpoch(session['start_time'] as int);
+      _turnBackTriggered = session['turn_back_triggered_at'] != null;
+      _elapsedBase = recoveredElapsed;
+      _segmentStart = isPausedInDb ? null : DateTime.now();
+      _isPaused = isPausedInDb;
+      _points
+        ..clear()
+        ..addAll(storedPoints.map((p) => Point(
+              ((p['lat'] ?? 0.0) as num).toDouble(),
+              ((p['lng'] ?? 0.0) as num).toDouble(),
+            )));
+      _chartSamples
+        ..clear()
+        ..addAll(samples);
+      _calculateSummaryMetrics(storedPoints);
+    });
 
-      if (_turnBackTriggered) {
-        _startFlashingTimer();
+    if (_turnBackTriggered) {
+      _startFlashingTimer();
+    }
+
+    // App/phone restarted mid-session: make sure the GPS service is logging again.
+    if (!isPausedInDb) {
+      final running = await SessionControlService.instance.ensureNativeTracking(session, recoveredElapsed);
+      if (!running && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('GPS tracking is not running. Check location permission.')),
+        );
       }
     }
   }
@@ -554,6 +651,7 @@ class _HudScreenState extends State<HudScreen> {
     double maxSpd = 0.0;
     double minAlt = double.maxFinite;
     double maxAlt = -double.maxFinite;
+    final elevation = ElevationAccumulator();
 
     for (int i = 0; i < points.length; i++) {
       final p = points[i];
@@ -567,18 +665,18 @@ class _HudScreenState extends State<HudScreen> {
       if (i > 0) {
         final prev = points[i - 1];
         dist += _distanceBetween(
-          prev['lat'] as double,
-          prev['lng'] as double,
-          p['lat'] as double,
-          p['lng'] as double,
+          (prev['lat'] as num).toDouble(),
+          (prev['lng'] as num).toDouble(),
+          (p['lat'] as num).toDouble(),
+          (p['lng'] as num).toDouble(),
         );
 
-        final prevAlt = (prev['altitude'] as num?)?.toDouble() ?? 0.0;
-        final altDiff = alt - prevAlt;
-        if (altDiff > 0) ascent += altDiff;
-        if (altDiff < 0) descent += altDiff.abs();
       }
+      elevation.add(alt);
     }
+    ascent = elevation.gain;
+    descent = elevation.loss;
+    _elevation = elevation;
 
     _distanceKm = dist;
     _maxSpeed = maxSpd;
@@ -614,23 +712,8 @@ class _HudScreenState extends State<HudScreen> {
       if (!mounted) return;
       setState(() {
         _totalElapsed = DateTime.now().difference(_startTime);
-        if (!_isPaused) {
-          _elapsed += const Duration(seconds: 1);
-        }
-
         // Live Turn-Back Outbound Threshold Check (Foreground)
-        if (!widget.isFreeRun && !_turnBackTriggered && !_userDismissedTurnBack && _activeTargetDuration.inSeconds > 0) {
-          final int outboundLimitSeconds = AdaptivePacingService.calculateAsymmetricOutboundLimitSeconds(
-            targetDurationSeconds: _activeTargetDuration.inSeconds,
-            safetyBufferPct: widget.safetyBufferPct,
-            isMotorVehicle: _isMotorVehicle,
-          );
-          if (_elapsed.inSeconds >= outboundLimitSeconds) {
-            _turnBackTriggered = true;
-            _startFlashingTimer();
-            PlatformService.instance.triggerTurnBackAlert(activityType: widget.activityType);
-          }
-        }
+        _checkTurnBack();
       });
     });
   }
@@ -661,24 +744,23 @@ class _HudScreenState extends State<HudScreen> {
           final d = _distanceBetween(lastPoint.x, lastPoint.y, lat, lng);
           _distanceKm += d;
 
-          if (_prevAltitude != null) {
-            final diff = alt - _prevAltitude!;
-            if (diff > 0) _totalAscent += diff;
-            if (diff < 0) _totalDescent += diff.abs();
-          }
+          _elevation.add(alt);
+          _totalAscent = _elevation.gain;
+          _totalDescent = _elevation.loss;
         }
 
         _points.add(Point(lat, lng));
         _currentSpeed = speed;
         _altitude = alt;
         _accuracy = acc;
-        _prevAltitude = alt;
 
         _chartSamples.add(TelemetrySample(
           distanceKm: _distanceKm,
           elapsedSeconds: _elapsed.inSeconds.toDouble(),
           speedKmh: speed * 3.6,
           altitudeMeters: alt,
+          heartRateBpm: _sensorData.isConnected && _sensorData.heartRateBpm > 0 ? _sensorData.heartRateBpm : null,
+          cadenceRpm: _sensorData.isConnected && _sensorData.cadenceRpm > 0 ? _sensorData.cadenceRpm : null,
         ));
 
         if (speed > _maxSpeed) _maxSpeed = speed;
@@ -691,7 +773,11 @@ class _HudScreenState extends State<HudScreen> {
 
         // Rally engine update
         if (_rallyEngine != null) {
-          _rallyEngine!.updateNavigation(lat, lng);
+          final wasOffRoute = _rallyState?.isOffRoute ?? false;
+          _rallyState = _rallyEngine!.updateNavigation(lat, lng);
+          if (_rallyState!.isOffRoute && !wasOffRoute) {
+            HapticFeedback.heavyImpact();
+          }
         }
 
         // P2P Mesh Telemetry Broadcast (Active only in Colab flavor)
@@ -705,18 +791,7 @@ class _HudScreenState extends State<HudScreen> {
         }
 
         // Turn-back check on GPS point arrival
-        if (!widget.isFreeRun && !_turnBackTriggered && !_userDismissedTurnBack && _activeTargetDuration.inSeconds > 0) {
-          final int outboundLimitSeconds = AdaptivePacingService.calculateAsymmetricOutboundLimitSeconds(
-            targetDurationSeconds: _activeTargetDuration.inSeconds,
-            safetyBufferPct: widget.safetyBufferPct,
-            isMotorVehicle: _isMotorVehicle,
-          );
-          if (_elapsed.inSeconds >= outboundLimitSeconds) {
-            _turnBackTriggered = true;
-            _startFlashingTimer();
-            PlatformService.instance.triggerTurnBackAlert(activityType: widget.activityType);
-          }
-        }
+        _checkTurnBack();
 
         // Finish Line Arrival Check (Within 30 meters of Start Point after turning back)
         if ((_freeRunReturning || _userDismissedTurnBack) && !_arrivedAtFinishLine && _points.length > 15 && _distanceKm > 0.15) {
@@ -780,15 +855,11 @@ class _HudScreenState extends State<HudScreen> {
   String _formatSpeedOrPace(double mps) {
     if (mps <= 0.2) return _isSpeedMode ? '0.0' : '--:--';
     if (_isSpeedMode) {
-      final double kmh = mps * 3.6;
-      return kmh.toStringAsFixed(1);
-    } else {
-      final double secPerKm = 1000 / mps;
-      final int min = secPerKm ~/ 60;
-      final int sec = (secPerKm % 60).toInt();
-      return '$min:${sec.toString().padLeft(2, '0')}';
+      return UnitFormat.speedValue(mps * 3.6).toStringAsFixed(1);
     }
+    return UnitFormat.paceFromMps(mps);
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -845,9 +916,10 @@ class _HudScreenState extends State<HudScreen> {
               if (_turnBackTriggered)
                 _buildFlashingTurnBackBanner(),
 
-              // 4. OLED Battery Saver Pill (if dimmed)
-              if (_isOledDimmed)
-                _buildOledSaverOverlay(),
+              // 3b. Reference-route roadbook cue (next turn / off-route warning)
+              if (_rallyState != null)
+                _buildRallyCueBanner(),
+
 
               // 5. Tactical Colab Radar (if active)
               if (PlatformService.isColabMode && P2pMeshService.instance.isActive)
@@ -864,6 +936,10 @@ class _HudScreenState extends State<HudScreen> {
                 accentColor: accentColor,
                 isDark: isDark,
               ),
+
+              // 7. OLED Battery Saver: pure-black screen (pixels off) until touched
+              if (_isOledDimmed)
+                _buildOledSaverOverlay(),
             ],
           ),
         ),
@@ -1002,12 +1078,12 @@ class _HudScreenState extends State<HudScreen> {
                           style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: textColor),
                         ),
                         Text(
-                          _isSpeedMode ? ' km/h' : ' /km',
+                          _isSpeedMode ? ' ${UnitFormat.speedUnit}' : ' ${UnitFormat.paceUnit}',
                           style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.6)),
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          '${_distanceKm.toStringAsFixed(2)} km',
+                          UnitFormat.distance(_distanceKm),
                           style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: accentColor),
                         ),
                       ],
@@ -1109,12 +1185,78 @@ class _HudScreenState extends State<HudScreen> {
     );
   }
 
-  Widget _buildOledSaverOverlay() {
+  Widget _buildRallyCueBanner() {
+    final state = _rallyState!;
+    final cue = state.nextCue;
+    final bool off = state.isOffRoute;
+    final IconData icon;
+    switch (off ? TurnType.offRoute : cue?.type) {
+      case TurnType.offRoute:
+        icon = Icons.wrong_location_rounded;
+      case TurnType.left:
+      case TurnType.sharpLeft:
+        icon = Icons.turn_left_rounded;
+      case TurnType.right:
+      case TurnType.sharpRight:
+        icon = Icons.turn_right_rounded;
+      case TurnType.uTurn:
+        icon = Icons.u_turn_left_rounded;
+      case TurnType.arrival:
+        icon = Icons.flag_rounded;
+      default:
+        icon = Icons.straight_rounded;
+    }
+    final String text = off
+        ? 'OFF ROUTE • ${UnitFormat.shortDistance(state.offRouteMeters)} from reference'
+        : '${cue?.description ?? 'FOLLOW ROUTE'} in ${UnitFormat.shortDistance(state.distanceToNextCueMeters)}';
+    final Color bg = off ? const Color(0xFFDC2626) : const Color(0xFF1D4ED8);
+
     return Positioned(
-      top: MediaQuery.of(context).padding.top + 12,
-      left: 0,
-      right: 0,
-      child: Center(
+      top: MediaQuery.of(context).padding.top + (_turnBackTriggered ? 110 : 58),
+      left: 16,
+      right: 16,
+      child: IgnorePointer(
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 14.0),
+          decoration: BoxDecoration(
+            color: bg.withValues(alpha: 0.92),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, color: Colors.white, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  text,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 0.6),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOledSaverOverlay() {
+    return Positioned.fill(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _resetInactivityTimer,
+        child: ColoredBox(
+          color: Colors.black,
+          child: Align(
+            alignment: const Alignment(0, -0.85),
+            child: _buildOledSaverPill(),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOledSaverPill() {
+    return Center(
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
           decoration: BoxDecoration(
@@ -1134,7 +1276,6 @@ class _HudScreenState extends State<HudScreen> {
             ],
           ),
         ),
-      ),
     );
   }
 
@@ -1303,7 +1444,7 @@ class _HudScreenState extends State<HudScreen> {
                       if (_isPaused) {
                         _showResumeOptionsDialog();
                       } else {
-                        setState(() => _isPaused = true);
+                        _pauseTracking();
                       }
                     },
                   ),
@@ -1574,15 +1715,15 @@ class _HudScreenState extends State<HudScreen> {
                           ),
                           const SizedBox(height: 12),
                           SizedBox(
-                            height: 220,
+                            height: 320,
                             child: InteractiveTelemetryGraph(
                               points: _chartSamples.map((s) => GraphPoint(
                                 distanceKm: s.distanceKm,
                                 elapsedSeconds: s.elapsedSeconds,
                                 speedKmh: s.speedKmh,
                                 altitudeMeters: s.altitudeMeters,
-                                heartRateBpm: _sensorData.heartRateBpm > 0 ? _sensorData.heartRateBpm : null,
-                                cadenceRpm: _sensorData.cadenceRpm > 0 ? _sensorData.cadenceRpm : null,
+                                heartRateBpm: s.heartRateBpm,
+                                cadenceRpm: s.cadenceRpm,
                               )).toList(),
                               brightness: Theme.of(context).brightness,
                             ),
@@ -1608,24 +1749,25 @@ class _HudScreenState extends State<HudScreen> {
                             style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: textColor, letterSpacing: 0.8),
                           ),
                           const SizedBox(height: 12),
-                          _buildModalMetricRow('Total Distance', '${_distanceKm.toStringAsFixed(2)} km', textColor),
+                          _buildModalMetricRow('Total Distance', UnitFormat.distance(_distanceKm), textColor),
                           _buildModalMetricRow('Moving Time', _formatDuration(_elapsed), textColor),
                           _buildModalMetricRow('Total Elapsed Time', _formatDuration(_totalElapsed), textColor),
-                          _buildModalMetricRow('Current Speed', '${(_currentSpeed * 3.6).toStringAsFixed(1)} km/h', textColor),
-                          _buildModalMetricRow('Average Moving Speed', '${(_avgSpeed * 3.6).toStringAsFixed(1)} km/h', textColor),
-                          _buildModalMetricRow('Max Speed Recorded', '${(_maxSpeed * 3.6).toStringAsFixed(1)} km/h', textColor),
-                          _buildModalMetricRow('Current Altitude', '${_altitude.toStringAsFixed(0)} m', textColor),
-                          _buildModalMetricRow('Total Ascent Gain', '+${_totalAscent.toStringAsFixed(0)} m', textColor),
-                          _buildModalMetricRow('Total Descent Loss', '-${_totalDescent.toStringAsFixed(0)} m', textColor),
-                          _buildModalMetricRow('Max Elevation Reached', '${_maxAltitude <= -9999 ? 0 : _maxAltitude.toStringAsFixed(0)} m', textColor),
-                          _buildModalMetricRow('GPS Accuracy', '±${_accuracy.toStringAsFixed(1)} m', textColor),
+                          _buildModalMetricRow('Current Speed', UnitFormat.speedKmh(_currentSpeed * 3.6), textColor),
+                          _buildModalMetricRow('Average Moving Speed', UnitFormat.speedKmh(_avgSpeed * 3.6), textColor),
+                          _buildModalMetricRow('Max Speed Recorded', UnitFormat.speedKmh(_maxSpeed * 3.6), textColor),
+                          _buildModalMetricRow('Current Altitude', UnitFormat.elevation(_altitude), textColor),
+                          _buildModalMetricRow('Total Ascent Gain', UnitFormat.elevation(_totalAscent, sign: '+'), textColor),
+                          _buildModalMetricRow('Total Descent Loss', UnitFormat.elevation(_totalDescent, sign: '-'), textColor),
+                          _buildModalMetricRow('Max Elevation Reached', UnitFormat.elevation(_maxAltitude <= -9999 ? 0 : _maxAltitude), textColor),
+                          _buildModalMetricRow('GPS Accuracy', '±${UnitFormat.shortDistance(_accuracy)}', textColor),
                           _buildModalMetricRow('Clean Breadcrumbs', '${_points.length} pts', textColor),
                         ],
                       ),
                     ),
                     const SizedBox(height: 14),
 
-                    // Modular 4x1 Widget / Music Controller
+                    // Modular 4x1 Widget / Music Controller (Settings > HUD media controller)
+                    if (SettingsService.instance.showHudMediaController)
                     Modular4x1WidgetSpace(
                       brightness: Theme.of(context).brightness,
                       accentColor: accentColor,
@@ -1719,7 +1861,7 @@ class _HudScreenState extends State<HudScreen> {
                     Column(
                       children: [
                         Text('DISTANCE', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: color.withValues(alpha: 0.5))),
-                        Text('${_distanceKm.toStringAsFixed(2)} km', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: accentColor)),
+                        Text(UnitFormat.distance(_distanceKm), style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: accentColor)),
                       ],
                     ),
                     Column(
@@ -1801,6 +1943,10 @@ class _HudScreenState extends State<HudScreen> {
 
   void _showFinishConfirmDialog() {
     HapticFeedback.selectionClick();
+    if (!SettingsService.instance.confirmStopRecording) {
+      _finalizeSession();
+      return;
+    }
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final color = isDark ? Colors.white : Colors.black;
     final bg = isDark ? const Color(0xFF14171C) : Colors.white;
@@ -1840,15 +1986,18 @@ class _HudScreenState extends State<HudScreen> {
   }
 
   Future<void> _finalizeSession() async {
-    await PlatformService.instance.stopTracking();
-    await DbService.instance.updateSessionStatus(widget.sessionId, 'completed');
-    final activityName = '${widget.activityType.toUpperCase()} - Out and Back';
-    final file = await GpxService.instance.saveGpxFile(widget.sessionId, activityName);
+    final file = await SessionControlService.instance.finish(
+      widget.sessionId,
+      widget.activityType,
+      elapsed: _elapsed,
+    );
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Activity #${widget.sessionId} finished & saved: ${file.path.split('/').last}'),
+          content: Text(file != null
+              ? 'Activity #${widget.sessionId} finished & saved: ${file.path.split('/').last}'
+              : 'Activity #${widget.sessionId} finished & saved (GPX file could not be written)'),
           duration: const Duration(seconds: 2),
         ),
       );

@@ -6,15 +6,18 @@ An ultra-lightweight, 100% serverless, battery-optimized GPS activity tracking m
 
 ## 🚀 Core Features
 
-### 1. 🛡️ The 54% Turn-Back Engine
+### 1. 🛡️ Fatigue-Asymmetric Turn-Back Engine
 Solves the fundamental problem of **"fatigue asymmetry"** on out-and-back routes (where returning against headwinds or with muscular exhaustion takes longer than heading out).
-- Configurable **Safety Margin Buffer** (0% to 20%, defaulting to 8%).
-- Evaluates your elapsed time and alerts you when exactly **54%** of the target duration remains (at 46% elapsed time).
-- Fires a persistent audible alarm tone (`ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD`) and distinct haptic pulse pattern.
+- Configurable **Safety Margin Buffer** `b` (0% to 20%, defaulting to 8%).
+- Turn-back time: `T_out = T_target / (1 + (1 + b) × γ)` with fatigue factor `γ = 1.15` for human-powered activities (`γ = 1.0` for motor vehicles). With the defaults the alarm fires at **~44.6% of the target duration** (40 min 9 s into a 90 min session), leaving ~55% of the time for the slower return leg.
+- Elapsed time is active workout time (wall-clock time excluding pauses). The Flutter HUD and the native GPS service use the same formula and the same clock, and share a database flag so the alarm sounds **exactly once**, even with the screen off or the app closed.
+- Fires an audible alarm tone (`ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD`, skipped for walks/hikes) and a distinct haptic pulse; for rides it can pause music first. Each can be toggled in Settings.
 
 ### 2. ⚡ 2GB RAM & Ultra-Low Battery Architecture
 Specifically engineered to run smoothly on low-spec hardware without CPU throttling or battery drain:
-- **Stationary Stop Detection:** When resting or stopped ($\le 0.2\text{ m/s}$ across 3 consecutive ticks), GPS sampling frequency automatically scales from 5s down to 30s intervals.
+- **Stationary Stop Detection:** After 5 consecutive fixes below $0.3\text{ m/s}$, GPS polling drops to one fix every 10 s; full-rate polling resumes on the first moving fix.
+- **GPS Quality Filters (Settings → Record Profile & GPS):** fixes worse than the accuracy tolerance are discarded, and points closer than the minimum distance to the previous stored point are not written.
+- **Crash / Kill Recovery:** the tracking service persists its session state; if Android kills the process it resumes logging on restart, and reopening the app re-attaches (or restarts) tracking for an active session.
 - **Ramer-Douglas-Peucker (RDP) Decimation:** In-memory GPS coordinates are dynamically decimated down to visual resolution for the custom breadcrumb painter, maintaining 60 FPS rendering under $< 5\text{MB}$ RAM overhead.
 - **Deterministic 2x3 HUD Grid:** High-performance dashboard enclosed in a `RepaintBoundary` to prevent unnecessary widget tree repaints:
   - Top Left: Big Pace / Speed (auto-switching with 5-tick hysteresis at 18 km/h).
@@ -32,13 +35,14 @@ Full post-run editing suite located in the activity editor:
 
 ### 4. 📦 Multi-Format Export & ZIP Engine
 Export single activities or your entire workout history directly from device storage without any cloud or server dependencies:
-- **GPX 1.1:** Standard XML with `<trkpt>`, timestamps, and elevation data.
+- **GPX 1.1:** Standard XML with `<trkpt>`, UTC timestamps, smoothed elevation and speed (Garmin `TrackPointExtension`).
+- **TCX:** Garmin Training Center v2 with per-trackpoint cumulative distance and correct sport (Running / Biking) for Garmin Connect, Strava and TrainingPeaks imports.
 - **KML:** Google Earth formatted `<LineString>` and start/finish `<Placemark>` pins.
 - **GeoJSON:** RFC 7946 compliant `FeatureCollection` format for GIS tools and Web maps.
 - **CSV:** Raw tabular telemetry with timestamps, lat/lng, speed, and accuracy columns.
 - **ZIP Bundles:** 
   - *Single Activity:* Compresses all 4 formats for a workout into a single `.zip`.
-  - *Full Lifetime Backup:* Archives the raw SQLite database (`turnback.db`), WAL journals, and complete GPX archives in one zip file.
+  - *Full Lifetime Backup:* Archives a consistent snapshot of the SQLite database (`turnback.db`, WAL checkpointed first) plus every session in GPX, KML, GeoJSON and CSV.
 
 ---
 
@@ -63,7 +67,7 @@ Export single activities or your entire workout history directly from device sto
 │   ├── models/               # Geodesic, Activity, & Navigation Models
 │   ├── screens/              # SetupScreen, HudScreen, HistoryScreen, EditorScreen
 │   ├── services/             # DbService, ExportService, BackupService, RallyEngine
-│   └── widgets/              # BreadcrumbPainter (RDP Decimation), OsmMapView
+│   └── widgets/              # BreadcrumbPainter (RDP Decimation), VectorMapView
 ├── docs/                     # Technical Specifications & Documentation
 │   └── idea.md               # Detailed Product Spec & Verification Notes
 ├── test/                     # Mathematical & Unit Test Suites
@@ -74,27 +78,50 @@ Export single activities or your entire workout history directly from device sto
 
 ---
 
-## 🧪 Unit & Math Tests
+## 🧪 Tests
 
-All core algorithms (safety buffer arithmetic, speed hysteresis state machine, multi-format serializers, RDP decimation, and session merging) are verified via comprehensive tests:
+Run the whole suite (no device needed; database tests use a real SQLite engine via `sqflite_common_ffi`):
 
 ```bash
-flutter test test/turnback_math_test.dart
+flutter test
 ```
+
+| Suite | Covers |
+|---|---|
+| `test/session_control_service_test.dart` | Turn-back formula, pause/resume, continue/reset countdown, alarm de-duplication, crash recovery (mocked native channel) |
+| `test/db_service_test.dart` | Schema, foreign-key cascades, atomic clone/merge, turn-back flag, distance cache, legacy-DB migration |
+| `test/track_formats_test.dart` | GPX/TCX/KML well-formedness (parsed with `package:xml`), TCX units and sport, GeoJSON, CSV, elevation gain, tile cache keys |
+| `test/colab_p2p_test.dart` | AES-256-GCM mesh encryption (nonce reuse, tamper detection), URI handshake, models |
+| `test/turnback_math_test.dart` | RDP decimation, hysteresis, reference-route navigation (out-and-back matching, jitter-free cues, off-route) |
+| `test/units_and_cache_test.dart` | Metric / imperial formatting, legacy tile-cache migration, mesh QR rendezvous guard |
+| `test/adaptive_pacing_test.dart`, `test/future_features_test.dart` | Pacing, Kalman / Savitzky-Golay, BLE parsers |
+| `test/track_magic_sheet_test.dart`, `test/strava_relive_test.dart` | Feed card & action sheet widgets, Strava (no credentials ⇒ explicit failure), Relive GPX |
 
 ---
 
 ## 📦 Build Instructions
 
-### Android Debug APK
-To build the debug APK on Linux/macOS:
+### Android APKs (two flavors)
+Run `scripts/setup_development.sh` once (installs/locates Flutter and the Android SDK), then:
 ```bash
-flutter build apk --debug
+# Strict offline tracker
+flutter build apk --debug --flavor offline -t lib/main_offline.dart
+# Offline tracker + LAN/hotspot group mesh + Strava bridge
+flutter build apk --debug --flavor colab -t lib/main_colab.dart
 ```
-The output APK will be placed at:
+Outputs: `build/app/outputs/flutter-apk/app-offline-debug.apk` and `app-colab-debug.apk`.
+
+For a signed release build, create a keystore and `android/key.properties` (both git-ignored):
+```properties
+storeFile=/absolute/path/to/turnback-release.jks
+storePassword=...
+keyAlias=turnback
+keyPassword=...
 ```
-build/app/outputs/flutter-apk/app-debug.apk
-```
+then `flutter build apk --release --flavor offline -t lib/main_offline.dart`. Without `key.properties`, release builds fall back to the debug key (fine for testing, not for publishing).
+
+### Group mesh connectivity (colab flavor)
+Teammates on the same Wi-Fi or phone hotspot find each other automatically. Over mobile data, the host's QR carries its public endpoint (STUN); if a carrier NAT blocks the return path, the host taps **Scan a teammate's QR** on the joiner's phone to open it. All mesh packets are AES-256-GCM encrypted with the session key from the QR.
 
 ---
 
@@ -104,12 +131,14 @@ Control the application headlessly via Android Broadcast Intents:
 
 | Action Intent | Intent Extras | Description |
 |---|---|---|
-| `org.opensource.tracker.START_ACTIVITY` | `duration_mins: int` | Starts background tracking service instantly |
-| `org.opensource.tracker.STOP_ACTIVITY` | None | Stops tracking and saves activity to database |
-| `org.opensource.tracker.GET_CURRENT_STATS` | None | Emits JSON with current distance, pace, speed, and status |
+| `org.opensource.tracker.START_ACTIVITY` | `duration_mins: int` (or `target_duration: int` seconds), `safety_buffer: double` (%), `activity_type: string` | Starts background tracking (ignored if a session is already active or paused) |
+| `org.opensource.tracker.STOP_ACTIVITY` | None | Stops tracking and marks the session completed |
+| `org.opensource.tracker.GET_CURRENT_STATS` | None | Replies with an `org.opensource.tracker.STATS_REPLY` broadcast: `is_running`, `session_id`, `elapsed_seconds`, `distance_km`, `points_logged`, `target_duration`, `safety_buffer` |
+
+> Android 12+ only allows starting the tracking service from the background when TurnBack is exempt from battery optimisation (the app asks for this exemption).
 
 ---
 
 ## 📄 License & Privacy
 
-This project is open-source under the MIT License. It operates **100% locally and offline** without tracking, ads, analytics, or external servers. All data remains exclusively on your device.
+This project is open-source under the GNU Affero General Public License v3.0 (see `LICENSE`). It operates **100% locally and offline** without tracking, ads, analytics, or external servers. All data remains exclusively on your device.

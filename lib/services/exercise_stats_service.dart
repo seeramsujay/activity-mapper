@@ -11,6 +11,7 @@ class ExerciseStats {
   final double maxSpeedKmh;
   final String avgPaceMinKm;
   final String bestPaceMinKm;
+  final double bestMovingSpeedKmh;
   final double elevationGainMeters;
   final double elevationLossMeters;
   final double minAltitudeMeters;
@@ -33,6 +34,7 @@ class ExerciseStats {
     required this.maxSpeedKmh,
     required this.avgPaceMinKm,
     required this.bestPaceMinKm,
+    this.bestMovingSpeedKmh = 0.0,
     required this.elevationGainMeters,
     required this.elevationLossMeters,
     required this.minAltitudeMeters,
@@ -179,6 +181,7 @@ class ExerciseStatsService {
     double maxSpeedMps = 0.0;
     double bestMovingMps = 0.0;
     double elevationGain = 0.0;
+    final elevation = ElevationAccumulator();
     double elevationLoss = 0.0;
     double minAlt = double.maxFinite;
     double maxAlt = -double.maxFinite;
@@ -211,16 +214,11 @@ class ExerciseStatsService {
         final d = 12742 * asin(sqrt(a));
         totalDistanceKm += d;
 
-        final prevAlt = (pPrev['altitude'] as num?)?.toDouble() ?? 0.0;
-        final deltaAlt = alt - prevAlt;
-        // Threshold out barometric noise below 0.3m
-        if (deltaAlt > 0.3) {
-          elevationGain += deltaAlt;
-        } else if (deltaAlt < -0.3) {
-          elevationLoss += deltaAlt.abs();
-        }
       }
+      elevation.add(alt);
     }
+    elevationGain = elevation.gain;
+    elevationLoss = elevation.loss;
 
     final avgAlt = points.isNotEmpty ? (totalAlt / points.length) : 0.0;
     final movingHours = movingDuration.inSeconds / 3600.0;
@@ -251,6 +249,7 @@ class ExerciseStatsService {
       maxSpeedKmh: maxSpeedMps * 3.6,
       avgPaceMinKm: formatPaceFromMps(avgMps),
       bestPaceMinKm: formatPaceFromMps(bestMovingMps),
+      bestMovingSpeedKmh: bestMovingMps * 3.6,
       elevationGainMeters: elevationGain,
       elevationLossMeters: elevationLoss,
       minAltitudeMeters: minAlt.isFinite ? minAlt : 0.0,
@@ -260,5 +259,44 @@ class ExerciseStatsService {
       turnBackDistanceKm: turnBackDistanceKm,
       turnBackTriggeredAt: turnBackTriggeredAt,
     );
+  }
+}
+
+/// Accumulates elevation gain/loss with a hysteresis threshold.
+///
+/// GPS altitude jitters by several metres; summing every positive step turns a flat route into
+/// hundreds of metres of "climbing". A change only counts once it moves [thresholdMeters] away
+/// from the last reference altitude.
+class ElevationAccumulator {
+  /// Minimum sustained change (m) before a climb or descent is counted.
+  final double thresholdMeters;
+
+  double _reference = double.nan;
+  double _gain = 0.0;
+  double _loss = 0.0;
+
+  ElevationAccumulator({this.thresholdMeters = 3.0});
+
+  /// Total counted ascent in metres.
+  double get gain => _gain;
+
+  /// Total counted descent in metres.
+  double get loss => _loss;
+
+  /// Feeds the next altitude sample.
+  void add(double altitude) {
+    if (altitude.isNaN) return;
+    if (_reference.isNaN) {
+      _reference = altitude;
+      return;
+    }
+    final delta = altitude - _reference;
+    if (delta >= thresholdMeters) {
+      _gain += delta;
+      _reference = altitude;
+    } else if (delta <= -thresholdMeters) {
+      _loss += -delta;
+      _reference = altitude;
+    }
   }
 }

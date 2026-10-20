@@ -322,6 +322,13 @@ class _VectorMapViewState extends State<VectorMapView> with SingleTickerProvider
                       ? Offset(size.width * 0.5, size.height * 0.70)
                       : Offset(size.width * 0.5, size.height * 0.50);
 
+                  // One projection shared by the tile layer and the trail painter, so the track
+                  // lines up with the map: square tiles, and in navigation mode the user's
+                  // position sits exactly on the anchor (the rotation/perspective pivot).
+                  final geo = _cameraMode == CameraMode.navigation
+                      ? _TileGeometry.navigation(latestPoint, zoom, size, anchorPoint)
+                      : _TileGeometry.overview(zoom, startX, startY, xCount, yCount, size);
+
                   final Matrix4 cameraTransform = Matrix4.identity();
                   if (isNav) {
                     cameraTransform.setEntry(3, 2, 0.0015); // Perspective projection depth
@@ -348,30 +355,32 @@ class _VectorMapViewState extends State<VectorMapView> with SingleTickerProvider
                                 children: [
                                   // 1. Vector Map Tiles Layer (with 32 MB RAM Texture Cache)
                                   if (widget.showTiles)
-                                    GridView.builder(
-                                      physics: const NeverScrollableScrollPhysics(),
-                                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                        crossAxisCount: xCount,
-                                        childAspectRatio: 1.0,
-                                      ),
-                                      itemCount: xCount * yCount,
-                                      itemBuilder: (context, index) {
-                                        final xOffset = index % xCount;
-                                        final yOffset = index ~/ xCount;
-                                        final tileX = startX + xOffset;
-                                        final tileY = startY + yOffset;
-                                        final url = tileBaseUrl
-                                            .replaceAll('{z}', '$zoom')
-                                            .replaceAll('{x}', '$tileX')
-                                            .replaceAll('{y}', '$tileY');
-                                        return _VectorCachedTile(
-                                          tileUrl: url,
-                                          zoom: zoom,
-                                          tileX: tileX,
-                                          tileY: tileY,
-                                          isDark: isDark,
-                                        );
-                                      },
+                                    Stack(
+                                      clipBehavior: Clip.none,
+                                      children: [
+                                        for (int ty = geo.startY; ty < geo.startY + geo.yCount; ty++)
+                                          for (int tx = geo.startX; tx < geo.startX + geo.xCount; tx++)
+                                            if (geo.isValidTile(tx, ty))
+                                              Positioned(
+                                                left: geo.originX + (tx - geo.startX) * geo.tileSize,
+                                                top: geo.originY + (ty - geo.startY) * geo.tileSize,
+                                                width: geo.tileSize,
+                                                height: geo.tileSize,
+                                                child: _VectorCachedTile(
+                                                  // Keyed by URL so a reused slot never shows a stale tile.
+                                                  key: ValueKey('$tileBaseUrl/$zoom/$tx/$ty'),
+                                                  tileUrl: tileBaseUrl
+                                                      .replaceAll('{z}', '$zoom')
+                                                      .replaceAll('{x}', '$tx')
+                                                      .replaceAll('{y}', '$ty'),
+                                                  tileTemplate: tileBaseUrl,
+                                                  zoom: zoom,
+                                                  tileX: tx,
+                                                  tileY: ty,
+                                                  isDark: isDark,
+                                                ),
+                                              ),
+                                      ],
                                     ),
 
                                   // 2. Vector Trail & Breadcrumbs Painter
@@ -379,11 +388,8 @@ class _VectorMapViewState extends State<VectorMapView> with SingleTickerProvider
                                     size: size,
                                     painter: _VectorTrailPainter(
                                       points: pts,
-                                      zoom: zoom,
-                                      startX: startX,
-                                      startY: startY,
-                                      xCount: xCount,
-                                      yCount: yCount,
+                                      pointCount: pts.length,
+                                      geometry: geo,
                                       accentColor: accentColor,
                                       isReturning: widget.isReturning,
                                       isNavMode: isNav,
@@ -595,13 +601,16 @@ class _VectorMapViewState extends State<VectorMapView> with SingleTickerProvider
 /// Cached tile loader reading from local disk or downloading, stored in [VectorTileTextureCache].
 class _VectorCachedTile extends StatefulWidget {
   final String tileUrl;
+  final String tileTemplate;
   final int zoom;
   final int tileX;
   final int tileY;
   final bool isDark;
 
   const _VectorCachedTile({
+    super.key,
     required this.tileUrl,
+    required this.tileTemplate,
     required this.zoom,
     required this.tileX,
     required this.tileY,
@@ -630,40 +639,62 @@ class _VectorCachedTileState extends State<_VectorCachedTile> {
   }
 
   Future<void> _loadTile() async {
-    final key = '${widget.zoom}_${widget.tileX}_${widget.tileY}';
+    // Key by full URL: the same z/x/y differs between tile providers.
+    final key = widget.tileUrl;
+    final requestedUrl = widget.tileUrl;
+
+    void show(Uint8List bytes) {
+      // Ignore late results for a tile slot that has moved on.
+      if (mounted && widget.tileUrl == requestedUrl) setState(() => _tileBytes = bytes);
+    }
 
     // 1. Check 32 MB RAM Texture Cache
     final memoryHit = VectorTileTextureCache.instance.get(key);
     if (memoryHit != null) {
-      if (mounted) setState(() => _tileBytes = memoryHit);
+      show(memoryHit);
       return;
     }
 
-    // 2. Check local disk cache (/osm_tiles/{z}/{x}/{y}.png)
+    // 2. Check local disk cache (/osm_tiles/<source>/{z}/{x}/{y}.png)
     try {
-      final baseDir = await TileCacheService.instance.cacheDirectory;
-      final file = File('${baseDir.path}/${widget.zoom}/${widget.tileX}/${widget.tileY}.png');
-      if (await file.exists()) {
+      final file = await TileCacheService.instance.getLocalTileFile(
+        widget.zoom,
+        widget.tileX,
+        widget.tileY,
+        tileUrlTemplate: widget.tileTemplate,
+      );
+      if (file != null) {
         final bytes = await file.readAsBytes();
         VectorTileTextureCache.instance.put(key, bytes);
-        if (mounted) setState(() => _tileBytes = bytes);
+        show(bytes);
         return;
       }
     } catch (_) {}
 
-    // 3. Fallback to network tile fetch if online
+    // 3. Fallback to network tile fetch if online; persist it so it works offline next time.
     if (PlatformService.isColabMode || widget.tileUrl.contains('openstreetmap')) {
+      final client = HttpClient()..userAgent = TileCacheService.userAgent;
       try {
-        final client = HttpClient();
-        client.userAgent = 'TurnBack-Endurance-Tracker/1.2.4 (MapLibre-Vector; Android; offline-first)';
         final request = await client.getUrl(Uri.parse(widget.tileUrl));
         final response = await request.close();
         if (response.statusCode == 200) {
           final bytes = await consolidateHttpClientResponseBytes(response);
           VectorTileTextureCache.instance.put(key, bytes);
-          if (mounted) setState(() => _tileBytes = bytes);
+          TileCacheService.instance.saveTileBytes(
+            widget.zoom,
+            widget.tileX,
+            widget.tileY,
+            bytes,
+            tileUrlTemplate: widget.tileTemplate,
+          );
+          show(bytes);
+        } else {
+          await response.drain<void>();
         }
-      } catch (_) {}
+      } catch (_) {
+      } finally {
+        client.close();
+      }
     }
   }
 
@@ -690,14 +721,109 @@ class _VectorCachedTileState extends State<_VectorCachedTile> {
   }
 }
 
-/// Custom painter rendering the 3D GPS route polyline, start point, and turnaround vectors.
-class _VectorTrailPainter extends CustomPainter {
-  final List<Point<double>> points;
+/// Tile layout shared by the tile layer and the trail painter (Web Mercator, slippy-map tiles).
+@immutable
+class _TileGeometry {
   final int zoom;
   final int startX;
   final int startY;
   final int xCount;
   final int yCount;
+  final double tileSize;
+  final double originX;
+  final double originY;
+
+  const _TileGeometry({
+    required this.zoom,
+    required this.startX,
+    required this.startY,
+    required this.xCount,
+    required this.yCount,
+    required this.tileSize,
+    required this.originX,
+    required this.originY,
+  });
+
+  static const double _maxLat = 85.0511;
+
+  /// Fractional slippy-map tile coordinates of a lat/lng at [zoom].
+  static Offset worldTile(double lat, double lon, int zoom) {
+    final n = (1 << zoom).toDouble();
+    final latRad = lat.clamp(-_maxLat, _maxLat) * pi / 180.0;
+    return Offset(
+      (lon + 180.0) / 360.0 * n,
+      (1.0 - log(tan(latRad) + 1.0 / cos(latRad)) / pi) / 2.0 * n,
+    );
+  }
+
+  /// Fits the given tile block inside [size], centred, with square tiles.
+  factory _TileGeometry.overview(int zoom, int startX, int startY, int xCount, int yCount, Size size) {
+    final ts = min(size.width / xCount, size.height / yCount);
+    return _TileGeometry(
+      zoom: zoom,
+      startX: startX,
+      startY: startY,
+      xCount: xCount,
+      yCount: yCount,
+      tileSize: ts,
+      originX: (size.width - xCount * ts) / 2,
+      originY: (size.height - yCount * ts) / 2,
+    );
+  }
+
+  /// Places [user] on [anchor] and covers the screen (plus a margin for rotation and tilt).
+  factory _TileGeometry.navigation(Point<double> user, int zoom, Size size, Offset anchor, {double tileSize = 192}) {
+    final w = worldTile(user.x, user.y, zoom);
+    final margin = 0.35 * max(size.width, size.height);
+    final startX = (w.dx - (anchor.dx + margin) / tileSize).floor();
+    final endX = (w.dx + (size.width - anchor.dx + margin) / tileSize).floor();
+    final startY = (w.dy - (anchor.dy + margin) / tileSize).floor();
+    final endY = (w.dy + (size.height - anchor.dy + margin) / tileSize).floor();
+    return _TileGeometry(
+      zoom: zoom,
+      startX: startX,
+      startY: startY,
+      xCount: endX - startX + 1,
+      yCount: endY - startY + 1,
+      tileSize: tileSize,
+      originX: anchor.dx - (w.dx - startX) * tileSize,
+      originY: anchor.dy - (w.dy - startY) * tileSize,
+    );
+  }
+
+  bool isValidTile(int x, int y) {
+    final n = 1 << zoom;
+    return x >= 0 && y >= 0 && x < n && y < n;
+  }
+
+  /// Screen position of a lat/lng in this layout.
+  Offset project(double lat, double lon) {
+    final w = worldTile(lat, lon, zoom);
+    return Offset(originX + (w.dx - startX) * tileSize, originY + (w.dy - startY) * tileSize);
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is _TileGeometry &&
+      other.zoom == zoom &&
+      other.startX == startX &&
+      other.startY == startY &&
+      other.xCount == xCount &&
+      other.yCount == yCount &&
+      other.tileSize == tileSize &&
+      other.originX == originX &&
+      other.originY == originY;
+
+  @override
+  int get hashCode => Object.hash(zoom, startX, startY, xCount, yCount, tileSize, originX, originY);
+}
+
+/// Custom painter rendering the 3D GPS route polyline, start point, and turnaround vectors.
+class _VectorTrailPainter extends CustomPainter {
+  final List<Point<double>> points;
+  // Snapshot of points.length: the HUD appends to the same list instance.
+  final int pointCount;
+  final _TileGeometry geometry;
   final Color accentColor;
   final bool isReturning;
   final bool isNavMode;
@@ -705,27 +831,15 @@ class _VectorTrailPainter extends CustomPainter {
 
   _VectorTrailPainter({
     required this.points,
-    required this.zoom,
-    required this.startX,
-    required this.startY,
-    required this.xCount,
-    required this.yCount,
+    required this.pointCount,
+    required this.geometry,
     required this.accentColor,
     required this.isReturning,
     required this.isNavMode,
     required this.isDark,
   });
 
-  Offset _toScreenOffset(double lat, double lon, Size size) {
-    final latRad = lat * pi / 180.0;
-    final double worldX = (lon + 180.0) / 360.0 * (1 << zoom);
-    final double worldY = (1.0 - log(tan(latRad) + 1.0 / cos(latRad)) / pi) / 2.0 * (1 << zoom);
-
-    final double relX = (worldX - startX) / xCount;
-    final double relY = (worldY - startY) / yCount;
-
-    return Offset(relX * size.width, relY * size.height);
-  }
+  Offset _toScreenOffset(double lat, double lon, Size size) => geometry.project(lat, lon);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -766,9 +880,12 @@ class _VectorTrailPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _VectorTrailPainter oldDelegate) {
-    return oldDelegate.points.length != points.length ||
-        oldDelegate.zoom != zoom ||
+    return oldDelegate.pointCount != pointCount ||
+        !identical(oldDelegate.points, points) ||
+        oldDelegate.geometry != geometry ||
+        oldDelegate.accentColor != accentColor ||
         oldDelegate.isReturning != isReturning ||
-        oldDelegate.isNavMode != isNavMode;
+        oldDelegate.isNavMode != isNavMode ||
+        oldDelegate.isDark != isDark;
   }
 }

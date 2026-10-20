@@ -11,7 +11,7 @@ void main() {
     'start_time': DateTime(2026, 10, 9, 8, 30).millisecondsSinceEpoch,
     'end_time': DateTime(2026, 10, 9, 9, 15).millisecondsSinceEpoch, // 45 min
     'target_duration': 3600, // 60 min
-    'safety_buffer': 0.08,
+    'safety_buffer': 8.0, // stored as a percentage
     'turn_back_triggered_at': null,
     'status': 'completed',
   };
@@ -95,7 +95,8 @@ void main() {
       expect(find.text('Edit & Trim Activity'), findsOneWidget);
       expect(find.text('Quick Share GPX File'), findsOneWidget);
       expect(find.text('Export Multi-Format Hub'), findsOneWidget);
-      expect(find.text('Upload to Strava'), findsOneWidget);
+      // Strava upload is a network feature: only offered in the colab flavor.
+      expect(find.text('Upload to Strava'), findsNothing);
       expect(find.text('Delete Activity'), findsOneWidget);
 
       // Tap 'CONTINUE RUN' inside the sheet
@@ -138,9 +139,6 @@ void main() {
 
   group('TrackMagicSheet Component Tests', () {
     testWidgets('displays all metric items and actions properly', (WidgetTester tester) async {
-      bool editTapped = false;
-      bool deleteTapped = false;
-
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
@@ -155,8 +153,8 @@ void main() {
                       duration: const Duration(minutes: 50, seconds: 24),
                       mapPoints: samplePoints,
                       onContinue: () {},
-                      onEdit: () => editTapped = true,
-                      onDelete: () => deleteTapped = true,
+                      onEdit: () {},
+                      onDelete: () {},
                     );
                   },
                   child: const Text('OPEN SHEET'),
@@ -183,9 +181,15 @@ void main() {
       await tester.tap(deleteFinder);
       await tester.pumpAndSettle();
 
+      // The dialog is hosted on the opening screen, so it survives the sheet closing.
+      expect(find.byType(TrackMagicSheet), findsNothing);
       expect(find.text('Delete Activity?'), findsOneWidget);
       expect(find.text('CANCEL'), findsOneWidget);
       expect(find.text('DELETE'), findsOneWidget);
+
+      await tester.tap(find.text('CANCEL'));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete Activity?'), findsNothing);
     });
   });
 }

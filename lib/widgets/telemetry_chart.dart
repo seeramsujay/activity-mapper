@@ -7,11 +7,19 @@ class TelemetrySample {
   final double speedKmh;
   final double altitudeMeters;
 
+  /// Heart rate recorded with this sample (null when no sensor was connected).
+  final int? heartRateBpm;
+
+  /// Cadence recorded with this sample (null when no sensor was connected).
+  final int? cadenceRpm;
+
   const TelemetrySample({
     required this.distanceKm,
     required this.elapsedSeconds,
     required this.speedKmh,
     required this.altitudeMeters,
+    this.heartRateBpm,
+    this.cadenceRpm,
   });
 }
 

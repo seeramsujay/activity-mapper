@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -13,20 +14,44 @@ class DbService {
   static final DbService instance = DbService._init();
 
   static Database? _database;
+  static Future<Database>? _opening;
+
+  /// Overrides the on-disk location of the database (tests use an in-memory path).
+  @visibleForTesting
+  static String? debugDatabasePathOverride;
+
+  /// Cached track lengths of completed sessions (their points never change in place).
+  final Map<int, double> _distanceCacheKm = {};
 
   DbService._init();
 
   /// Returns the active SQLite [Database] connection, initializing it if necessary.
   Future<Database> get database async {
     if (_database != null) return _database!;
-    _database = await _initDB('turnback.db');
+    // Concurrent first callers share one open instead of racing to open twice.
+    _opening ??= _initDB('turnback.db');
+    _database = await _opening!;
     return _database!;
   }
 
+  /// Closes the connection and forgets cached state so tests start from a clean database.
+  @visibleForTesting
+  Future<void> resetForTesting() async {
+    await _database?.close();
+    _database = null;
+    _opening = null;
+    _distanceCacheKm.clear();
+  }
+
   /// Resolves the filesystem database path and opens the SQLite database.
+  ///
+  /// The schema version must stay in sync with the native DatabaseHelper.kt, which opens the
+  /// same file and refuses to downgrade.
   Future<Database> _initDB(String filePath) async {
     String path;
-    if (Platform.isAndroid) {
+    if (debugDatabasePathOverride != null) {
+      path = debugDatabasePathOverride!;
+    } else if (Platform.isAndroid) {
       // Matches Android context.getDatabasePath("turnback.db")
       path = join(await getDatabasesPath(), filePath);
     } else {
@@ -38,11 +63,43 @@ class DbService {
     return await openDatabase(
       path,
       version: 1,
+      onConfigure: (db) async {
+        // Required for ON DELETE CASCADE on points.session_id to actually fire.
+        await db.execute('PRAGMA foreign_keys = ON');
+      },
       onCreate: _createDB,
       onOpen: (db) async {
         // Enable Write-Ahead Logging for safe concurrent reads/writes
         await db.rawQuery('PRAGMA journal_mode=WAL;');
+        // Idempotent (no version bump, so the native helper stays compatible).
+        await db.execute(
+            'CREATE INDEX IF NOT EXISTS idx_points_session_time ON points(session_id, timestamp)');
+        await _ensureColumn(db, 'sessions', 'active_elapsed_ms', 'INTEGER');
       },
+    );
+  }
+
+  /// Adds a nullable column to databases created by older app versions (no version bump needed,
+  /// so the native DatabaseHelper, which applies the same check, stays compatible).
+  static Future<void> _ensureColumn(Database db, String table, String column, String type) async {
+    final cols = await db.rawQuery('PRAGMA table_info($table)');
+    if (cols.any((c) => c['name'] == column)) return;
+    try {
+      await db.execute('ALTER TABLE $table ADD COLUMN $column $type');
+    } on DatabaseException catch (e) {
+      // The native side may have added it concurrently.
+      if (!e.toString().contains('duplicate column')) rethrow;
+    }
+  }
+
+  /// Persists the active workout time (excluding pauses) of a session.
+  Future<void> saveActiveElapsed(int sessionId, Duration elapsed) async {
+    final db = await database;
+    await db.update(
+      'sessions',
+      {'active_elapsed_ms': elapsed.inMilliseconds},
+      where: 'id = ?',
+      whereArgs: [sessionId],
     );
   }
 
@@ -57,7 +114,8 @@ class DbService {
         start_time INTEGER NOT NULL,
         end_time INTEGER,
         turn_back_triggered_at INTEGER,
-        status TEXT NOT NULL
+        status TEXT NOT NULL,
+        active_elapsed_ms INTEGER
       )
     ''');
 
@@ -121,6 +179,7 @@ class DbService {
 
   /// Updates the tracking status flag of a session (e.g. active, paused, completed).
   Future<void> updateSessionStatus(int sessionId, String status) async {
+    _distanceCacheKm.remove(sessionId);
     final db = await database;
     await db.update(
       'sessions',
@@ -130,12 +189,27 @@ class DbService {
     );
   }
 
-  /// Sets the timestamp flag indicating that the turnback threshold has been triggered.
-  Future<void> markTurnBackTriggered(int sessionId) async {
+  /// Atomically claims the turn-back alarm for a session.
+  ///
+  /// Returns true if this call set the flag, false if it was already set (e.g. the native GPS
+  /// service fired first). Callers should only sound the alarm when this returns true.
+  Future<bool> markTurnBackTriggered(int sessionId) async {
+    final db = await database;
+    final changed = await db.update(
+      'sessions',
+      {'turn_back_triggered_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'id = ? AND turn_back_triggered_at IS NULL',
+      whereArgs: [sessionId],
+    );
+    return changed > 0;
+  }
+
+  /// Clears the turn-back flag so the alarm can fire again (countdown reset / new target).
+  Future<void> clearTurnBackTriggered(int sessionId) async {
     final db = await database;
     await db.update(
       'sessions',
-      {'turn_back_triggered_at': DateTime.now().millisecondsSinceEpoch},
+      {'turn_back_triggered_at': null},
       where: 'id = ?',
       whereArgs: [sessionId],
     );
@@ -196,20 +270,8 @@ class DbService {
 
     final List<double> distances = [];
     for (final session in results) {
-      final int sid = session['id'] as int;
-      final points = await getPoints(sid);
-      if (points.length < 2) continue;
-
-      double dist = 0.0;
-      for (int i = 0; i < points.length - 1; i++) {
-        dist += calculateDistanceKm(
-          (points[i]['lat'] as num).toDouble(),
-          (points[i]['lng'] as num).toDouble(),
-          (points[i + 1]['lat'] as num).toDouble(),
-          (points[i + 1]['lng'] as num).toDouble(),
-        );
-      }
-      distances.add(dist);
+      final dist = await getSessionDistanceKm(session['id'] as int);
+      if (dist > 0) distances.add(dist);
     }
 
     if (distances.isEmpty) return 0.0;
@@ -222,14 +284,69 @@ class DbService {
     }
   }
 
-  /// Deletes a tracking session and cascadingly deletes all its points.
+  /// Returns the track length of a session in km.
+  ///
+  /// Completed sessions are cached because their points are never modified in place; editing
+  /// operations always create new sessions.
+  Future<double> getSessionDistanceKm(int sessionId) async {
+    final cached = _distanceCacheKm[sessionId];
+    if (cached != null) return cached;
+
+    final db = await database;
+    final rows = await db.query(
+      'points',
+      columns: ['lat', 'lng'],
+      where: 'session_id = ?',
+      whereArgs: [sessionId],
+      orderBy: 'timestamp ASC',
+    );
+    final dist = trackDistanceKm(rows);
+
+    final status = await db.query('sessions',
+        columns: ['status'], where: 'id = ?', whereArgs: [sessionId], limit: 1);
+    if (status.isNotEmpty && status.first['status'] == 'completed') {
+      _distanceCacheKm[sessionId] = dist;
+    }
+    return dist;
+  }
+
+  /// Sums the Haversine length (km) of an ordered list of `lat`/`lng` point rows.
+  static double trackDistanceKm(List<Map<String, dynamic>> points) {
+    double dist = 0.0;
+    for (int i = 1; i < points.length; i++) {
+      dist += calculateDistanceKm(
+        (points[i - 1]['lat'] as num).toDouble(),
+        (points[i - 1]['lng'] as num).toDouble(),
+        (points[i]['lat'] as num).toDouble(),
+        (points[i]['lng'] as num).toDouble(),
+      );
+    }
+    return dist;
+  }
+
+  /// Returns the total number of stored GPS points across all sessions.
+  Future<int> getTotalPointCount() async {
+    final db = await database;
+    return Sqflite.firstIntValue(await db.rawQuery('SELECT COUNT(*) FROM points')) ?? 0;
+  }
+
+  /// Deletes a tracking session and all its points in one transaction.
+  ///
+  /// Points are deleted explicitly as well, so databases created before foreign keys were
+  /// enabled don't keep orphaned rows.
   Future<void> deleteSession(int sessionId) async {
     final db = await database;
-    await db.delete(
-      'sessions',
-      where: 'id = ?',
-      whereArgs: [sessionId],
-    );
+    await db.transaction((txn) async {
+      await txn.delete('points', where: 'session_id = ?', whereArgs: [sessionId]);
+      await txn.delete('sessions', where: 'id = ?', whereArgs: [sessionId]);
+    });
+    _distanceCacheKm.remove(sessionId);
+  }
+
+  /// Removes points whose session no longer exists (left behind by older app versions).
+  Future<int> purgeOrphanPoints() async {
+    final db = await database;
+    return db.rawDelete('DELETE FROM points WHERE session_id NOT IN (SELECT id FROM sessions)');
   }
 
   /// Retrieves all logged coordinate points for a specific session ordered by timestamp.
@@ -246,24 +363,30 @@ class DbService {
   /// Inserts a batch of coordinate points within a single SQL transaction.
   Future<void> insertPointsBatch(int sessionId, List<Map<String, dynamic>> points) async {
     final db = await database;
-    await db.transaction((txn) async {
-      final batch = txn.batch();
-      for (final p in points) {
-        batch.insert('points', {
-          'session_id': sessionId,
-          'timestamp': p['timestamp'],
-          'lat': p['lat'],
-          'lng': p['lng'],
-          'altitude': p['altitude'] ?? 0.0,
-          'accuracy': p['accuracy'] ?? 0.0,
-          'speed': p['speed'] ?? 0.0,
-        });
-      }
-      await batch.commit(noResult: true);
-    });
+    await db.transaction((txn) => _insertPoints(txn, sessionId, points));
+    _distanceCacheKm.remove(sessionId);
   }
 
-  /// Clones a tracking session configuration and inserts its coordinate points batch.
+  Future<void> _insertPoints(Transaction txn, int sessionId, List<Map<String, dynamic>> points) async {
+    final batch = txn.batch();
+    for (final p in points) {
+      batch.insert('points', {
+        'session_id': sessionId,
+        'timestamp': p['timestamp'],
+        'lat': p['lat'],
+        'lng': p['lng'],
+        'altitude': p['altitude'] ?? 0.0,
+        'accuracy': p['accuracy'] ?? 0.0,
+        'speed': p['speed'] ?? 0.0,
+      });
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Clones a tracking session configuration and inserts its coordinate points.
+  ///
+  /// The session row and its points are written in one transaction, so a crash can never leave
+  /// a half-copied activity behind.
   Future<int> cloneSessionWithPoints({
     required String activityType,
     required int targetDuration,
@@ -274,17 +397,18 @@ class DbService {
     required List<Map<String, dynamic>> points,
   }) async {
     final db = await database;
-    final int newSessionId = await db.insert('sessions', {
-      'activity_type': activityType,
-      'target_duration': targetDuration,
-      'safety_buffer': safetyBuffer,
-      'start_time': startTime,
-      'end_time': endTime,
-      'status': status,
+    return db.transaction((txn) async {
+      final int newSessionId = await txn.insert('sessions', {
+        'activity_type': activityType,
+        'target_duration': targetDuration,
+        'safety_buffer': safetyBuffer,
+        'start_time': startTime,
+        'end_time': endTime,
+        'status': status,
+      });
+      await _insertPoints(txn, newSessionId, points);
+      return newSessionId;
     });
-
-    await insertPointsBatch(newSessionId, points);
-    return newSessionId;
   }
 
   /// Merges two sessions chronologically into a new unified session.
@@ -298,8 +422,13 @@ class DbService {
   }) async {
     final db = await database;
 
-    final targetSession = (await db.query('sessions', where: 'id = ?', whereArgs: [targetSessionId])).first;
-    final sourceSession = (await db.query('sessions', where: 'id = ?', whereArgs: [sourceSessionId])).first;
+    final targetRows = await db.query('sessions', where: 'id = ?', whereArgs: [targetSessionId]);
+    final sourceRows = await db.query('sessions', where: 'id = ?', whereArgs: [sourceSessionId]);
+    if (targetRows.isEmpty || sourceRows.isEmpty) {
+      throw StateError('Cannot merge: session $targetSessionId or $sourceSessionId no longer exists');
+    }
+    final targetSession = targetRows.first;
+    final sourceSession = sourceRows.first;
 
     final targetPoints = await getPoints(targetSessionId);
     final sourcePoints = await getPoints(sourceSessionId);
@@ -315,7 +444,7 @@ class DbService {
         : (targetSession['end_time'] as int? ?? DateTime.now().millisecondsSinceEpoch);
 
     final int targetDuration = (targetSession['target_duration'] as int) + (sourceSession['target_duration'] as int);
-    final double safetyBuffer = (targetSession['safety_buffer'] as double);
+    final double safetyBuffer = (targetSession['safety_buffer'] as num).toDouble();
     final String activityType = targetSession['activity_type'] as String;
 
     final int newSessionId = await cloneSessionWithPoints(
@@ -350,10 +479,13 @@ class DbService {
       await txn.delete('points');
       await txn.delete('sessions');
     });
+    _distanceCacheKm.clear();
   }
 
   /// Reactivates a completed session so the user can continue logging GPS points to it.
-  Future<void> reactivateSession(int sessionId, {int? newTargetDurationSeconds}) async {
+  ///
+  /// With [resetTurnBack] the turn-back alarm is re-armed for the new countdown.
+  Future<void> reactivateSession(int sessionId, {int? newTargetDurationSeconds, bool resetTurnBack = false}) async {
     final db = await database;
     final Map<String, dynamic> values = {
       'status': 'active',
@@ -362,6 +494,10 @@ class DbService {
     if (newTargetDurationSeconds != null) {
       values['target_duration'] = newTargetDurationSeconds;
     }
+    if (resetTurnBack) {
+      values['turn_back_triggered_at'] = null;
+    }
+    _distanceCacheKm.remove(sessionId);
     await db.update(
       'sessions',
       values,

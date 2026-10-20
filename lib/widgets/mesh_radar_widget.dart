@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import '../models/teammate.dart';
 import '../services/p2p_mesh_service.dart';
 import 'mesh_qr_widget.dart';
-import 'colab_comms_sheet.dart';
 
 /// Compact HUD badge, comms launcher & expandable bottom sheet showing live P2P mesh teammates.
 class MeshRadarHudWidget extends StatelessWidget {
@@ -25,8 +23,6 @@ class MeshRadarHudWidget extends StatelessWidget {
           return const SizedBox.shrink();
         }
 
-        final activeTeammates = mesh.teammates.where((t) => t.isActive).toList();
-        final count = activeTeammates.length;
         final dropped = mesh.droppedTeammates;
         final ping = mesh.latestPing;
 
@@ -79,7 +75,7 @@ class MeshRadarHudWidget extends StatelessWidget {
                       const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 13),
                       const SizedBox(width: 4),
                       Text(
-                        '${dropped.first.username} is ${dropped.first.formattedDistance} behind',
+                        '${dropped.first.username} is ${dropped.first.formattedDistance} away',
                         style: const TextStyle(color: Colors.orange, fontSize: 10, fontWeight: FontWeight.bold),
                       ),
                     ],

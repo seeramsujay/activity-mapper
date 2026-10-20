@@ -1,8 +1,7 @@
-import 'dart:convert';
 import 'dart:math';
 import 'package:flutter_test/flutter_test.dart';
-import '../lib/services/rally_service.dart';
-import '../lib/widgets/breadcrumb_painter.dart';
+import 'package:turnback/services/rally_service.dart';
+import 'package:turnback/widgets/breadcrumb_painter.dart';
 
 // -----------------------------------------------------------------------------
 // Core Algorithms extracted from UI/Services for isolated mathematical testing
@@ -16,11 +15,6 @@ double calculateDistanceKm(double lat1, double lon1, double lat2, double lon2) {
   return 12742 * asin(sqrt(a)); // Haversine formula (km)
 }
 
-int calculateOutboundLimitSeconds(int targetDurationSeconds, double safetyBufferPct) {
-  final double outboundRatio = (100.0 - safetyBufferPct) / 200.0;
-  return (targetDurationSeconds * outboundRatio).toInt();
-}
-
 String formatSpeedOrPace(double mps, bool isSpeedMode) {
   if (mps <= 0.2) return isSpeedMode ? '0.0' : '--:--';
   if (isSpeedMode) {
@@ -31,75 +25,6 @@ String formatSpeedOrPace(double mps, bool isSpeedMode) {
     final int sec = (secPerKm % 60).toInt();
     return '$min:${sec.toString().padLeft(2, '0')}';
   }
-}
-
-String generateMockGpx(int sessionId, String activityName, List<Map<String, dynamic>> points) {
-  final buffer = StringBuffer();
-  buffer.writeln('<?xml version="1.0" encoding="UTF-8"?>');
-  buffer.writeln('<gpx version="1.1" creator="TurnBack" xmlns="http://www.topografix.com/GPX/1/1">');
-  buffer.writeln('  <trk>');
-  buffer.writeln('    <name>$activityName</name>');
-  buffer.writeln('    <trkseg>');
-  for (final point in points) {
-    final lat = point['lat'];
-    final lng = point['lng'];
-    buffer.writeln('      <trkpt lat="$lat" lon="$lng"></trkpt>');
-  }
-  buffer.writeln('    </trkseg>');
-  buffer.writeln('  </trk>');
-  buffer.writeln('</gpx>');
-  return buffer.toString();
-}
-
-String generateMockKml(int sessionId, String activityName, List<Map<String, dynamic>> points) {
-  final buffer = StringBuffer();
-  buffer.writeln('<?xml version="1.0" encoding="UTF-8"?>');
-  buffer.writeln('<kml xmlns="http://www.opengis.net/kml/2.2">');
-  buffer.writeln('  <Document>');
-  buffer.writeln('    <name>$activityName</name>');
-  buffer.writeln('    <Placemark>');
-  buffer.writeln('      <LineString>');
-  buffer.writeln('        <coordinates>');
-  for (final point in points) {
-    buffer.writeln('          ${point['lng']},${point['lat']},0');
-  }
-  buffer.writeln('        </coordinates>');
-  buffer.writeln('      </LineString>');
-  buffer.writeln('    </Placemark>');
-  buffer.writeln('  </Document>');
-  buffer.writeln('</kml>');
-  return buffer.toString();
-}
-
-String generateMockGeoJson(int sessionId, String activityName, List<Map<String, dynamic>> points) {
-  final coords = points.map((p) => [p['lng'], p['lat'], p['altitude'] ?? 0.0]).toList();
-  final data = {
-    'type': 'FeatureCollection',
-    'features': [
-      {
-        'type': 'Feature',
-        'properties': {'sessionId': sessionId, 'activityName': activityName},
-        'geometry': {'type': 'LineString', 'coordinates': coords},
-      }
-    ],
-  };
-  return jsonEncode(data);
-}
-
-String generateMockCsv(List<Map<String, dynamic>> points) {
-  final buffer = StringBuffer();
-  buffer.writeln('index,timestamp_epoch_ms,datetime_utc,latitude,longitude,altitude_m,accuracy_m,speed_mps,speed_kmh');
-  for (int i = 0; i < points.length; i++) {
-    final p = points[i];
-    final ts = p['timestamp'] ?? 0;
-    final iso = DateTime.fromMillisecondsSinceEpoch(ts as int).toUtc().toIso8601String();
-    final lat = p['lat'];
-    final lng = p['lng'];
-    final alt = p['altitude'] ?? 0.0;
-    final speed = p['speed'] ?? 0.0;
-    buffer.writeln('$i,$ts,$iso,$lat,$lng,$alt,0.0,$speed,${(speed * 3.6).toStringAsFixed(2)}');
-  }
-  return buffer.toString();
 }
 
 // -----------------------------------------------------------------------------
@@ -146,26 +71,8 @@ class SpeedHysteresisTracker {
 // Unit Tests
 // -----------------------------------------------------------------------------
 void main() {
-  group('1. Turn-Back Safety Buffer Math Engine', () {
-    test('Standard 90-minute target with 8% safety buffer', () {
-      final int limit = calculateOutboundLimitSeconds(90 * 60, 8.0);
-      expect(limit, 2484);
-      expect(limit / 60, 41.4);
-    });
-
-    test('Zero percent buffer evaluates to exactly 50/50 time division', () {
-      final int limit = calculateOutboundLimitSeconds(100 * 60, 0.0);
-      expect(limit, 3000);
-      expect(limit / 60, 50.0);
-    });
-
-    test('Maximum 20 percent buffer allocates larger safety cushion for return leg', () {
-      final int limit = calculateOutboundLimitSeconds(60 * 60, 20.0);
-      expect(limit, 1440);
-      expect(limit / 60, 24.0);
-    });
-  });
-
+  // Turn-back threshold math: see session_control_service_test.dart (real implementation).
+  // GPX / KML / GeoJSON / CSV / TCX serializers: see track_formats_test.dart.
   group('2. Speed Hysteresis State Machine', () {
     test('Start in Pace mode: switches to Speed on exactly the 5th consecutive high-speed tick', () {
       final tracker = SpeedHysteresisTracker(isSpeedMode: false);
@@ -197,42 +104,6 @@ void main() {
       expect(formatSpeedOrPace(4.0, false), '4:10');
       expect(formatSpeedOrPace(10.0, true), '36.0');
       expect(formatSpeedOrPace(0.1, false), '--:--');
-    });
-  });
-
-  group('4. Multi-Format Serializers (GPX, KML, GeoJSON, CSV)', () {
-    final mockPoints = [
-      {'lat': 12.3456, 'lng': 78.9101, 'altitude': 100.0, 'speed': 3.5, 'timestamp': 1000000},
-      {'lat': 12.3460, 'lng': 78.9105, 'altitude': 102.0, 'speed': 3.6, 'timestamp': 1005000},
-    ];
-
-    test('GPX 1.1 contains valid tags', () {
-      final gpx = generateMockGpx(1, 'TEST RUN', mockPoints);
-      expect(gpx, contains('<?xml version="1.0" encoding="UTF-8"?>'));
-      expect(gpx, contains('<gpx version="1.1"'));
-      expect(gpx, contains('<name>TEST RUN</name>'));
-      expect(gpx, contains('lat="12.3456" lon="78.9101"'));
-    });
-
-    test('KML contains LineString coordinates', () {
-      final kml = generateMockKml(1, 'TEST RUN', mockPoints);
-      expect(kml, contains('<kml xmlns="http://www.opengis.net/kml/2.2">'));
-      expect(kml, contains('<LineString>'));
-      expect(kml, contains('78.9101,12.3456,0'));
-    });
-
-    test('GeoJSON conforms to RFC 7946 FeatureCollection', () {
-      final geoJson = generateMockGeoJson(1, 'TEST RUN', mockPoints);
-      final parsed = jsonDecode(geoJson) as Map<String, dynamic>;
-      expect(parsed['type'], 'FeatureCollection');
-      expect(parsed['features'][0]['geometry']['type'], 'LineString');
-      expect(parsed['features'][0]['geometry']['coordinates'].length, 2);
-    });
-
-    test('CSV generates valid header and column rows', () {
-      final csv = generateMockCsv(mockPoints);
-      expect(csv, contains('index,timestamp_epoch_ms,datetime_utc,latitude,longitude,altitude_m,accuracy_m,speed_mps,speed_kmh'));
-      expect(csv, contains('12.3456,78.9101,100.0'));
     });
   });
 
@@ -332,6 +203,46 @@ void main() {
 
       final engine = RallyNavigationEngine(referencePoints: mockReferenceRoute);
       expect(engine.cues.length, greaterThanOrEqualTo(2));
+    });
+
+    // Out-and-back reference: 1 km north, then back south along the same road.
+    List<Map<String, dynamic>> outAndBack() => [
+          for (int i = 0; i <= 40; i++) {'lat': i * 0.000225, 'lng': 0.0},
+          for (int i = 39; i >= 0; i--) {'lat': i * 0.000225, 'lng': 0.00002},
+        ];
+
+    test('Out-and-back: matching stays on the outbound leg and announces the U-turn', () {
+      final engine = RallyNavigationEngine(referencePoints: outAndBack());
+      expect(engine.cues.map((c) => c.type), contains(TurnType.uTurn));
+
+      // Walk the outbound leg; the overlapping return leg must not be matched.
+      RallyNavigationState? state;
+      for (int i = 0; i <= 20; i++) {
+        state = engine.updateNavigation(i * 0.000225, 0.0);
+      }
+      expect(state!.isOffRoute, isFalse);
+      expect(state.nextCue!.type, TurnType.uTurn);
+      expect(state.progressKm, closeTo(0.5, 0.05));
+      expect(state.distanceToNextCueMeters, closeTo(500, 50));
+    });
+
+    test('GPS jitter on a straight road produces no turn cues', () {
+      final rng = Random(7);
+      final jittery = [
+        for (int i = 0; i < 400; i++)
+          {'lat': i * 0.00002 + (rng.nextDouble() - 0.5) * 0.00003, 'lng': (rng.nextDouble() - 0.5) * 0.00003},
+      ];
+      final engine = RallyNavigationEngine(referencePoints: jittery);
+      final turns = engine.cues.where((c) => c.type != TurnType.straight && c.type != TurnType.arrival);
+      expect(turns, isEmpty);
+    });
+
+    test('Flags off-route using cross-track distance', () {
+      final engine = RallyNavigationEngine(referencePoints: outAndBack());
+      engine.updateNavigation(0.0009, 0.0);
+      final state = engine.updateNavigation(0.0009, 0.001); // ~110 m east of the road
+      expect(state.isOffRoute, isTrue);
+      expect(state.offRouteMeters, closeTo(108, 10));
     });
   });
 }

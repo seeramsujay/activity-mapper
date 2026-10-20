@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/db_service.dart';
+import '../services/unit_format.dart';
 import '../screens/workout_summary_screen.dart';
 import 'breadcrumb_painter.dart';
 import 'track_magic_sheet.dart';
@@ -43,6 +44,12 @@ class SessionFeedCard extends StatefulWidget {
 }
 
 class _SessionFeedCardState extends State<SessionFeedCard> {
+  // Thumbnail cache so scrolling a long feed doesn't re-read every GPS point of every card.
+  // Keyed by id + end_time because a continued session gets new points under the same id.
+  static final Map<String, (List<Point<double>>, double)> _thumbCache = {};
+  static const int _maxCachedThumbs = 60;
+  static const int _maxThumbPoints = 400;
+
   List<Point<double>> _mapPoints = [];
   double _distanceKm = 0.0;
   bool _isLoading = true;
@@ -59,6 +66,18 @@ class _SessionFeedCardState extends State<SessionFeedCard> {
     }
   }
 
+  @override
+  void didUpdateWidget(SessionFeedCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.session['id'] != widget.session['id'] ||
+        oldWidget.session['end_time'] != widget.session['end_time']) {
+      _isLoading = true;
+      _loadPoints();
+    }
+  }
+
+  String get _cacheKey => '${widget.session['id']}_${widget.session['end_time']}';
+
   double _distanceBetween(double lat1, double lon1, double lat2, double lon2) {
     const pVal = 0.017453292519943295;
     final a = 0.5 - cos((lat2 - lat1) * pVal) / 2 +
@@ -68,6 +87,16 @@ class _SessionFeedCardState extends State<SessionFeedCard> {
   }
 
   Future<void> _loadPoints() async {
+    final key = _cacheKey;
+    final cached = _thumbCache[key];
+    if (cached != null) {
+      setState(() {
+        _mapPoints = cached.$1;
+        _distanceKm = cached.$2;
+        _isLoading = false;
+      });
+      return;
+    }
     try {
       final dbHelper = DbService.instance;
       final points = await dbHelper.getPoints(widget.session['id'] as int);
@@ -85,7 +114,21 @@ class _SessionFeedCardState extends State<SessionFeedCard> {
         }
       }
 
-      if (mounted) {
+      // Downsample for the thumbnail (distance above is computed from every point).
+      if (parsed.length > _maxThumbPoints) {
+        final step = parsed.length / _maxThumbPoints;
+        parsed = [
+          for (int i = 0; i < _maxThumbPoints; i++) parsed[(i * step).floor()],
+          parsed.last,
+        ];
+      }
+      if (_thumbCache.length >= _maxCachedThumbs) {
+        _thumbCache.remove(_thumbCache.keys.first);
+      }
+      _thumbCache[key] = (parsed, dist);
+
+      // Ignore stale results if the card was re-bound to another session meanwhile.
+      if (mounted && key == _cacheKey) {
         setState(() {
           _mapPoints = parsed;
           _distanceKm = dist;
@@ -135,14 +178,8 @@ class _SessionFeedCardState extends State<SessionFeedCard> {
     }
   }
 
-  String _formatPace(double distKm, Duration dur) {
-    if (distKm <= 0.05 || dur.inSeconds <= 0) return '--';
-    final secPerKm = dur.inSeconds / distKm;
-    if (secPerKm > 3600) return '>60m/km';
-    final m = (secPerKm ~/ 60);
-    final s = (secPerKm % 60).round().toString().padLeft(2, '0');
-    return "$m'$s\"/km";
-  }
+  String _formatPace(double distKm, Duration dur) => UnitFormat.paceFromDistance(distKm, dur);
+
 
   void _openMagicMenu() {
     final startMs = widget.session['start_time'] as int? ?? DateTime.now().millisecondsSinceEpoch;
@@ -327,7 +364,7 @@ class _SessionFeedCardState extends State<SessionFeedCard> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            _isLoading ? '...' : '${_distanceKm.toStringAsFixed(2)} KM',
+                            _isLoading ? '...' : UnitFormat.distance(_distanceKm, upper: true),
                             style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: widget.textColor, letterSpacing: -0.5),
                           ),
                           const SizedBox(height: 10),
