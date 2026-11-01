@@ -1,0 +1,48 @@
+name: iOS release build
+
+# Builds an unsigned TurnBack IPA (for sideloading) and attaches it to a GitHub release.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and upload to (e.g. v1.4.0)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  ipa:
+    runs-on: macos-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+          cache: true
+
+      - run: flutter pub get
+
+      # iOS has no flavors; the Runner scheme builds lib/main.dart.
+      - name: Build (no codesign)
+        run: flutter build ios --release --no-codesign -t lib/main.dart
+
+      - name: Package IPA
+        run: |
+          mkdir -p dist/Payload
+          cp -R build/ios/iphoneos/Runner.app dist/Payload/
+          cd dist
+          zip -qry "TurnBack-iOS-$TAG.ipa" Payload
+          shasum -a 256 "TurnBack-iOS-$TAG.ipa" | tee "TurnBack-iOS-$TAG.ipa.sha256"
+
+      - name: Upload to release
+        run: gh release upload "$TAG" "dist/TurnBack-iOS-$TAG.ipa" --clobber -R "$GITHUB_REPOSITORY"
