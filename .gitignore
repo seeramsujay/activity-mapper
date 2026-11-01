@@ -61,6 +61,8 @@ profile
 *.ipa
 *.bundle
 *.xcworkspace
+!ios/Runner.xcworkspace
+!ios/Runner.xcodeproj/project.xcworkspace
 ios/Flutter/Generated.xcconfig
 ios/Flutter/ephemeral/
 ios/Flutter/flutter_export_environment.sh

@@ -32,6 +32,15 @@ jobs:
 
       - run: flutter pub get
 
+      # Tags up to v1.4.0 predate the committed Xcode workspace; recreate the
+      # standard Flutter one if it is missing so `flutter build ios` can run.
+      - name: Ensure Xcode workspace
+        run: |
+          if [ ! -f ios/Runner.xcworkspace/contents.xcworkspacedata ]; then
+            git fetch --depth=1 origin master
+            git checkout FETCH_HEAD -- ios/Runner.xcworkspace ios/Runner.xcodeproj/project.xcworkspace
+          fi
+
       # iOS has no flavors; the Runner scheme builds lib/main.dart.
       - name: Build (no codesign)
         run: flutter build ios --release --no-codesign -t lib/main.dart
