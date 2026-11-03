@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'workout_summary_screen.dart';
+import '../models/location_point.dart';
 import '../services/adaptive_pacing_service.dart';
 import '../services/ble_sensor_service.dart';
 import '../services/db_service.dart';
@@ -55,6 +56,7 @@ class _HudScreenState extends State<HudScreen> {
 
   // Telemetry list
   final List<Point<double>> _points = [];
+  final List<LocationPoint> _telemetryPoints = [];
   final List<TelemetrySample> _chartSamples = [];
 
   // Real-time metrics
@@ -622,6 +624,9 @@ class _HudScreenState extends State<HudScreen> {
               ((p['lat'] ?? 0.0) as num).toDouble(),
               ((p['lng'] ?? 0.0) as num).toDouble(),
             )));
+      _telemetryPoints
+        ..clear()
+        ..addAll(storedPoints.map((p) => LocationPoint.fromMap(p)));
       _chartSamples
         ..clear()
         ..addAll(samples);
@@ -750,6 +755,15 @@ class _HudScreenState extends State<HudScreen> {
         }
 
         _points.add(Point(lat, lng));
+        _telemetryPoints.add(LocationPoint(
+          sessionId: widget.sessionId,
+          timestamp: DateTime.now(),
+          lat: lat,
+          lng: lng,
+          altitude: alt,
+          accuracy: acc,
+          speed: speed,
+        ));
         _currentSpeed = speed;
         _altitude = alt;
         _accuracy = acc;
@@ -896,6 +910,7 @@ class _HudScreenState extends State<HudScreen> {
               // 1. Fullscreen Vector Tile Map Canvas (>90% screen area)
               VectorMapView(
                 points: _points,
+                telemetryPoints: _telemetryPoints,
                 brightness: brightness,
                 isReturning: _freeRunReturning,
                 returnPathRemainingKm: _returnPathRemainingKm,

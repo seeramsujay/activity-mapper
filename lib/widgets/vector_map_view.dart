@@ -8,6 +8,9 @@ import '../services/adaptive_pacing_service.dart';
 import '../services/platform_service.dart';
 import '../services/settings_service.dart';
 import '../services/tile_cache_service.dart';
+import '../models/location_point.dart';
+import '../services/track_gradient_service.dart';
+
 
 /// In-memory LRU Tile Texture Cache strictly capped at 32 MB RAM.
 class VectorTileTextureCache {
@@ -68,6 +71,9 @@ enum CameraMode {
 /// Vector Map Engine Canvas with Dual Camera View Modes and 32 MB RAM Texture Cache.
 class VectorMapView extends StatefulWidget {
   final List<Point<double>> points;
+  final List<LocationPoint>? telemetryPoints;
+  final TrackColorMode? trackColorMode;
+  final ValueChanged<TrackColorMode>? onTrackColorModeChanged;
   final Brightness brightness;
   final bool isReturning;
   final double returnPathRemainingKm;
@@ -77,6 +83,9 @@ class VectorMapView extends StatefulWidget {
   const VectorMapView({
     super.key,
     required this.points,
+    this.telemetryPoints,
+    this.trackColorMode,
+    this.onTrackColorModeChanged,
     required this.brightness,
     this.isReturning = false,
     this.returnPathRemainingKm = 0.0,
@@ -90,6 +99,15 @@ class VectorMapView extends StatefulWidget {
 
 class _VectorMapViewState extends State<VectorMapView> with SingleTickerProviderStateMixin {
   CameraMode _cameraMode = CameraMode.navigation;
+  TrackColorMode _trackColorMode = TrackColorMode.speed;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.trackColorMode != null) {
+      _trackColorMode = widget.trackColorMode!;
+    }
+  }
   double _smoothedHeadingRad = 0.0;
   Offset _manualPanOffset = Offset.zero;
   double _zoomScale = 1.0;
@@ -105,6 +123,9 @@ class _VectorMapViewState extends State<VectorMapView> with SingleTickerProvider
   @override
   void didUpdateWidget(covariant VectorMapView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.trackColorMode != null && widget.trackColorMode != oldWidget.trackColorMode) {
+      _trackColorMode = widget.trackColorMode!;
+    }
     if (widget.points.isNotEmpty && _cameraMode == CameraMode.navigation && !_isManualPanning) {
       _updateSmoothedHeading();
     }
@@ -388,6 +409,8 @@ class _VectorMapViewState extends State<VectorMapView> with SingleTickerProvider
                                     size: size,
                                     painter: _VectorTrailPainter(
                                       points: pts,
+                                      telemetryPoints: widget.telemetryPoints,
+                                      trackColorMode: _trackColorMode,
                                       pointCount: pts.length,
                                       geometry: geo,
                                       accentColor: accentColor,
@@ -451,7 +474,11 @@ class _VectorMapViewState extends State<VectorMapView> with SingleTickerProvider
                     const SizedBox(width: 6),
                     Text(
                       _cameraMode == CameraMode.navigation
-                          ? 'POINT MODE (55° COURSE-UP)'
+                          ? (_trackColorMode == TrackColorMode.speed
+                              ? 'COURSE-UP • SPEED GRADIENT'
+                              : (_trackColorMode == TrackColorMode.elevation
+                                  ? 'COURSE-UP • ELEVATION GRADIENT'
+                                  : 'POINT MODE (55° COURSE-UP)'))
                           : 'SKY VIEW (NORTH-UP)',
                       style: TextStyle(
                         fontSize: 9.5,
@@ -506,6 +533,35 @@ class _VectorMapViewState extends State<VectorMapView> with SingleTickerProvider
                     onTap: () {
                       HapticFeedback.selectionClick();
                       widget.onToggleTiles?.call(!widget.showTiles);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+
+                  // 4. Dynamic Track Gradient Switcher (Geo Tracker style)
+                  _buildErgonomicActionButton(
+                    icon: _trackColorMode == TrackColorMode.speed
+                        ? Icons.speed_rounded
+                        : (_trackColorMode == TrackColorMode.elevation
+                            ? Icons.terrain_rounded
+                            : Icons.palette_outlined),
+                    tooltip: 'Track Style: ${_trackColorMode.name.toUpperCase()}',
+                    isActive: _trackColorMode != TrackColorMode.solid,
+                    activeColor: _trackColorMode == TrackColorMode.speed
+                        ? const Color(0xFF06B6D4)
+                        : const Color(0xFFEAB308),
+                    isDark: isDark,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() {
+                        if (_trackColorMode == TrackColorMode.speed) {
+                          _trackColorMode = TrackColorMode.elevation;
+                        } else if (_trackColorMode == TrackColorMode.elevation) {
+                          _trackColorMode = TrackColorMode.solid;
+                        } else {
+                          _trackColorMode = TrackColorMode.speed;
+                        }
+                      });
+                      widget.onTrackColorModeChanged?.call(_trackColorMode);
                     },
                   ),
                 ],
@@ -821,6 +877,8 @@ class _TileGeometry {
 /// Custom painter rendering the 3D GPS route polyline, start point, and turnaround vectors.
 class _VectorTrailPainter extends CustomPainter {
   final List<Point<double>> points;
+  final List<LocationPoint>? telemetryPoints;
+  final TrackColorMode trackColorMode;
   // Snapshot of points.length: the HUD appends to the same list instance.
   final int pointCount;
   final _TileGeometry geometry;
@@ -831,6 +889,8 @@ class _VectorTrailPainter extends CustomPainter {
 
   _VectorTrailPainter({
     required this.points,
+    this.telemetryPoints,
+    this.trackColorMode = TrackColorMode.speed,
     required this.pointCount,
     required this.geometry,
     required this.accentColor,
@@ -845,32 +905,68 @@ class _VectorTrailPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (points.length < 2) return;
 
-    final path = Path();
     final first = _toScreenOffset(points.first.x, points.first.y, size);
-    path.moveTo(first.dx, first.dy);
 
-    for (int i = 1; i < points.length; i++) {
-      final pt = _toScreenOffset(points[i].x, points[i].y, size);
-      path.lineTo(pt.dx, pt.dy);
+    // Dynamic gradient drawing when telemetryPoints is available and not in solid mode
+    if (!isReturning &&
+        telemetryPoints != null &&
+        telemetryPoints!.length >= 2 &&
+        trackColorMode != TrackColorMode.solid) {
+      final colors = TrackGradientService.computeSegmentColors(
+        points: telemetryPoints!,
+        mode: trackColorMode,
+        defaultColor: accentColor,
+      );
+
+      final double glowWidth = isNavMode ? 10.0 : 7.0;
+      final double trackWidth = isNavMode ? 5.5 : 3.5;
+
+      for (int i = 0; i < points.length - 1 && i < colors.length; i++) {
+        final p1 = _toScreenOffset(points[i].x, points[i].y, size);
+        final p2 = _toScreenOffset(points[i + 1].x, points[i + 1].y, size);
+        final color = colors[i];
+
+        final glowPaint = Paint()
+          ..color = color.withValues(alpha: 0.35)
+          ..strokeWidth = glowWidth
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round;
+        canvas.drawLine(p1, p2, glowPaint);
+
+        final trackPaint = Paint()
+          ..color = color
+          ..strokeWidth = trackWidth
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round;
+        canvas.drawLine(p1, p2, trackPaint);
+      }
+    } else {
+      final path = Path();
+      path.moveTo(first.dx, first.dy);
+
+      for (int i = 1; i < points.length; i++) {
+        final pt = _toScreenOffset(points[i].x, points[i].y, size);
+        path.lineTo(pt.dx, pt.dy);
+      }
+
+      // Outer glow / shadow
+      final glowPaint = Paint()
+        ..color = (isReturning ? const Color(0xFFEF4444) : accentColor).withValues(alpha: 0.3)
+        ..strokeWidth = isNavMode ? 10.0 : 7.0
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+      canvas.drawPath(path, glowPaint);
+
+      // Primary breadcrumb vector track
+      final trackPaint = Paint()
+        ..color = isReturning ? const Color(0xFFEF4444) : accentColor
+        ..strokeWidth = isNavMode ? 5.5 : 3.5
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+      canvas.drawPath(path, trackPaint);
     }
-
-    // Outer glow / shadow
-    final glowPaint = Paint()
-      ..color = accentColor.withValues(alpha: 0.3)
-      ..strokeWidth = isNavMode ? 10.0 : 7.0
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-    canvas.drawPath(path, glowPaint);
-
-    // Primary breadcrumb vector track
-    final trackPaint = Paint()
-      ..color = isReturning ? const Color(0xFFEF4444) : accentColor
-      ..strokeWidth = isNavMode ? 5.5 : 3.5
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-    canvas.drawPath(path, trackPaint);
 
     // Start point marker (Green origin flag)
     final startPaint = Paint()..color = const Color(0xFF10B981);
@@ -882,6 +978,8 @@ class _VectorTrailPainter extends CustomPainter {
   bool shouldRepaint(covariant _VectorTrailPainter oldDelegate) {
     return oldDelegate.pointCount != pointCount ||
         !identical(oldDelegate.points, points) ||
+        !identical(oldDelegate.telemetryPoints, telemetryPoints) ||
+        oldDelegate.trackColorMode != trackColorMode ||
         oldDelegate.geometry != geometry ||
         oldDelegate.accentColor != accentColor ||
         oldDelegate.isReturning != isReturning ||

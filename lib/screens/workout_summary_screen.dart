@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import '../models/location_point.dart';
 import 'package:flutter/services.dart';
 import '../services/db_service.dart';
 import '../services/exercise_stats_service.dart';
@@ -32,6 +33,7 @@ class _WorkoutSummaryScreenState extends State<WorkoutSummaryScreen> with Single
   bool _isLoading = true;
   Map<String, dynamic>? _session;
   List<Map<String, dynamic>> _points = [];
+  List<LocationPoint> _telemetryPoints = [];
   ExerciseStats? _stats;
   List<GraphPoint> _graphPoints = [];
   String? _exportedFeedback;
@@ -53,6 +55,7 @@ class _WorkoutSummaryScreenState extends State<WorkoutSummaryScreen> with Single
     final db = DbService.instance;
     final session = await db.getSession(widget.sessionId);
     final points = await db.getPoints(widget.sessionId);
+    final telemetryPts = points.map((p) => LocationPoint.fromMap(p)).toList();
 
     if (session != null) {
       final start = session['start_time'] as int;
@@ -323,6 +326,7 @@ class _WorkoutSummaryScreenState extends State<WorkoutSummaryScreen> with Single
       borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       child: VectorMapView(
         points: points,
+        telemetryPoints: _telemetryPoints,
         brightness: isDark ? Brightness.dark : Brightness.light,
         isReturning: _session?['turn_back_triggered_at'] != null,
       ),
