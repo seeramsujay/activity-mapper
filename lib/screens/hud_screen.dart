@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'workout_summary_screen.dart';
 import '../models/location_point.dart';
+import '../models/waypoint.dart';
 import '../services/adaptive_pacing_service.dart';
 import '../services/ble_sensor_service.dart';
 import '../services/db_service.dart';
@@ -58,6 +59,7 @@ class _HudScreenState extends State<HudScreen> {
   // Telemetry list
   final List<Point<double>> _points = [];
   final List<LocationPoint> _telemetryPoints = [];
+  final List<Waypoint> _waypoints = [];
   final List<TelemetrySample> _chartSamples = [];
 
   // Real-time metrics
@@ -633,6 +635,16 @@ class _HudScreenState extends State<HudScreen> {
         ..addAll(samples);
       _calculateSummaryMetrics(storedPoints);
     });
+    final storedWaypoints = await dbHelper.getWaypoints(widget.sessionId);
+    if (mounted) {
+      setState(() {
+        _waypoints
+          ..clear()
+          ..addAll(storedWaypoints);
+      });
+    }
+    if (false) {
+    });
 
     if (_turnBackTriggered) {
       _startFlashingTimer();
@@ -912,6 +924,7 @@ class _HudScreenState extends State<HudScreen> {
               VectorMapView(
                 points: _points,
                 telemetryPoints: _telemetryPoints,
+                waypoints: _waypoints,
                 brightness: brightness,
                 isReturning: _freeRunReturning,
                 returnPathRemainingKm: _returnPathRemainingKm,
@@ -2015,22 +2028,35 @@ class _HudScreenState extends State<HudScreen> {
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  onPressed: () {
+                  onPressed: () async {
                     final name = textController.text.trim().isEmpty ? selectedCategory : textController.text.trim();
                     Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Row(
-                          children: [
-                            const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
-                            const SizedBox(width: 8),
-                            Text('Waypoint "$name" marked!'),
-                          ],
-                        ),
-                        behavior: SnackBarBehavior.floating,
-                        backgroundColor: const Color(0xFF10B981),
-                      ),
+                    final wp = Waypoint(
+                      sessionId: widget.sessionId,
+                      timestamp: DateTime.now(),
+                      lat: _points.isNotEmpty ? _points.last.x : 0.0,
+                      lng: _points.isNotEmpty ? _points.last.y : 0.0,
+                      altitude: _altitude > 0 ? _altitude : null,
+                      name: name,
+                      category: selectedCategory.toLowerCase(),
                     );
+                    await DbService.instance.insertWaypoint(wp);
+                    if (mounted) {
+                      setState(() => _waypoints.add(wp));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Row(
+                            children: [
+                              const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+                              const SizedBox(width: 8),
+                              Text('Waypoint "$name" marked!'),
+                            ],
+                          ),
+                          behavior: SnackBarBehavior.floating,
+                          backgroundColor: const Color(0xFF10B981),
+                        ),
+                      );
+                    }
                   },
                   child: const Text('SAVE WAYPOINT', style: TextStyle(fontWeight: FontWeight.w900)),
                 ),

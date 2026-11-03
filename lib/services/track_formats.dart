@@ -34,6 +34,7 @@ class TrackFormats {
     String activityName, {
     List<double>? altitudes,
     DateTime? exportedAt,
+    List<Map<String, dynamic>>? waypoints,
   }) {
     final name = xmlEscape(activityName);
     final buffer = StringBuffer()
@@ -46,7 +47,29 @@ class TrackFormats {
       ..writeln('  <metadata>')
       ..writeln('    <name>$name</name>')
       ..writeln('    <time>${(exportedAt ?? DateTime.now()).toUtc().toIso8601String()}</time>')
-      ..writeln('  </metadata>')
+      ..writeln('  </metadata>');
+
+    if (waypoints != null && waypoints.isNotEmpty) {
+      for (final w in waypoints) {
+        final wName = xmlEscape((w['name'] as String?) ?? 'Waypoint');
+        final wDesc = w['description'] != null ? xmlEscape(w['description'] as String) : null;
+        final wCat = xmlEscape((w['category'] as String?) ?? 'pin');
+        final ele = _num(w['altitude']);
+        buffer
+          ..write('  <wpt lat="${_coord(w['lat'])}" lon="${_coord(w['lng'])}">')
+          ..write('<ele>${ele.toStringAsFixed(1)}</ele>')
+          ..write('<time>${_isoUtc(w['timestamp'] as int)}</time>')
+          ..write('<name>$wName</name>')
+          ..write('<sym>$wCat</sym>')
+          ..write('<type>$wCat</type>');
+        if (wDesc != null && wDesc.isNotEmpty) {
+          buffer.write('<desc>$wDesc</desc>');
+        }
+        buffer.writeln('</wpt>');
+      }
+    }
+
+    buffer
       ..writeln('  <trk>')
       ..writeln('    <name>$name</name>')
       ..writeln('    <trkseg>');
@@ -72,7 +95,11 @@ class TrackFormats {
   }
 
   /// Google Earth KML with start/finish placemarks and the route LineString.
-  static String buildKml(List<Map<String, dynamic>> points, String activityName) {
+  static String buildKml(
+    List<Map<String, dynamic>> points,
+    String activityName, {
+    List<Map<String, dynamic>>? waypoints,
+  }) {
     final name = xmlEscape(activityName);
     final buffer = StringBuffer()
       ..writeln('<?xml version="1.0" encoding="UTF-8"?>')
@@ -96,6 +123,24 @@ class TrackFormats {
           ..writeln('      <name>${entry.$1}</name>')
           ..writeln('      <Point>')
           ..writeln('        <coordinates>${coord(entry.$2)}</coordinates>')
+          ..writeln('      </Point>')
+          ..writeln('    </Placemark>');
+      }
+    }
+
+    if (waypoints != null && waypoints.isNotEmpty) {
+      for (final w in waypoints) {
+        final wName = xmlEscape((w['name'] as String?) ?? 'Waypoint');
+        final wDesc = w['description'] != null ? xmlEscape(w['description'] as String) : null;
+        buffer
+          ..writeln('    <Placemark>')
+          ..writeln('      <name>$wName</name>');
+        if (wDesc != null && wDesc.isNotEmpty) {
+          buffer.writeln('      <description>$wDesc</description>');
+        }
+        buffer
+          ..writeln('      <Point>')
+          ..writeln('        <coordinates>${coord(w)}</coordinates>')
           ..writeln('      </Point>')
           ..writeln('    </Placemark>');
       }

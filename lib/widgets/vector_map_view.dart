@@ -9,6 +9,7 @@ import '../services/platform_service.dart';
 import '../services/settings_service.dart';
 import '../services/tile_cache_service.dart';
 import '../models/location_point.dart';
+import '../models/waypoint.dart';
 import '../services/track_gradient_service.dart';
 
 
@@ -72,6 +73,7 @@ enum CameraMode {
 class VectorMapView extends StatefulWidget {
   final List<Point<double>> points;
   final List<LocationPoint>? telemetryPoints;
+  final List<Waypoint>? waypoints;
   final TrackColorMode? trackColorMode;
   final ValueChanged<TrackColorMode>? onTrackColorModeChanged;
   final Brightness brightness;
@@ -84,6 +86,7 @@ class VectorMapView extends StatefulWidget {
     super.key,
     required this.points,
     this.telemetryPoints,
+    this.waypoints,
     this.trackColorMode,
     this.onTrackColorModeChanged,
     required this.brightness,
@@ -410,6 +413,7 @@ class _VectorMapViewState extends State<VectorMapView> with SingleTickerProvider
                                     painter: _VectorTrailPainter(
                                       points: pts,
                                       telemetryPoints: widget.telemetryPoints,
+                                      waypoints: widget.waypoints,
                                       trackColorMode: _trackColorMode,
                                       pointCount: pts.length,
                                       geometry: geo,
@@ -878,6 +882,7 @@ class _TileGeometry {
 class _VectorTrailPainter extends CustomPainter {
   final List<Point<double>> points;
   final List<LocationPoint>? telemetryPoints;
+  final List<Waypoint>? waypoints;
   final TrackColorMode trackColorMode;
   // Snapshot of points.length: the HUD appends to the same list instance.
   final int pointCount;
@@ -890,6 +895,7 @@ class _VectorTrailPainter extends CustomPainter {
   _VectorTrailPainter({
     required this.points,
     this.telemetryPoints,
+    this.waypoints,
     this.trackColorMode = TrackColorMode.speed,
     required this.pointCount,
     required this.geometry,
@@ -972,6 +978,38 @@ class _VectorTrailPainter extends CustomPainter {
     final startPaint = Paint()..color = const Color(0xFF10B981);
     canvas.drawCircle(first, 6.0, startPaint);
     canvas.drawCircle(first, 8.0, Paint()..color = Colors.white..style = PaintingStyle.stroke..strokeWidth = 2);
+
+    // Render Waypoints / POIs pinned along the route (OsmAnd / GPSLogger style)
+    if (waypoints != null && waypoints!.isNotEmpty) {
+      for (final w in waypoints!) {
+        final pt = _toScreenOffset(w.lat, w.lng, size);
+        Color catColor;
+        switch (w.category.toLowerCase()) {
+          case 'water':
+            catColor = const Color(0xFF06B6D4);
+            break;
+          case 'view':
+            catColor = const Color(0xFFA855F7);
+            break;
+          case 'camp':
+            catColor = const Color(0xFF10B981);
+            break;
+          case 'hazard':
+            catColor = const Color(0xFFEF4444);
+            break;
+          default:
+            catColor = const Color(0xFFF59E0B);
+        }
+
+        // Drop shadow circle
+        canvas.drawCircle(pt, 10.0, Paint()..color = Colors.black.withValues(alpha: 0.35));
+        // Outer colored ring
+        canvas.drawCircle(pt, 8.5, Paint()..color = Colors.white);
+        canvas.drawCircle(pt, 7.0, Paint()..color = catColor);
+        // Center white dot
+        canvas.drawCircle(pt, 2.5, Paint()..color = Colors.white);
+      }
+    }
   }
 
   @override

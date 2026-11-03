@@ -42,6 +42,29 @@ void main() {
       final doc = XmlDocument.parse(TrackFormats.buildGpx(points, 'x', altitudes: [1.0, 2.0]));
       expect(doc.findAllElements('ele').map((e) => e.innerText), ['1.0', '2.0']);
     });
+
+    test('serializes waypoints into <wpt> tags with name, sym, and elevation', () {
+      final waypoints = [
+        {
+          'lat': 12.9715,
+          'lng': 77.5945,
+          'altitude': 920.0,
+          'timestamp': 1700000010000,
+          'name': 'Fresh Spring',
+          'category': 'water',
+          'description': 'Potable drinking water',
+        },
+      ];
+      final gpx = TrackFormats.buildGpx(points, 'Hike', waypoints: waypoints);
+      final doc = XmlDocument.parse(gpx);
+      final wpt = doc.findAllElements('wpt').single;
+      expect(wpt.getAttribute('lat'), '12.9715000');
+      expect(wpt.getAttribute('lon'), '77.5945000');
+      expect(wpt.findElements('name').single.innerText, 'Fresh Spring');
+      expect(wpt.findElements('sym').single.innerText, 'water');
+      expect(wpt.findElements('desc').single.innerText, 'Potable drinking water');
+      expect(wpt.findElements('ele').single.innerText, '920.0');
+    });
   });
 
   group('TCX', () {

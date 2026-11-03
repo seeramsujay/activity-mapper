@@ -21,13 +21,15 @@ class ExportService {
   /// Generates a standard GPX 1.1 XML string for the specified session.
   Future<String> generateGpxString(int sessionId, String activityName) async {
     final points = await DbService.instance.getPoints(sessionId);
-    return TrackFormats.buildGpx(points, activityName);
+    final waypoints = await DbService.instance.getWaypointMaps(sessionId);
+    return TrackFormats.buildGpx(points, activityName, waypoints: waypoints);
   }
 
   /// Generates a Google Earth compatible KML string for the session.
   Future<String> generateKmlString(int sessionId, String activityName) async {
     final points = await DbService.instance.getPoints(sessionId);
-    return TrackFormats.buildKml(points, activityName);
+    final waypoints = await DbService.instance.getWaypointMaps(sessionId);
+    return TrackFormats.buildKml(points, activityName, waypoints: waypoints);
   }
 
   /// Generates an RFC 7946 compliant GeoJSON string for the session.

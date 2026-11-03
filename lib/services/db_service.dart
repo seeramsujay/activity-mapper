@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
+import '../models/waypoint.dart';
 
 /// Local database helper class using SQLite.
 ///
@@ -75,6 +76,21 @@ class DbService {
         await db.execute(
             'CREATE INDEX IF NOT EXISTS idx_points_session_time ON points(session_id, timestamp)');
         await _ensureColumn(db, 'sessions', 'active_elapsed_ms', 'INTEGER');
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS waypoints (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL,
+            timestamp INTEGER NOT NULL,
+            lat REAL NOT NULL,
+            lng REAL NOT NULL,
+            altitude REAL,
+            name TEXT NOT NULL,
+            category TEXT NOT NULL,
+            description TEXT,
+            FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE CASCADE
+          )
+        ''');
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_waypoints_session ON waypoints(session_id);');
       },
     );
   }
@@ -129,6 +145,21 @@ class DbService {
         altitude REAL NOT NULL,
         accuracy REAL NOT NULL,
         speed REAL NOT NULL,
+        FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE waypoints (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL,
+        timestamp INTEGER NOT NULL,
+        lat REAL NOT NULL,
+        lng REAL NOT NULL,
+        altitude REAL,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        description TEXT,
         FOREIGN KEY (session_id) REFERENCES sessions (id) ON DELETE CASCADE
       )
     ''');
@@ -505,5 +536,39 @@ class DbService {
       whereArgs: [sessionId],
     );
   }
-}
 
+  /// Inserts a new waypoint recorded during a tracking session.
+  Future<int> insertWaypoint(Waypoint waypoint) async {
+    final db = await database;
+    return await db.insert('waypoints', waypoint.toMap());
+  }
+
+  /// Retrieves all waypoints recorded for a session.
+  Future<List<Waypoint>> getWaypoints(int sessionId) async {
+    final db = await database;
+    final results = await db.query(
+      'waypoints',
+      where: 'session_id = ?',
+      whereArgs: [sessionId],
+      orderBy: 'timestamp ASC',
+    );
+    return results.map((m) => Waypoint.fromMap(m)).toList();
+  }
+
+  /// Retrieves raw maps of waypoints for serialization.
+  Future<List<Map<String, dynamic>>> getWaypointMaps(int sessionId) async {
+    final db = await database;
+    return await db.query(
+      'waypoints',
+      where: 'session_id = ?',
+      whereArgs: [sessionId],
+      orderBy: 'timestamp ASC',
+    );
+  }
+
+  /// Deletes a waypoint by ID.
+  Future<int> deleteWaypoint(int id) async {
+    final db = await database;
+    return await db.delete('waypoints', where: 'id = ?', whereArgs: [id]);
+  }
+}
