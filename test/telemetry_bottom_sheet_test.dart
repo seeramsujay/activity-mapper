@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:turnback/services/exercise_stats_service.dart';
 import 'package:turnback/widgets/interactive_telemetry_graph.dart';
 import 'package:turnback/widgets/telemetry_bottom_sheet.dart';
 
 void main() {
   testWidgets(
-      'TelemetryBottomSheet displays glanceable speed, distance and time',
+      'TelemetryBottomSheet displays glanceable speed, distance, splits and time',
       (tester) async {
-    tester.view.physicalSize = const Size(800, 1200);
+    tester.view.physicalSize = const Size(800, 1400);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(() => tester.view.resetPhysicalSize());
 
@@ -26,12 +27,24 @@ void main() {
                 maxSpeedMps: 8.0,
                 distanceKm: 4.52,
                 elapsed: const Duration(minutes: 25, seconds: 30),
+                movingDuration: const Duration(minutes: 23, seconds: 15),
                 altitude: 120.0,
                 totalAscent: 45.0,
                 totalDescent: 12.0,
                 activityType: 'run',
                 isSpeedMode: true,
                 isPaused: false,
+                splits: const [
+                  SplitLap(
+                    number: 1,
+                    distanceKm: 1.0,
+                    duration: Duration(minutes: 5, seconds: 10),
+                    avgSpeedKmh: 11.6,
+                    paceMinKm: '5:10',
+                    elevationGainMeters: 10,
+                    elevationLossMeters: 2,
+                  ),
+                ],
                 graphPoints: const [
                   GraphPoint(
                       distanceKm: 0.0,
@@ -78,5 +91,17 @@ void main() {
 
     // Verify elevation card is displayed
     expect(find.text('ELEVATION & INCLINE'), findsOneWidget);
+
+    // Verify moving time is displayed
+    expect(find.text('MOVING TIME'), findsOneWidget);
+    expect(find.text('STOPPED TIME'), findsOneWidget);
+
+    // Scroll down inside the sheet's ListView to reveal lap splits card
+    await tester.scrollUntilVisible(
+      find.text('LAP SPLITS'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('LAP SPLITS'), findsOneWidget);
   });
 }

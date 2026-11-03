@@ -100,6 +100,13 @@ class _HudScreenState extends State<HudScreen> {
   int _adaptiveHysteresisTicks = 5;
   static const double _speedThresholdMps = 5.0; // 18 km/h
 
+  List<SplitLap> get _liveSplits {
+    if (_telemetryPoints.length < 2) return const [];
+    return ExerciseStatsService.computeSplits(
+      _telemetryPoints.map((p) => p.toMap()).toList(),
+    );
+  }
+
   double get _liveCalories => ExerciseStatsService.calculateCaloriesBurnt(
     activityType: widget.activityType,
     distanceKm: _distanceKm,
@@ -964,6 +971,8 @@ class _HudScreenState extends State<HudScreen> {
                 maxSpeedMps: _maxSpeed,
                 distanceKm: _distanceKm,
                 elapsed: _elapsed,
+                movingDuration: _elapsed,
+                splits: _liveSplits,
                 altitude: _altitude,
                 totalAscent: _totalAscent,
                 totalDescent: _totalDescent,

@@ -36,6 +36,7 @@ class _WorkoutSummaryScreenState extends State<WorkoutSummaryScreen> with Single
   List<LocationPoint> _telemetryPoints = [];
   ExerciseStats? _stats;
   List<GraphPoint> _graphPoints = [];
+  List<SplitLap> _splits = [];
   String? _exportedFeedback;
 
   @override
@@ -85,6 +86,8 @@ class _WorkoutSummaryScreenState extends State<WorkoutSummaryScreen> with Single
         turnBackTriggeredAt: turnBackTriggered,
       );
 
+      final splits = ExerciseStatsService.computeSplits(points);
+
       // Build graph points
       double cumDist = 0.0;
       const p = 0.017453292519943295;
@@ -121,6 +124,7 @@ class _WorkoutSummaryScreenState extends State<WorkoutSummaryScreen> with Single
           _session = session;
           _points = points;
           _stats = stats;
+          _splits = splits;
           _graphPoints = gPoints;
           _isLoading = false;
         });
@@ -413,9 +417,13 @@ class _WorkoutSummaryScreenState extends State<WorkoutSummaryScreen> with Single
 
         // 3. Detailed Exercise Breakdown Table
         _buildExerciseStatsTable(stats, cardBg, textColor, borderColor, accentColor),
+        const SizedBox(height: 16),
+
+        // 4. Lap Splits Breakdown Table (Geo Tracker & Strava style)
+        _buildSplitsTable(_splits, cardBg, textColor, borderColor, accentColor),
         const SizedBox(height: 20),
 
-        // 4. Multi-Format Exporter Hub
+        // 5. Multi-Format Exporter Hub
         _buildExportHub(cardBg, textColor, borderColor, accentColor),
         const SizedBox(height: 32),
       ],
@@ -524,6 +532,7 @@ class _WorkoutSummaryScreenState extends State<WorkoutSummaryScreen> with Single
           _buildDetailRow('Average Altitude', UnitFormat.elevation(stats.avgAltitudeMeters), textColor),
           const Divider(height: 16),
           _buildDetailRow('Active Moving Duration', _formatDuration(stats.movingDuration), textColor),
+          _buildDetailRow('Paused / Stopped Time', _formatDuration(stats.stoppedDuration), textColor),
           _buildDetailRow('Total Elapsed Duration', _formatDuration(stats.totalDuration), textColor),
           _buildDetailRow('Active Moving Ratio', '${(stats.activeMovingRatio * 100).toStringAsFixed(0)}%', textColor),
           _buildDetailRow('Logged Trackpoints', '${stats.totalTrackpoints} nodes', textColor),
@@ -542,6 +551,109 @@ class _WorkoutSummaryScreenState extends State<WorkoutSummaryScreen> with Single
         children: [
           Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color.withValues(alpha: 0.7))),
           Text(value, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w900, color: color)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSplitsTable(List<SplitLap> splits, Color cardBg, Color textColor, Color borderColor, Color accentColor) {
+    if (splits.isEmpty) return const SizedBox.shrink();
+    return Container(
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: borderColor, width: 1.5),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.timer_outlined, size: 16, color: accentColor),
+                  const SizedBox(width: 8),
+                  Text(
+                    'LAP SPLITS (1 KM)',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.8,
+                      color: textColor.withValues(alpha: 0.7),
+                    ),
+                  ),
+                ],
+              ),
+              Text(
+                '${splits.length} Laps',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: textColor.withValues(alpha: 0.5)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 36,
+                  child: Text('LAP', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: textColor.withValues(alpha: 0.5))),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: Text('PACE', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: textColor.withValues(alpha: 0.5))),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: Text('TIME', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: textColor.withValues(alpha: 0.5))),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: Text('ELEVATION', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: textColor.withValues(alpha: 0.5)), textAlign: TextAlign.right),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          const SizedBox(height: 6),
+          ...splits.map((s) {
+            final gainStr = UnitFormat.elevation(s.elevationGainMeters, sign: '+');
+            final lossStr = UnitFormat.elevation(s.elevationLossMeters, sign: '-');
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 36,
+                    child: Container(
+                      width: 22,
+                      height: 22,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: accentColor.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text('${s.number}', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: accentColor)),
+                    ),
+                  ),
+                  Expanded(
+                    flex: 3,
+                    child: Text('${s.paceMinKm} /km', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: textColor)),
+                  ),
+                  Expanded(
+                    flex: 3,
+                    child: Text(_formatDuration(s.duration), style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: textColor.withValues(alpha: 0.8))),
+                  ),
+                  Expanded(
+                    flex: 3,
+                    child: Text('$gainStr / $lossStr', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: textColor.withValues(alpha: 0.7)), textAlign: TextAlign.right),
+                  ),
+                ],
+              ),
+            );
+          }),
         ],
       ),
     );

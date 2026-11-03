@@ -47,6 +47,43 @@ class ExerciseStats {
     this.turnBackDistanceKm,
     this.turnBackTriggeredAt,
   });
+
+  /// Duration spent paused or stationary.
+  Duration get stoppedDuration {
+    final diff = totalDuration - movingDuration;
+    return diff.isNegative ? Duration.zero : diff;
+  }
+}
+
+/// Represents a fixed-distance interval split (e.g. 1.0 km or 1.0 mile).
+class SplitLap {
+  final int number;
+  final double distanceKm;
+  final Duration duration;
+  final double avgSpeedKmh;
+  final String paceMinKm;
+  final double elevationGainMeters;
+  final double elevationLossMeters;
+
+  const SplitLap({
+    required this.number,
+    required this.distanceKm,
+    required this.duration,
+    required this.avgSpeedKmh,
+    required this.paceMinKm,
+    this.elevationGainMeters = 0.0,
+    this.elevationLossMeters = 0.0,
+  });
+
+  Map<String, dynamic> toMap() => {
+        'number': number,
+        'distanceKm': distanceKm,
+        'durationMs': duration.inMilliseconds,
+        'avgSpeedKmh': avgSpeedKmh,
+        'paceMinKm': paceMinKm,
+        'elevationGainMeters': elevationGainMeters,
+        'elevationLossMeters': elevationLossMeters,
+      };
 }
 
 /// Service computing energy expenditure (MET calories) and endurance metrics.
@@ -68,7 +105,10 @@ class ExerciseStatsService {
     final type = activityType.toLowerCase();
 
     // 1. Motor Vehicle / Driving: Low baseline sedentary MET (~1.5)
-    if (type.contains('vehicle') || type.contains('drive') || type.contains('car') || type.contains('motor')) {
+    if (type.contains('vehicle') ||
+        type.contains('drive') ||
+        type.contains('car') ||
+        type.contains('motor')) {
       return (1.5 * userWeightKg * hours).clamp(0.0, 10000.0);
     }
 
@@ -80,7 +120,9 @@ class ExerciseStatsService {
     }
 
     // 3. Cycling: Speed-dependent aerodynamic power MET formulation
-    if (type.contains('ride') || type.contains('cycle') || type.contains('bike')) {
+    if (type.contains('ride') ||
+        type.contains('cycle') ||
+        type.contains('bike')) {
       final avgSpeed = hours > 0 ? (distanceKm / hours) : 0.0;
       double met;
       if (avgSpeed < 16.0) {
@@ -111,7 +153,10 @@ class ExerciseStatsService {
     required double speedKmh,
   }) {
     final type = activityType.toLowerCase();
-    if (type.contains('vehicle') || type.contains('drive') || type.contains('car') || type.contains('motor')) {
+    if (type.contains('vehicle') ||
+        type.contains('drive') ||
+        type.contains('car') ||
+        type.contains('motor')) {
       return 1.5;
     }
     if (type.contains('run') || type.contains('jog')) {
@@ -122,7 +167,9 @@ class ExerciseStatsService {
       if (speedKmh <= 14.5) return 12.8;
       return 14.5;
     }
-    if (type.contains('ride') || type.contains('cycle') || type.contains('bike')) {
+    if (type.contains('ride') ||
+        type.contains('cycle') ||
+        type.contains('bike')) {
       if (speedKmh < 16.0) return 6.0;
       if (speedKmh < 20.0) return 8.0;
       if (speedKmh < 25.0) return 10.0;
@@ -143,6 +190,129 @@ class ExerciseStatsService {
     final sec = (secPerKm % 60).round();
     if (min > 99) return '--:--';
     return '$min:${sec.toString().padLeft(2, '0')}';
+  }
+
+  /// Helper to extract epoch milliseconds from diverse timestamp types (int, String, DateTime).
+  static int _extractTimestampMs(dynamic ts) {
+    if (ts is int) return ts;
+    if (ts is num) return ts.toInt();
+    if (ts is DateTime) return ts.millisecondsSinceEpoch;
+    if (ts is String) {
+      final parsedInt = int.tryParse(ts);
+      if (parsedInt != null) return parsedInt;
+      final parsedDate = DateTime.tryParse(ts);
+      if (parsedDate != null) return parsedDate.millisecondsSinceEpoch;
+    }
+    return 0;
+  }
+
+  /// Divides [points] into sequential distance splits (default 1.0 km interval).
+  static List<SplitLap> computeSplits(
+    List<Map<String, dynamic>> points, {
+    double splitIntervalKm = 1.0,
+  }) {
+    if (points.length < 2 || splitIntervalKm <= 0.0) return [];
+
+    final splits = <SplitLap>[];
+    int currentLapNumber = 1;
+    double currentLapDist = 0.0;
+    double currentLapDurationMs = 0.0;
+    double currentLapGain = 0.0;
+    double currentLapLoss = 0.0;
+
+    const p = 0.017453292519943295;
+
+    for (int i = 1; i < points.length; i++) {
+      final pPrev = points[i - 1];
+      final pCur = points[i];
+
+      final lat1 = (pPrev['lat'] as num).toDouble();
+      final lon1 = (pPrev['lng'] as num).toDouble();
+      final lat2 = (pCur['lat'] as num).toDouble();
+      final lon2 = (pCur['lng'] as num).toDouble();
+
+      final a = 0.5 -
+          cos((lat2 - lat1) * p) / 2 +
+          cos(lat1 * p) * cos(lat2 * p) * (1 - cos((lon2 - lon1) * p)) / 2;
+      double segDist = 12742 * asin(sqrt(a));
+
+      final t1 = _extractTimestampMs(pPrev['timestamp']);
+      final t2 = _extractTimestampMs(pCur['timestamp']);
+      double segDt = (t2 > t1) ? (t2 - t1).toDouble() : 0.0;
+
+      final alt1 = (pPrev['altitude'] as num?)?.toDouble() ?? 0.0;
+      final alt2 = (pCur['altitude'] as num?)?.toDouble() ?? 0.0;
+      final dAlt = alt2 - alt1;
+
+      while (segDist > 0 && (currentLapDist + segDist) >= splitIntervalKm) {
+        final needed = splitIntervalKm - currentLapDist;
+        final ratio = (segDist > 0) ? (needed / segDist).clamp(0.0, 1.0) : 1.0;
+        final dtPart = segDt * ratio;
+
+        currentLapDist += needed;
+        currentLapDurationMs += dtPart;
+        if (dAlt > 0) {
+          currentLapGain += dAlt * ratio;
+        } else if (dAlt < 0) {
+          currentLapLoss += (-dAlt) * ratio;
+        }
+
+        final dur = Duration(milliseconds: currentLapDurationMs.round());
+        final durHours = currentLapDurationMs / 3600000.0;
+        final speedKmh = durHours > 0 ? (currentLapDist / durHours) : 0.0;
+        final paceMps = currentLapDurationMs > 0
+            ? (currentLapDist * 1000.0) / (currentLapDurationMs / 1000.0)
+            : 0.0;
+
+        splits.add(SplitLap(
+          number: currentLapNumber++,
+          distanceKm: currentLapDist,
+          duration: dur,
+          avgSpeedKmh: speedKmh,
+          paceMinKm: formatPaceFromMps(paceMps),
+          elevationGainMeters: currentLapGain,
+          elevationLossMeters: currentLapLoss,
+        ));
+
+        segDist -= needed;
+        segDt -= dtPart;
+        currentLapDist = 0.0;
+        currentLapDurationMs = 0.0;
+        currentLapGain = 0.0;
+        currentLapLoss = 0.0;
+      }
+
+      if (segDist > 0) {
+        currentLapDist += segDist;
+        currentLapDurationMs += segDt;
+        if (dAlt > 0) {
+          currentLapGain += dAlt;
+        } else if (dAlt < 0) {
+          currentLapLoss += (-dAlt);
+        }
+      }
+    }
+
+    if (currentLapDist >= 0.05) {
+      final dur = Duration(milliseconds: currentLapDurationMs.round());
+      final durHours = currentLapDurationMs / 3600000.0;
+      final speedKmh = durHours > 0 ? (currentLapDist / durHours) : 0.0;
+      final paceMps = currentLapDurationMs > 0
+          ? (currentLapDist * 1000.0) / (currentLapDurationMs / 1000.0)
+          : 0.0;
+
+      splits.add(SplitLap(
+        number: currentLapNumber,
+        distanceKm: currentLapDist,
+        duration: dur,
+        avgSpeedKmh: speedKmh,
+        paceMinKm: formatPaceFromMps(paceMps),
+        elevationGainMeters: currentLapGain,
+        elevationLossMeters: currentLapLoss,
+      ));
+    }
+
+    return splits;
   }
 
   /// Computes full [ExerciseStats] from a list of raw point maps from SQLite.
@@ -213,7 +383,6 @@ class ExerciseStatsService {
             cos(lat1 * p) * cos(lat2 * p) * (1 - cos((lon2 - lon1) * p)) / 2;
         final d = 12742 * asin(sqrt(a));
         totalDistanceKm += d;
-
       }
       elevation.add(alt);
     }

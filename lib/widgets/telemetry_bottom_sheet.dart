@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../services/exercise_stats_service.dart';
 import '../services/unit_format.dart';
 import 'interactive_telemetry_graph.dart';
 
@@ -15,6 +16,7 @@ class TelemetryBottomSheet extends StatefulWidget {
   final double maxSpeedMps;
   final double distanceKm;
   final Duration elapsed;
+  final Duration? movingDuration;
   final double altitude;
   final double totalAscent;
   final double totalDescent;
@@ -24,6 +26,7 @@ class TelemetryBottomSheet extends StatefulWidget {
   final bool isReturning;
   final Duration? remainingReturnDuration;
   final List<GraphPoint> graphPoints;
+  final List<SplitLap>? splits;
   final VoidCallback onTogglePause;
   final VoidCallback onFinish;
   final VoidCallback onAddWaypoint;
@@ -40,6 +43,7 @@ class TelemetryBottomSheet extends StatefulWidget {
     required this.maxSpeedMps,
     required this.distanceKm,
     required this.elapsed,
+    this.movingDuration,
     required this.altitude,
     required this.totalAscent,
     required this.totalDescent,
@@ -49,6 +53,7 @@ class TelemetryBottomSheet extends StatefulWidget {
     this.isReturning = false,
     this.remainingReturnDuration,
     required this.graphPoints,
+    this.splits,
     required this.onTogglePause,
     required this.onFinish,
     required this.onAddWaypoint,
@@ -179,13 +184,25 @@ class _TelemetryBottomSheetState extends State<TelemetryBottomSheet> {
 
               const SizedBox(height: 14),
 
-              // 5. Extended Performance Telemetry
+              // 5. Extended Performance Telemetry (Moving/Stopped time & 4-card grid)
               _buildPerformanceGrid(
                 textColor: textColor,
                 subtextColor: subtextColor,
                 surfaceBg: surfaceBg,
                 borderColor: borderColor,
               ),
+
+              // 6. Lap Splits Card (Geo Tracker & Strava style)
+              if (widget.splits != null && widget.splits!.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                _buildSplitsCard(
+                  textColor: textColor,
+                  subtextColor: subtextColor,
+                  surfaceBg: surfaceBg,
+                  borderColor: borderColor,
+                  accentColor: widget.accentColor,
+                ),
+              ],
 
               const SizedBox(height: 24),
             ],
@@ -557,7 +574,7 @@ class _TelemetryBottomSheetState extends State<TelemetryBottomSheet> {
     );
   }
 
-  /// 4-box grid of secondary metrics: Max Speed, Avg Speed, Return Time, Calorie estimate.
+  /// 6-box grid of secondary metrics: Max Speed, Avg Speed, Moving Time, Stopped Time, Altitude, Outbound/Return.
   Widget _buildPerformanceGrid({
     required Color textColor,
     required Color subtextColor,
@@ -566,6 +583,10 @@ class _TelemetryBottomSheetState extends State<TelemetryBottomSheet> {
   }) {
     final avgKmh = widget.avgSpeedMps * 3.6;
     final maxKmh = widget.maxSpeedMps * 3.6;
+    final movingDur = widget.movingDuration ?? widget.elapsed;
+    final stoppedDur = (widget.elapsed - movingDur).isNegative
+        ? Duration.zero
+        : widget.elapsed - movingDur;
 
     return GridView.count(
       crossAxisCount: 2,
@@ -590,6 +611,26 @@ class _TelemetryBottomSheetState extends State<TelemetryBottomSheet> {
           value: UnitFormat.speedKmh(maxKmh),
           icon: Icons.flash_on_rounded,
           iconColor: const Color(0xFFF59E0B),
+          textColor: textColor,
+          subtextColor: subtextColor,
+          surfaceBg: surfaceBg,
+          borderColor: borderColor,
+        ),
+        _buildStatCard(
+          title: 'MOVING TIME',
+          value: _formatElapsed(movingDur),
+          icon: Icons.directions_run_rounded,
+          iconColor: const Color(0xFF10B981),
+          textColor: textColor,
+          subtextColor: subtextColor,
+          surfaceBg: surfaceBg,
+          borderColor: borderColor,
+        ),
+        _buildStatCard(
+          title: 'STOPPED TIME',
+          value: _formatElapsed(stoppedDur),
+          icon: Icons.pause_circle_outline_rounded,
+          iconColor: const Color(0xFFF97316),
           textColor: textColor,
           subtextColor: subtextColor,
           surfaceBg: surfaceBg,
@@ -622,6 +663,177 @@ class _TelemetryBottomSheetState extends State<TelemetryBottomSheet> {
           borderColor: borderColor,
         ),
       ],
+    );
+  }
+
+  /// Split lap breakdown card inspired by Strava & Geo Tracker.
+  Widget _buildSplitsCard({
+    required Color textColor,
+    required Color subtextColor,
+    required Color surfaceBg,
+    required Color borderColor,
+    required Color accentColor,
+  }) {
+    final splits = widget.splits!;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: surfaceBg,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.timer_outlined, size: 18, color: accentColor),
+                  const SizedBox(width: 8),
+                  Text(
+                    'LAP SPLITS',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                      color: textColor,
+                      letterSpacing: 0.6,
+                    ),
+                  ),
+                ],
+              ),
+              Text(
+                '${splits.length} Laps',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: subtextColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // Split table header
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 32,
+                  child: Text(
+                    '#',
+                    style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        color: subtextColor),
+                  ),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: Text(
+                    'PACE',
+                    style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        color: subtextColor),
+                  ),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: Text(
+                    'TIME',
+                    style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        color: subtextColor),
+                  ),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: Text(
+                    'ELEVATION',
+                    style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        color: subtextColor),
+                    textAlign: TextAlign.right,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Divider(color: borderColor, height: 1),
+          const SizedBox(height: 4),
+          ...splits.map((s) {
+            final gainStr =
+                UnitFormat.elevation(s.elevationGainMeters, sign: '+');
+            final lossStr =
+                UnitFormat.elevation(s.elevationLossMeters, sign: '-');
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 32,
+                    child: Container(
+                      width: 20,
+                      height: 20,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: accentColor.withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        '${s.number}',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w900,
+                          color: accentColor,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      '${s.paceMinKm} /km',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: textColor,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      _formatElapsed(s.duration),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: subtextColor,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      '$gainStr / $lossStr',
+                      style: TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w600,
+                        color: subtextColor,
+                      ),
+                      textAlign: TextAlign.right,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
     );
   }
 

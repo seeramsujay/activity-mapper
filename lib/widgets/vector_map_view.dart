@@ -527,15 +527,19 @@ class _VectorMapViewState extends State<VectorMapView> with SingleTickerProvider
                   ),
                   const SizedBox(height: 12),
 
-                  // 3. Tile Layer Toggle (68dp x 68dp)
+                  // 3. Tile Layer & Map Style Picker (OsmAnd / Organic Maps modal)
                   _buildErgonomicActionButton(
                     icon: widget.showTiles ? Icons.layers_rounded : Icons.layers_clear_rounded,
-                    tooltip: 'Toggle Offline Vector / OSM Tiles',
+                    tooltip: 'Map Layers & Visual Styles (Tap to open, hold to toggle)',
                     isActive: widget.showTiles,
                     activeColor: accentColor,
                     isDark: isDark,
                     onTap: () {
-                      HapticFeedback.selectionClick();
+                      HapticFeedback.mediumImpact();
+                      _showMapLayersModal(context);
+                    },
+                    onLongPress: () {
+                      HapticFeedback.heavyImpact();
                       widget.onToggleTiles?.call(!widget.showTiles);
                     },
                   ),
@@ -585,6 +589,7 @@ class _VectorMapViewState extends State<VectorMapView> with SingleTickerProvider
     required Color activeColor,
     required bool isDark,
     required VoidCallback onTap,
+    VoidCallback? onLongPress,
   }) {
     return Semantics(
       button: true,
@@ -604,6 +609,7 @@ class _VectorMapViewState extends State<VectorMapView> with SingleTickerProvider
             child: InkWell(
               customBorder: const CircleBorder(),
               onTap: onTap,
+              onLongPress: onLongPress,
               child: Center(
                 child: Icon(
                   icon,
@@ -651,6 +657,334 @@ class _VectorMapViewState extends State<VectorMapView> with SingleTickerProvider
               size: 13,
               color: Colors.white,
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  static const List<Map<String, dynamic>> _tileSources = [
+    {
+      'title': 'Standard OpenStreetMap',
+      'subtitle': 'Default worldwide crowd-sourced map',
+      'url': 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      'icon': Icons.public_rounded,
+    },
+    {
+      'title': 'OpenTopoMap (Topographic)',
+      'subtitle': 'Elevation contours, hillshading & summits',
+      'url': 'https://a.tile.opentopomap.org/{z}/{x}/{y}.png',
+      'icon': Icons.filter_hdr_rounded,
+    },
+    {
+      'title': 'CartoDB Dark Matter',
+      'subtitle': 'Ultra-dark contrast for night runs & rides',
+      'url': 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+      'icon': Icons.dark_mode_rounded,
+    },
+    {
+      'title': 'Humanitarian OSM (HOT)',
+      'subtitle': 'High-contrast trails, unpaved roads & footpaths',
+      'url': 'https://a.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
+      'icon': Icons.explore_rounded,
+    },
+    {
+      'title': 'Google Maps (Satellite & Hybrid)',
+      'subtitle': 'Photorealistic satellite aerial imagery',
+      'url': 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+      'icon': Icons.satellite_alt_rounded,
+    },
+    {
+      'title': 'Google Maps (Terrain)',
+      'subtitle': 'Topographic shading and elevation contours',
+      'url': 'https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}',
+      'icon': Icons.terrain_rounded,
+    },
+    {
+      'title': 'Google Maps (Roadmap)',
+      'subtitle': 'Clear street grid with live vector styling',
+      'url': 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+      'icon': Icons.map_rounded,
+    },
+  ];
+
+  void _showMapLayersModal(BuildContext context) {
+    final isDark = widget.brightness == Brightness.dark;
+    final bgColor = isDark ? const Color(0xFF181C24) : Colors.white;
+    final cardBg = isDark ? const Color(0xFF222834) : const Color(0xFFF3F4F6);
+    final borderColor = isDark ? const Color(0xFF2D333F) : const Color(0xFFE5E7EB);
+    final textColor = isDark ? Colors.white : const Color(0xFF111827);
+    final accentColor = Theme.of(context).colorScheme.primary;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            final currentTileSource = SettingsService.instance.mapTileSource;
+            return Container(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(ctx).size.height * 0.78,
+              ),
+              decoration: BoxDecoration(
+                color: bgColor,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                border: Border.all(color: borderColor),
+              ),
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: isDark ? Colors.white24 : Colors.black12,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.layers_rounded, color: accentColor, size: 22),
+                          const SizedBox(width: 10),
+                          Text(
+                            'MAP LAYERS & STYLES',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.8,
+                              color: textColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded),
+                        color: textColor.withValues(alpha: 0.6),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // 1. Toggle Base Tiles Switch
+                  Container(
+                    decoration: BoxDecoration(
+                      color: cardBg,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: borderColor),
+                    ),
+                    child: SwitchListTile(
+                      value: widget.showTiles,
+                      activeColor: accentColor,
+                      title: Text(
+                        'Render Map Tiles',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: textColor,
+                        ),
+                      ),
+                      subtitle: Text(
+                        widget.showTiles
+                            ? 'Displaying offline vector / OSM tiles'
+                            : 'Clean high-contrast vector grid only (OLED eco mode)',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: textColor.withValues(alpha: 0.6),
+                        ),
+                      ),
+                      onChanged: (val) {
+                        HapticFeedback.selectionClick();
+                        widget.onToggleTiles?.call(val);
+                        setModalState(() {});
+                        setState(() {});
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+
+                  // 2. Base Map Tile Providers
+                  Text(
+                    'BASE MAP PROVIDER',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.8,
+                      color: textColor.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  ..._tileSources.map((tile) {
+                    final isSelected = currentTileSource == tile['url'];
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: InkWell(
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          SettingsService.instance.setMapTileSource(tile['url'] as String);
+                          setModalState(() {});
+                          setState(() {});
+                        },
+                        borderRadius: BorderRadius.circular(14),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                          decoration: BoxDecoration(
+                            color: isSelected ? accentColor.withValues(alpha: 0.15) : cardBg,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: isSelected ? accentColor : borderColor,
+                              width: isSelected ? 1.5 : 1.0,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                tile['icon'] as IconData,
+                                color: isSelected ? accentColor : textColor.withValues(alpha: 0.6),
+                                size: 20,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      tile['title'] as String,
+                                      style: TextStyle(
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w800,
+                                        color: textColor,
+                                      ),
+                                    ),
+                                    Text(
+                                      tile['subtitle'] as String,
+                                      style: TextStyle(
+                                        fontSize: 10.5,
+                                        color: textColor.withValues(alpha: 0.5),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (isSelected)
+                                Icon(Icons.check_circle_rounded, color: accentColor, size: 20),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                  const SizedBox(height: 14),
+
+                  // 3. Track Color Mode
+                  Text(
+                    'TRACK GRADIENT COLOR',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.8,
+                      color: textColor.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      _buildGradientModeChip(
+                        mode: TrackColorMode.speed,
+                        label: 'Speed',
+                        icon: Icons.speed_rounded,
+                        activeColor: const Color(0xFF06B6D4),
+                        textColor: textColor,
+                        cardBg: cardBg,
+                        borderColor: borderColor,
+                        setModalState: setModalState,
+                      ),
+                      const SizedBox(width: 8),
+                      _buildGradientModeChip(
+                        mode: TrackColorMode.elevation,
+                        label: 'Elevation',
+                        icon: Icons.terrain_rounded,
+                        activeColor: const Color(0xFFEAB308),
+                        textColor: textColor,
+                        cardBg: cardBg,
+                        borderColor: borderColor,
+                        setModalState: setModalState,
+                      ),
+                      const SizedBox(width: 8),
+                      _buildGradientModeChip(
+                        mode: TrackColorMode.solid,
+                        label: 'Solid',
+                        icon: Icons.palette_outlined,
+                        activeColor: accentColor,
+                        textColor: textColor,
+                        cardBg: cardBg,
+                        borderColor: borderColor,
+                        setModalState: setModalState,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildGradientModeChip({
+    required TrackColorMode mode,
+    required String label,
+    required IconData icon,
+    required Color activeColor,
+    required Color textColor,
+    required Color cardBg,
+    required Color borderColor,
+    required StateSetter setModalState,
+  }) {
+    final isSelected = _trackColorMode == mode;
+    return Expanded(
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          setState(() => _trackColorMode = mode);
+          widget.onTrackColorModeChanged?.call(mode);
+          setModalState(() {});
+        },
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+          decoration: BoxDecoration(
+            color: isSelected ? activeColor.withValues(alpha: 0.15) : cardBg,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isSelected ? activeColor : borderColor,
+              width: isSelected ? 1.5 : 1.0,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 20, color: isSelected ? activeColor : textColor.withValues(alpha: 0.6)),
+              const SizedBox(height: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: isSelected ? activeColor : textColor,
+                ),
+              ),
+            ],
           ),
         ),
       ),
