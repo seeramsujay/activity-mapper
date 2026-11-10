@@ -1,0 +1,30 @@
+---
+name: MegaLinter
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  megalinter:
+    name: MegaLinter Quality Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Run MegaLinter
+        uses: oxsecurity/megalinter@v8
+        env:
+          VALIDATE_ALL_CODE_BASE: true
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
