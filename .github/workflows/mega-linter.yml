@@ -24,7 +24,7 @@ jobs:
           fetch-depth: 0
 
       - name: Run MegaLinter
-        uses: oxsecurity/megalinter@v8
+        uses: oxsecurity/megalinter/flavors/cupcake@v8
         env:
-          VALIDATE_ALL_CODE_BASE: true
+          VALIDATE_ALL_CODEBASE: true
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
