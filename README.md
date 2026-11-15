@@ -40,7 +40,7 @@ Export single activities or your entire workout history directly from device sto
 - **KML:** Google Earth formatted `<LineString>` and start/finish `<Placemark>` pins.
 - **GeoJSON:** RFC 7946 compliant `FeatureCollection` format for GIS tools and Web maps.
 - **CSV:** Raw tabular telemetry with timestamps, lat/lng, speed, and accuracy columns.
-- **ZIP Bundles:** 
+- **ZIP Bundles:**
   - *Single Activity:* Compresses all 4 formats for a workout into a single `.zip`.
   - *Full Lifetime Backup:* Archives a consistent snapshot of the SQLite database (`turnback.db`, WAL checkpointed first) plus every session in GPX, KML, GeoJSON and CSV.
 
@@ -49,7 +49,7 @@ Export single activities or your entire workout history directly from device sto
 ## 🛠️ Technology Stack
 
 - **UI & Presentation:** Flutter (Dart 3.x, Material 3, Pure Vanilla CustomPainter)
-- **Background Location Engine:** 
+- **Background Location Engine:**
   - **Android:** Native Foreground Service (`GpsLoggingService.kt`) with `WAKE_LOCK`, `FOREGROUND_SERVICE_LOCATION`, and direct WAL-mode SQLite writes.
 - **Database:** SQLite with Write-Ahead Logging (`PRAGMA journal_mode=WAL;`)
 - **Archiving & Compression:** Pure Dart `archive` library for fast on-device zip generation.
@@ -58,7 +58,7 @@ Export single activities or your entire workout history directly from device sto
 
 ## 📁 Project Architecture
 
-```
+```text
 .
 ├── android/                  # Android Native Layer
 │   └── app/src/main/kotlin/  # GpsLoggingService.kt, AutomationReceiver.kt, DBHelper.kt

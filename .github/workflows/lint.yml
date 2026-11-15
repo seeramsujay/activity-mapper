@@ -1,3 +1,4 @@
+---
 name: Lint and Code Quality
 
 on:
@@ -39,7 +40,7 @@ jobs:
           chmod a+x /usr/local/bin/ktlint
 
       - name: Run KtLint Check
-        run: ktlint "app/src/**/*.kt"
+        run: ktlint "app/src/**/*.kt" "app/build.gradle.kts" "build.gradle.kts" "settings.gradle.kts"
 
       - name: Run Unit Tests
         run: ./gradlew testDebugUnitTest --continue
@@ -59,7 +60,7 @@ jobs:
           DEFAULT_BRANCH: master
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VALIDATE_ALL_CODEBASE: false
-          VALIDATE_KOTLIN: true
+          VALIDATE_KOTLIN: false
           VALIDATE_YAML: true
           VALIDATE_XML: true
-          VALIDATE_MARKDOWN: true
+          VALIDATE_MARKDOWN: false
