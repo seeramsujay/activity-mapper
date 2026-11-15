@@ -141,7 +141,7 @@ class TrackingService : Service(), LocationListener {
         return START_STICKY
     }
 
-    private fun startTracking(
+    fun startTracking(
         targetSec: Long,
         beta: Double,
         activityType: ActivityType
