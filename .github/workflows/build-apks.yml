@@ -150,6 +150,29 @@ jobs:
         run: |
           echo "Publishing complete suite of APKs for tag: $TAG"
           ls -la release-assets/
+
+          NOTES_FILE=$(mktemp)
+          cat << 'EOF' > "$NOTES_FILE"
+          Automated release build providing a comprehensive set of APK binaries (Native Jetpack Compose & Flutter, Per-ABI splits, and Offline/Colab flavors).
+
+          ### 📦 Included APK Binaries:
+
+          #### 1. Native Jetpack Compose (Modern Material 3 Rebuild)
+          - Universal APK: TurnBack-Compose-universal-release.apk
+          - ARM 64-bit (Modern devices): TurnBack-Compose-arm64-v8a-release.apk
+          - ARM 32-bit (Older devices): TurnBack-Compose-armeabi-v7a-release.apk
+          - x86_64 (Emulators): TurnBack-Compose-x86_64-release.apk
+
+          #### 2. Flutter Offline Flavor (100% Offline GPS & Local Maps)
+          - Universal: TurnBack-Flutter-offline-release.apk
+          - Per-ABI Splits: arm64-v8a, armeabi-v7a, x86_64
+
+          #### 3. Flutter Colab Flavor (P2P Mesh Group Rides & Strava)
+          - Universal: TurnBack-Flutter-colab-release.apk
+          - Per-ABI Splits: arm64-v8a, armeabi-v7a, x86_64
+
+          *Verified via CodeRabbit AI Review & GitHub Super-Linter.*
+          EOF
           
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG exists, uploading assets..."
@@ -158,23 +181,5 @@ jobs:
             echo "Creating new release for $TAG..."
             gh release create "$TAG" release-assets/* \
               --title "TurnBack $TAG" \
-              --notes "Automated release build providing a comprehensive set of APK binaries (Native Jetpack Compose & Flutter, Per-ABI splits, and Offline/Colab flavors).
-
-### 📦 Included APK Binaries:
-
-#### 1. Native Jetpack Compose (Modern Material 3 Rebuild)
-- **Universal:** `TurnBack-Compose-$TAG-universal-release.apk`
-- **ARM 64-bit (Most modern phones):** `TurnBack-Compose-$TAG-arm64-v8a-release.apk`
-- **ARM 32-bit (Older phones):** `TurnBack-Compose-$TAG-armeabi-v7a-release.apk`
-- **x86_64 (Emulators / Chromebooks):** `TurnBack-Compose-$TAG-x86_64-release.apk`
-
-#### 2. Flutter Offline Flavor (100% Offline GPS & Local Maps)
-- **Universal:** `TurnBack-Flutter-$TAG-offline-release.apk`
-- **Per-ABI Splits:** `TurnBack-Flutter-$TAG-offline-arm64-v8a-release.apk`, `armeabi-v7a`, `x86_64`
-
-#### 3. Flutter Colab Flavor (P2P Mesh Group Rides & Strava)
-- **Universal:** `TurnBack-Flutter-$TAG-colab-release.apk`
-- **Per-ABI Splits:** `TurnBack-Flutter-$TAG-colab-arm64-v8a-release.apk`, `armeabi-v7a`, `x86_64`
-
-*Verified via CodeRabbit AI Review & GitHub Super-Linter.*"
+              --notes-file "$NOTES_FILE"
           fi
