@@ -15,8 +15,8 @@ permissions:
   contents: write
 
 jobs:
-  build-compose-apk:
-    name: Build Native Jetpack Compose APK
+  build-compose-apks:
+    name: Build Jetpack Compose APKs (Per-ABI & Universal)
     runs-on: ubuntu-latest
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
@@ -35,33 +35,33 @@ jobs:
       - name: Grant Execute Permission to Gradlew
         run: chmod +x gradlew
 
-      - name: Build Debug & Release APKs
-        run: ./gradlew assembleDebug assembleRelease --stacktrace
+      - name: Build Compose APKs
+        run: ./gradlew assembleRelease --stacktrace
 
-      - name: Package Compose APK Artifact
-        id: package-compose
+      - name: Package Compose APKs
         run: |
           mkdir -p dist
           TAG="${{ github.ref_name || inputs.tag }}"
-          # Prefer release APK if signed, otherwise fallback to debug APK
-          if [ -f app/build/outputs/apk/release/app-release-unsigned.apk ]; then
-            cp app/build/outputs/apk/release/app-release-unsigned.apk "dist/TurnBack-Compose-$TAG-unsigned.apk"
-          fi
-          if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
-            cp app/build/outputs/apk/debug/app-debug.apk "dist/TurnBack-Compose-$TAG-debug.apk"
-          fi
+          
+          # Copy all produced release APKs (Universal and Per-ABI: arm64-v8a, armeabi-v7a, x86_64)
+          find app/build/outputs/apk/release/ -name "*.apk" | while read -r apk_file; do
+            base_name=$(basename "$apk_file")
+            clean_name=$(echo "$base_name" | sed "s/app-/TurnBack-Compose-$TAG-/")
+            cp "$apk_file" "dist/$clean_name"
+          done
+          
           cd dist
-          shasum -a 256 TurnBack-Compose-*.apk | tee sha256_compose.txt
+          shasum -a 256 *.apk | tee sha256_compose.txt
           ls -la
 
       - name: Upload Compose APK Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: compose-apk
+          name: compose-apks
           path: dist/
 
-  build-flutter-apk:
-    name: Build Legacy Flutter APK
+  build-flutter-apks:
+    name: Build Legacy Flutter APKs (Offline & Colab, Per-ABI & Universal)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code from Flutter archive
@@ -84,36 +84,48 @@ jobs:
           flutter-version: 3.24.5
           cache: true
 
-      - name: Build Flutter APK
+      - name: Build Flutter Offline APKs (Universal + Per-ABI splits)
         working-directory: flutter-source
         run: |
           flutter pub get
-          flutter build apk --debug
-          flutter build apk --release --no-tree-shake-icons || flutter build apk --release
+          # 1. Universal Offline APK
+          flutter build apk --flavor offline --target lib/main_offline.dart --release
+          # 2. Per-ABI split Offline APKs (arm64-v8a, armeabi-v7a, x86_64)
+          flutter build apk --flavor offline --target lib/main_offline.dart --release --split-per-abi
 
-      - name: Package Flutter APK Artifact
+      - name: Build Flutter Colab APKs (Universal + Per-ABI splits)
+        working-directory: flutter-source
+        run: |
+          # 1. Universal Colab APK
+          flutter build apk --flavor colab --target lib/main_colab.dart --release
+          # 2. Per-ABI split Colab APKs (arm64-v8a, armeabi-v7a, x86_64)
+          flutter build apk --flavor colab --target lib/main_colab.dart --release --split-per-abi
+
+      - name: Package Flutter APKs
         run: |
           mkdir -p dist
           TAG="${{ github.ref_name || inputs.tag }}"
-          if [ -f flutter-source/build/app/outputs/flutter-apk/app-release.apk ]; then
-            cp flutter-source/build/app/outputs/flutter-apk/app-release.apk "dist/TurnBack-Flutter-$TAG-release.apk"
-          fi
-          if [ -f flutter-source/build/app/outputs/flutter-apk/app-debug.apk ]; then
-            cp flutter-source/build/app/outputs/flutter-apk/app-debug.apk "dist/TurnBack-Flutter-$TAG-debug.apk"
-          fi
+          
+          # Find and organize all offline and colab APKs
+          find flutter-source/build/app/outputs/flutter-apk/ -name "*.apk" | while read -r apk_file; do
+            base_name=$(basename "$apk_file")
+            clean_name=$(echo "$base_name" | sed "s/app-/TurnBack-Flutter-$TAG-/")
+            cp "$apk_file" "dist/$clean_name"
+          done
+          
           cd dist
-          shasum -a 256 TurnBack-Flutter-*.apk | tee sha256_flutter.txt
+          shasum -a 256 *.apk | tee sha256_flutter.txt
           ls -la
 
       - name: Upload Flutter APK Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: flutter-apk
+          name: flutter-apks
           path: dist/
 
   publish-release:
-    name: Create GitHub Release with APKs
-    needs: [build-compose-apk, build-flutter-apk]
+    name: Create GitHub Release with All APK Variants
+    needs: [build-compose-apks, build-flutter-apks]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -122,13 +134,13 @@ jobs:
       - name: Download Compose APK Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: compose-apk
+          name: compose-apks
           path: release-assets/
 
       - name: Download Flutter APK Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: flutter-apk
+          name: flutter-apks
           path: release-assets/
 
       - name: Publish or Update GitHub Release
@@ -136,10 +148,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name || inputs.tag }}
         run: |
-          echo "Preparing GitHub Release for tag: $TAG"
+          echo "Publishing complete suite of APKs for tag: $TAG"
           ls -la release-assets/
           
-          # Check if release already exists
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG exists, uploading assets..."
             gh release upload "$TAG" release-assets/* --clobber
@@ -147,11 +158,23 @@ jobs:
             echo "Creating new release for $TAG..."
             gh release create "$TAG" release-assets/* \
               --title "TurnBack $TAG" \
-              --notes "Automated release build containing both native Jetpack Compose and Flutter APK binaries.
+              --notes "Automated release build providing a comprehensive set of APK binaries (Native Jetpack Compose & Flutter, Per-ABI splits, and Offline/Colab flavors).
 
-### Included Binaries:
-- **TurnBack-Compose-$TAG-debug.apk**: Modern native Kotlin + Jetpack Compose rebuild (Material 3, Room, WAL, Ghost Track overlay).
-- **TurnBack-Flutter-$TAG-release.apk**: Legacy cross-platform Flutter version (v1.4.0 base).
+### 📦 Included APK Binaries:
+
+#### 1. Native Jetpack Compose (Modern Material 3 Rebuild)
+- **Universal:** `TurnBack-Compose-$TAG-universal-release.apk`
+- **ARM 64-bit (Most modern phones):** `TurnBack-Compose-$TAG-arm64-v8a-release.apk`
+- **ARM 32-bit (Older phones):** `TurnBack-Compose-$TAG-armeabi-v7a-release.apk`
+- **x86_64 (Emulators / Chromebooks):** `TurnBack-Compose-$TAG-x86_64-release.apk`
+
+#### 2. Flutter Offline Flavor (100% Offline GPS & Local Maps)
+- **Universal:** `TurnBack-Flutter-$TAG-offline-release.apk`
+- **Per-ABI Splits:** `TurnBack-Flutter-$TAG-offline-arm64-v8a-release.apk`, `armeabi-v7a`, `x86_64`
+
+#### 3. Flutter Colab Flavor (P2P Mesh Group Rides & Strava)
+- **Universal:** `TurnBack-Flutter-$TAG-colab-release.apk`
+- **Per-ABI Splits:** `TurnBack-Flutter-$TAG-colab-arm64-v8a-release.apk`, `armeabi-v7a`, `x86_64`
 
 *Verified via CodeRabbit AI Review & GitHub Super-Linter.*"
           fi
