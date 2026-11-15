@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">TurnBack</string>
+    <string name="tracking_notification_channel_name">Activity Tracking</string>
+    <string name="tracking_notification_channel_desc">Shows active workout statistics and navigation countdown</string>
+    <string name="turn_back_alert_title">Turn-Around Signal Triggered!</string>
+    <string name="turn_back_alert_desc">You have reached the safe turn-back threshold. Head back now to finish on target.</string>
+</resources>
