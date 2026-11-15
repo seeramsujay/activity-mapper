@@ -149,6 +149,7 @@
   - [x] Previous track loaded as `ReferenceTrack` and rendered as dashed ghost polyline.
   - [x] Background active mini-bar remains accessible across all navigation screens.
   - [x] Stationary GPS drift discarded while paused during a drinks break.
+  - [x] GPS hardware listener unregistered on pause to power down GPS radio and save battery.
   - [x] 1-tap water waypoint logging.
   - [x] Haptic double-pulse vibrates on every 1-km split.
   - [x] Map orientation rotates dynamically in Course-Up mode.

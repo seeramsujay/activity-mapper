@@ -241,6 +241,13 @@ class TrackingService :
         _isPaused.value = true
         breakStartTimeMs = System.currentTimeMillis()
         wal?.appendBreak()
+
+        // Battery Saver: Unregister GPS hardware listener during pause so GPS radio powers down
+        try {
+            locationManager.removeUpdates(this)
+        } catch (_: Exception) {
+        }
+
         updateNotification()
     }
 
@@ -250,6 +257,18 @@ class TrackingService :
         breakStartTimeMs = 0L
         _breakDurationSeconds.value = 0L
         lastFixTimeMs = System.currentTimeMillis()
+
+        // Re-enable GPS hardware listener upon resuming
+        try {
+            locationManager.requestLocationUpdates(
+                LocationManager.GPS_PROVIDER,
+                1000L,
+                1.0f,
+                this,
+            )
+        } catch (_: SecurityException) {
+        }
+
         updateNotification()
     }
 
