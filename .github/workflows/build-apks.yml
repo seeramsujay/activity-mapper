@@ -87,6 +87,7 @@ jobs:
       - name: Build Flutter Offline APKs (Universal + Per-ABI splits)
         working-directory: flutter-source
         run: |
+          sed -i 's/xml: \^7.1.0/xml: \^6.5.0/' pubspec.yaml
           flutter pub get
           # 1. Universal Offline APK
           flutter build apk --flavor offline --target lib/main_offline.dart --release
@@ -126,6 +127,7 @@ jobs:
   publish-release:
     name: Create GitHub Release with All APK Variants
     needs: [build-compose-apks, build-flutter-apks]
+    if: always() && needs.build-compose-apks.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -138,6 +140,7 @@ jobs:
           path: release-assets/
 
       - name: Download Flutter APK Artifacts
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: flutter-apks
