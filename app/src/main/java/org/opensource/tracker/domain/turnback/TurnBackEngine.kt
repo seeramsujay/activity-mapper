@@ -13,7 +13,8 @@ import kotlin.math.sqrt
  * TurnBack Core Physics & Pacing Engine.
  *
  * Implements non-linear endurance fatigue compensation, out-and-back timing thresholds,
- * elevation gain hysteresis filtering, and sequential 1-km/1-mi lap split calculations.
+ * elevation gain hysteresis filtering, sequential 1-km/1-mi lap split calculations,
+ * and fastest/slowest split identification.
  */
 object TurnBackEngine {
 
@@ -150,6 +151,8 @@ object TurnBackEngine {
 
         val avgMps = if (movingSeconds > 0) totalDistM / movingSeconds else 0.0
         val splits = computeSplits(points)
+        val fastestSplit = splits.firstOrNull { it.isFastest }
+        val slowestSplit = splits.firstOrNull { it.isSlowest }
 
         return TelemetryStats(
             distanceKm = totalDistKm,
@@ -165,12 +168,14 @@ object TurnBackEngine {
             minAltitudeM = if (minAlt == Double.MAX_VALUE) 0.0 else minAlt,
             maxAltitudeM = if (maxAlt == -Double.MAX_VALUE) 0.0 else maxAlt,
             splits = splits,
-            totalTrackpoints = points.size
+            totalTrackpoints = points.size,
+            fastestSplit = fastestSplit,
+            slowestSplit = slowestSplit
         )
     }
 
     /**
-     * Divides trackpoints into sequential 1-km distance split laps.
+     * Divides trackpoints into sequential 1-km distance split laps and marks fastest/slowest.
      */
     fun computeSplits(
         points: List<TrackPoint>,
@@ -262,6 +267,20 @@ object TurnBackEngine {
             )
         }
 
-        return splits
+        if (splits.isEmpty()) return emptyList()
+
+        // Identify fastest and slowest completed splits (filter >= 0.8 km to prevent tiny final partials from winning)
+        val fullSplits = splits.filter { it.distanceKm >= 0.8 }
+        val candidates = if (fullSplits.isNotEmpty()) fullSplits else splits
+
+        val fastest = candidates.maxByOrNull { it.avgSpeedKmh }
+        val slowest = if (candidates.size > 1) candidates.minByOrNull { it.avgSpeedKmh } else null
+
+        return splits.map { s ->
+            s.copy(
+                isFastest = fastest != null && s.lapNumber == fastest.lapNumber,
+                isSlowest = slowest != null && s.lapNumber == slowest.lapNumber
+            )
+        }
     }
 }

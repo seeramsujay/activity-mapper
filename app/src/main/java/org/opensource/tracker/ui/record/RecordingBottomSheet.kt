@@ -17,10 +17,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddLocationAlt
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.EnergySavingsLeaf
 import androidx.compose.material.icons.filled.LocalDrink
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.UTurnLeft
@@ -395,7 +397,7 @@ fun RecordingBottomSheetContent(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 6. Lap Splits Table
+        // 6. Lap Splits Table & Fastest Split Spotlight
         if (stats.splits.isNotEmpty()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Timer, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
@@ -409,6 +411,36 @@ fun RecordingBottomSheetContent(
             }
             Spacer(modifier = Modifier.height(8.dp))
 
+            // Fastest Split Spotlight Banner
+            stats.fastestSplit?.let { fast ->
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF59E0B).copy(alpha = 0.15f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Bolt, contentDescription = null, tint = Color(0xFFF59E0B), modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "FASTEST SPLIT: Lap ${fast.lapNumber} (${fast.paceMinKm}/km)",
+                            fontWeight = FontWeight.Black,
+                            fontSize = 11.sp,
+                            color = Color(0xFFD97706)
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text(
+                            text = String.format(Locale.US, "%.1f km/h", fast.avgSpeedKmh),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            color = Color(0xFFD97706)
+                        )
+                    }
+                }
+            }
+
             stats.splits.forEach { split ->
                 Row(
                     modifier = Modifier
@@ -418,14 +450,32 @@ fun RecordingBottomSheetContent(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(22.dp)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), CircleShape),
+                            .size(24.dp)
+                            .background(
+                                if (split.isFastest) Color(0xFFF59E0B) else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                CircleShape
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("${split.lapNumber}", fontSize = 11.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
+                        if (split.isFastest) {
+                            Text("⚡", fontSize = 11.sp)
+                        } else {
+                            Text("${split.lapNumber}", fontSize = 11.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
+                        }
                     }
                     Spacer(modifier = Modifier.width(10.dp))
-                    Text("${split.paceMinKm} /km", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1.2f)) {
+                        Text(
+                            text = "${split.paceMinKm} /km",
+                            fontSize = 12.sp,
+                            fontWeight = if (split.isFastest) FontWeight.Black else FontWeight.Bold,
+                            color = if (split.isFastest) Color(0xFFD97706) else MaterialTheme.colorScheme.onSurface
+                        )
+                        if (split.isFastest) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("FASTEST", fontSize = 9.sp, fontWeight = FontWeight.Black, color = Color(0xFFD97706))
+                        }
+                    }
                     Text(formatDuration(split.duration), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                     Text(
                         text = String.format(Locale.US, "+%.0fm / -%.0fm", split.elevationGainM, split.elevationLossM),

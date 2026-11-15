@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Route
@@ -251,6 +252,25 @@ fun TrackDetailScreen(
                 )
             }
 
+            // Fastest Split Hero Highlight
+            stats.fastestSplit?.let { fast ->
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    MetricCard(
+                        title = "⚡ FASTEST SPLIT",
+                        value = "Lap ${fast.lapNumber} (${fast.paceMinKm}/km)",
+                        valueColor = Color(0xFFD97706),
+                        modifier = Modifier.weight(1.3f)
+                    )
+                    MetricCard(
+                        title = "TOP SPLIT SPEED",
+                        value = String.format(Locale.US, "%.1f km/h", fast.avgSpeedKmh),
+                        valueColor = Color(0xFFD97706),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(20.dp))
 
             // Interactive Elevation Chart
@@ -284,6 +304,21 @@ fun TrackDetailScreen(
                     DetailRow("Maximum Speed", String.format(Locale.US, "%.1f km/h", currentTrack.maxSpeedKmh))
                     DetailRow("Average Pace", stats.avgPaceMinKm + " /km")
                     DetailRow("Best Pace", stats.bestPaceMinKm + " /km")
+
+                    stats.fastestSplit?.let { fast ->
+                        DetailRow(
+                            "⚡ Fastest 1-km Split",
+                            "Lap ${fast.lapNumber} • ${fast.paceMinKm} /km (${String.format(Locale.US, "%.1f km/h", fast.avgSpeedKmh)})",
+                            Color(0xFFD97706)
+                        )
+                    }
+                    stats.slowestSplit?.let { slow ->
+                        DetailRow(
+                            "Slowest 1-km Split",
+                            "Lap ${slow.lapNumber} • ${slow.paceMinKm} /km",
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
 
                     Divider(modifier = Modifier.padding(vertical = 10.dp))
 
@@ -328,14 +363,32 @@ fun TrackDetailScreen(
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(22.dp)
-                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), CircleShape),
+                                        .size(24.dp)
+                                        .background(
+                                            if (split.isFastest) Color(0xFFF59E0B) else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                            CircleShape
+                                        ),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text("${split.lapNumber}", fontSize = 10.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
+                                    if (split.isFastest) {
+                                        Text("⚡", fontSize = 11.sp)
+                                    } else {
+                                        Text("${split.lapNumber}", fontSize = 10.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
+                                    }
                                 }
                                 Spacer(modifier = Modifier.width(10.dp))
-                                Text("${split.paceMinKm} /km", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1.2f)) {
+                                    Text(
+                                        text = "${split.paceMinKm} /km",
+                                        fontSize = 12.sp,
+                                        fontWeight = if (split.isFastest) FontWeight.Black else FontWeight.Bold,
+                                        color = if (split.isFastest) Color(0xFFD97706) else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    if (split.isFastest) {
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("FASTEST", fontSize = 9.sp, fontWeight = FontWeight.Black, color = Color(0xFFD97706))
+                                    }
+                                }
                                 Text(formatDuration(split.duration), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
                                 Text(
                                     text = String.format(Locale.US, "+%.0fm / -%.0fm", split.elevationGainM, split.elevationLossM),

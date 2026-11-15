@@ -16,7 +16,9 @@ data class SplitLap(
     val avgSpeedKmh: Double,
     val paceMinKm: String,
     val elevationGainM: Double = 0.0,
-    val elevationLossM: Double = 0.0
+    val elevationLossM: Double = 0.0,
+    val isFastest: Boolean = false,
+    val isSlowest: Boolean = false
 )
 
 data class TelemetryStats(
@@ -33,5 +35,7 @@ data class TelemetryStats(
     val minAltitudeM: Double = 0.0,
     val maxAltitudeM: Double = 0.0,
     val splits: List<SplitLap> = emptyList(),
-    val totalTrackpoints: Int = 0
+    val totalTrackpoints: Int = 0,
+    val fastestSplit: SplitLap? = null,
+    val slowestSplit: SplitLap? = null
 )

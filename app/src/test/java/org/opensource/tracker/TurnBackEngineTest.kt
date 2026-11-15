@@ -1,6 +1,7 @@
 package org.opensource.tracker
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.opensource.tracker.domain.model.TrackPoint
@@ -42,6 +43,41 @@ class TurnBackEngineTest {
         assertEquals(1, splits[0].lapNumber)
         assertEquals(2, splits[1].lapNumber)
         assertEquals(1.0, splits[0].distanceKm, 0.1)
+    }
+
+    @Test
+    fun testFastestAndSlowestSplitIdentification() {
+        val now = Instant.now()
+        // Create 3 splits with distinct paces:
+        // Lap 1: 1 km in 300 sec (5:00 /km, 12 km/h)
+        // Lap 2: 1 km in 240 sec (4:00 /km, 15 km/h) -> FASTEST
+        // Lap 3: 1 km in 360 sec (6:00 /km, 10 km/h) -> SLOWEST
+        val points = mutableListOf<TrackPoint>()
+        var t = 0L
+
+        // Lap 1 (0 -> 1 km)
+        for (i in 0..10) {
+            points.add(TrackPoint(10.0 + (i * 0.0009), 20.0, 100.0, 3.33, 5.0, 0f, now.plusSeconds(t)))
+            t += 30L
+        }
+        // Lap 2 (1 -> 2 km, faster)
+        for (i in 1..10) {
+            points.add(TrackPoint(10.009 + (i * 0.0009), 20.0, 100.0, 4.16, 5.0, 0f, now.plusSeconds(t)))
+            t += 24L
+        }
+        // Lap 3 (2 -> 3 km, slower)
+        for (i in 1..10) {
+            points.add(TrackPoint(10.018 + (i * 0.0009), 20.0, 100.0, 2.77, 5.0, 0f, now.plusSeconds(t)))
+            t += 36L
+        }
+
+        val stats = TurnBackEngine.computeStats(points)
+        assertTrue("Should have 3 split laps", stats.splits.size >= 3)
+        assertNotNull("Fastest split should be present", stats.fastestSplit)
+        assertEquals("Lap 2 should be the fastest split", 2, stats.fastestSplit?.lapNumber)
+        assertTrue("Lap 2 must have isFastest set to true", stats.splits[1].isFastest)
+        assertEquals("Lap 3 should be the slowest split", 3, stats.slowestSplit?.lapNumber)
+        assertTrue("Lap 3 must have isSlowest set to true", stats.splits[2].isSlowest)
     }
 
     @Test
