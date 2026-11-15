@@ -404,7 +404,7 @@ class TrackingService :
         // 3. Teleportation / Multipath Jump Filter: discard jumps > 60m within 2 seconds
         if (lastPoint != null && now - lastPoint.timestamp.toEpochMilli() <= 2000L) {
             val dist =
-                TurnBackEngine.haversineDistance(
+                TurnBackEngine.haversineDistanceMeters(
                     lastPoint.latitude,
                     lastPoint.longitude,
                     location.latitude,

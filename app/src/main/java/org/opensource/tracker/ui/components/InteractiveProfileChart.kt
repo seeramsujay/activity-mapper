@@ -54,7 +54,7 @@ fun InteractiveProfileChart(
                 modifier
                     .fillMaxWidth()
                     .height(180.dp),
-            contentAlignment = Alignment.center,
+            contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = "Logging GPS points to render elevation profile...",

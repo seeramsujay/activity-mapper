@@ -465,10 +465,10 @@ fun MapScreen(
 
     if (showLayersDialog) {
         MapLayersDialog(
-            currentTileSource = selectedTileSource,
-            currentTrackColorMode = trackColorMode,
-            onSelectTileSource = { selectedTileSource = it },
-            onSelectTrackColorMode = { trackColorMode = it },
+            selectedSource = selectedTileSource,
+            onSelectSource = { selectedTileSource = it },
+            trackColorMode = trackColorMode,
+            onSelectColorMode = { trackColorMode = it },
             onDismiss = { showLayersDialog = false },
         )
     }
