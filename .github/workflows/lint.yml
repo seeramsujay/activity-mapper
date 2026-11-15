@@ -42,7 +42,7 @@ jobs:
         run: ktlint "app/src/**/*.kt"
 
       - name: Run Unit Tests
-        run: ./gradlew testDebugUnitTest --continue || true
+        run: ./gradlew testDebugUnitTest --continue
 
   super-linter:
     name: GitHub Super-Linter

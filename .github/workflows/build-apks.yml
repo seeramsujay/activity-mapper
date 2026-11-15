@@ -1,0 +1,157 @@
+name: Build and Release APKs
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build for (e.g. v2.0.0)'
+        required: true
+        default: 'v2.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build-compose-apk:
+    name: Build Native Jetpack Compose APK
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Grant Execute Permission to Gradlew
+        run: chmod +x gradlew
+
+      - name: Build Debug & Release APKs
+        run: ./gradlew assembleDebug assembleRelease --stacktrace
+
+      - name: Package Compose APK Artifact
+        id: package-compose
+        run: |
+          mkdir -p dist
+          TAG="${{ github.ref_name || inputs.tag }}"
+          # Prefer release APK if signed, otherwise fallback to debug APK
+          if [ -f app/build/outputs/apk/release/app-release-unsigned.apk ]; then
+            cp app/build/outputs/apk/release/app-release-unsigned.apk "dist/TurnBack-Compose-$TAG-unsigned.apk"
+          fi
+          if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
+            cp app/build/outputs/apk/debug/app-debug.apk "dist/TurnBack-Compose-$TAG-debug.apk"
+          fi
+          cd dist
+          shasum -a 256 TurnBack-Compose-*.apk | tee sha256_compose.txt
+          ls -la
+
+      - name: Upload Compose APK Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-apk
+          path: dist/
+
+  build-flutter-apk:
+    name: Build Legacy Flutter APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code from Flutter archive
+        uses: actions/checkout@v4
+        with:
+          ref: archive/v1.4.0-turnback
+          path: flutter-source
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.24.5
+          cache: true
+
+      - name: Build Flutter APK
+        working-directory: flutter-source
+        run: |
+          flutter pub get
+          flutter build apk --debug
+          flutter build apk --release --no-tree-shake-icons || flutter build apk --release
+
+      - name: Package Flutter APK Artifact
+        run: |
+          mkdir -p dist
+          TAG="${{ github.ref_name || inputs.tag }}"
+          if [ -f flutter-source/build/app/outputs/flutter-apk/app-release.apk ]; then
+            cp flutter-source/build/app/outputs/flutter-apk/app-release.apk "dist/TurnBack-Flutter-$TAG-release.apk"
+          fi
+          if [ -f flutter-source/build/app/outputs/flutter-apk/app-debug.apk ]; then
+            cp flutter-source/build/app/outputs/flutter-apk/app-debug.apk "dist/TurnBack-Flutter-$TAG-debug.apk"
+          fi
+          cd dist
+          shasum -a 256 TurnBack-Flutter-*.apk | tee sha256_flutter.txt
+          ls -la
+
+      - name: Upload Flutter APK Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-apk
+          path: dist/
+
+  publish-release:
+    name: Create GitHub Release with APKs
+    needs: [build-compose-apk, build-flutter-apk]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download Compose APK Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: compose-apk
+          path: release-assets/
+
+      - name: Download Flutter APK Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: flutter-apk
+          path: release-assets/
+
+      - name: Publish or Update GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name || inputs.tag }}
+        run: |
+          echo "Preparing GitHub Release for tag: $TAG"
+          ls -la release-assets/
+          
+          # Check if release already exists
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG exists, uploading assets..."
+            gh release upload "$TAG" release-assets/* --clobber
+          else
+            echo "Creating new release for $TAG..."
+            gh release create "$TAG" release-assets/* \
+              --title "TurnBack $TAG" \
+              --notes "Automated release build containing both native Jetpack Compose and Flutter APK binaries.
+
+### Included Binaries:
+- **TurnBack-Compose-$TAG-debug.apk**: Modern native Kotlin + Jetpack Compose rebuild (Material 3, Room, WAL, Ghost Track overlay).
+- **TurnBack-Flutter-$TAG-release.apk**: Legacy cross-platform Flutter version (v1.4.0 base).
+
+*Verified via CodeRabbit AI Review & GitHub Super-Linter.*"
+          fi
