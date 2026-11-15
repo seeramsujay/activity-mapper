@@ -3,10 +3,13 @@ package org.opensource.tracker.data.gpx
 import org.opensource.tracker.domain.model.TrackPoint
 import org.opensource.tracker.domain.model.Waypoint
 import org.opensource.tracker.domain.model.WaypointCategory
+import org.w3c.dom.Document
 import org.w3c.dom.Element
+import org.w3c.dom.NodeList
 import java.io.File
 import java.io.InputStream
 import java.io.StringWriter
+import java.math.BigDecimal
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 import javax.xml.parsers.DocumentBuilderFactory
@@ -17,6 +20,13 @@ import javax.xml.parsers.DocumentBuilderFactory
  */
 object GpxExporter {
     private val ISO_FORMATTER: DateTimeFormatter = DateTimeFormatter.ISO_INSTANT
+
+    fun formatDecimal(value: Double): String =
+        if (value.isFinite()) {
+            BigDecimal.valueOf(value).stripTrailingZeros().toPlainString()
+        } else {
+            "0"
+        }
 
     fun buildGpxString(
         trackName: String,
@@ -30,10 +40,10 @@ object GpxExporter {
         writer.write("<gpx version=\"1.1\" creator=\"TurnBack - Jetpack Compose\" ")
         writer.write("xmlns=\"http://www.topografix.com/GPX/1/1\" ")
         writer.write("xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" ")
-        writer.write("xmlns:gpxtpx=\"http://www.garmin.com/xmlschemas/TrackPointExtension/v1\" ")
+        writer.write("xmlns:gpxtpx=\"http://www.garmin.com/xmlschemas/TrackPointExtension/v2\" ")
         writer.write("xsi:schemaLocation=\"http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd ")
         writer.write(
-            "http://www.garmin.com/xmlschemas/TrackPointExtension/v1 http://www.garmin.com/xmlschemas/TrackPointExtensionv1.xsd\">\n",
+            "http://www.garmin.com/xmlschemas/TrackPointExtension/v2 http://www.garmin.com/xmlschemas/TrackPointExtensionv2.xsd\">\n",
         )
 
         // Metadata
@@ -44,9 +54,10 @@ object GpxExporter {
 
         // Waypoints (<wpt>)
         for (w in waypoints) {
-            writer.write("  <wpt lat=\"${w.latitude}\" lon=\"${w.longitude}\">\n")
+            if (!isValidCoord(w.latitude, w.longitude)) continue
+            writer.write("  <wpt lat=\"${formatDecimal(w.latitude)}\" lon=\"${formatDecimal(w.longitude)}\">\n")
             if (w.altitudeMeters != 0.0) {
-                writer.write("    <ele>${w.altitudeMeters}</ele>\n")
+                writer.write("    <ele>${formatDecimal(w.altitudeMeters)}</ele>\n")
             }
             writer.write("    <time>${ISO_FORMATTER.format(w.timestamp)}</time>\n")
             writer.write("    <name>${escapeXml(w.name)}</name>\n")
@@ -64,13 +75,14 @@ object GpxExporter {
         writer.write("    <trkseg>\n")
 
         for (p in points) {
-            writer.write("      <trkpt lat=\"${p.latitude}\" lon=\"${p.longitude}\">\n")
-            writer.write("        <ele>${p.altitudeMeters}</ele>\n")
+            if (!isValidCoord(p.latitude, p.longitude)) continue
+            writer.write("      <trkpt lat=\"${formatDecimal(p.latitude)}\" lon=\"${formatDecimal(p.longitude)}\">\n")
+            writer.write("        <ele>${formatDecimal(p.altitudeMeters)}</ele>\n")
             writer.write("        <time>${ISO_FORMATTER.format(p.timestamp)}</time>\n")
             if (p.speedMps > 0.0) {
                 writer.write("        <extensions>\n")
                 writer.write("          <gpxtpx:TrackPointExtension>\n")
-                writer.write("            <gpxtpx:speed>${p.speedMps}</gpxtpx:speed>\n")
+                writer.write("            <gpxtpx:speed>${formatDecimal(p.speedMps)}</gpxtpx:speed>\n")
                 writer.write("          </gpxtpx:TrackPointExtension>\n")
                 writer.write("        </extensions>\n")
             }
@@ -92,9 +104,15 @@ object GpxExporter {
         waypoints: List<Waypoint> = emptyList(),
         startTime: Instant = points.firstOrNull()?.timestamp ?: Instant.now(),
     ) {
+        file.parentFile?.mkdirs()
         val gpx = buildGpxString(trackName, activityType, points, waypoints, startTime)
         file.writeText(gpx, Charsets.UTF_8)
     }
+
+    private fun isValidCoord(
+        lat: Double,
+        lon: Double,
+    ): Boolean = lat.isFinite() && lon.isFinite() && lat in -90.0..90.0 && lon in -180.0..180.0
 
     private fun escapeXml(input: String): String =
         input
@@ -115,66 +133,43 @@ object GpxImporter {
         val doc = builder.parse(inputStream)
 
         var trackName = "Imported Track"
-        val trkNodes = doc.getElementsByTagName("trk")
+        val trkNodes = getElementsByLocalOrTagName(doc, "trk")
         if (trkNodes.length > 0) {
             val trk = trkNodes.item(0) as? Element
-            val nameEl = trk?.getElementsByTagName("name")?.item(0)
-            if (nameEl != null && nameEl.textContent.isNotBlank()) {
-                trackName = nameEl.textContent.trim()
+            val nameText = trk?.let { getChildText(it, "name") }
+            if (!nameText.isNullOrBlank()) {
+                trackName = nameText.trim()
             }
         }
         if (trackName == "Imported Track") {
-            val metaNodes = doc.getElementsByTagName("metadata")
+            val metaNodes = getElementsByLocalOrTagName(doc, "metadata")
             if (metaNodes.length > 0) {
                 val meta = metaNodes.item(0) as? Element
-                val metaNameEl = meta?.getElementsByTagName("name")?.item(0)
-                if (metaNameEl != null && metaNameEl.textContent.isNotBlank()) {
-                    trackName = metaNameEl.textContent.trim()
+                val metaNameText = meta?.let { getChildText(it, "name") }
+                if (!metaNameText.isNullOrBlank()) {
+                    trackName = metaNameText.trim()
                 }
             }
         }
 
         val waypoints = mutableListOf<Waypoint>()
-        val wptNodes = doc.getElementsByTagName("wpt")
+        val wptNodes = getElementsByLocalOrTagName(doc, "wpt")
         for (i in 0 until wptNodes.length) {
             val el = wptNodes.item(i) as? Element ?: continue
-            val lat = el.getAttribute("lat").toDoubleOrNull() ?: 0.0
-            val lon = el.getAttribute("lon").toDoubleOrNull() ?: 0.0
-            val ele =
-                el
-                    .getElementsByTagName("ele")
-                    .item(0)
-                    ?.textContent
-                    ?.toDoubleOrNull() ?: 0.0
-            val name =
-                el
-                    .getElementsByTagName("name")
-                    .item(0)
-                    ?.textContent
-                    ?.trim() ?: "Waypoint"
-            val desc =
-                el
-                    .getElementsByTagName("desc")
-                    .item(0)
-                    ?.textContent
-                    ?.trim() ?: ""
-            val sym =
-                el
-                    .getElementsByTagName("sym")
-                    .item(0)
-                    ?.textContent
-                    ?.trim() ?: ""
-            val timeStr =
-                el
-                    .getElementsByTagName("time")
-                    .item(0)
-                    ?.textContent
-                    ?.trim()
+            val lat = el.getAttribute("lat").toDoubleOrNull()
+            val lon = el.getAttribute("lon").toDoubleOrNull()
+            if (lat == null || lon == null || !isValidCoord(lat, lon)) continue
+
+            val ele = getChildText(el, "ele")?.toDoubleOrNull() ?: 0.0
+            val name = getChildText(el, "name")?.trim() ?: "Waypoint"
+            val desc = getChildText(el, "desc")?.trim() ?: ""
+            val sym = getChildText(el, "sym")?.trim() ?: ""
+            val timeStr = getChildText(el, "time")?.trim()
             val time =
                 try {
-                    if (timeStr != null) Instant.parse(timeStr) else Instant.now()
+                    if (timeStr != null) Instant.parse(timeStr) else Instant.EPOCH
                 } catch (_: Exception) {
-                    Instant.now()
+                    Instant.EPOCH
                 }
 
             val category =
@@ -211,42 +206,55 @@ object GpxImporter {
         }
 
         val points = mutableListOf<TrackPoint>()
-        val trkptNodes = doc.getElementsByTagName("trkpt")
+        val trkptNodes = getElementsByLocalOrTagName(doc, "trkpt")
+        var lastValidTime = Instant.EPOCH
+
         for (i in 0 until trkptNodes.length) {
             val el = trkptNodes.item(i) as? Element ?: continue
-            val lat = el.getAttribute("lat").toDoubleOrNull() ?: 0.0
-            val lon = el.getAttribute("lon").toDoubleOrNull() ?: 0.0
-            val ele =
-                el
-                    .getElementsByTagName("ele")
-                    .item(0)
-                    ?.textContent
-                    ?.toDoubleOrNull() ?: 0.0
-            val timeStr =
-                el
-                    .getElementsByTagName("time")
-                    .item(0)
-                    ?.textContent
-                    ?.trim()
+            val lat = el.getAttribute("lat").toDoubleOrNull()
+            val lon = el.getAttribute("lon").toDoubleOrNull()
+            if (lat == null || lon == null || !isValidCoord(lat, lon)) continue
+
+            val ele = getChildText(el, "ele")?.toDoubleOrNull() ?: 0.0
+            val timeStr = getChildText(el, "time")?.trim()
             val time =
                 try {
-                    if (timeStr != null) Instant.parse(timeStr) else Instant.now()
+                    if (timeStr != null) {
+                        val parsed = Instant.parse(timeStr)
+                        lastValidTime = parsed
+                        parsed
+                    } else {
+                        lastValidTime
+                    }
                 } catch (_: Exception) {
-                    Instant.now()
+                    lastValidTime
                 }
 
-            var speed =
-                el
-                    .getElementsByTagName("speed")
-                    .item(0)
-                    ?.textContent
-                    ?.toDoubleOrNull() ?: 0.0
+            var speed = getChildText(el, "speed")?.toDoubleOrNull() ?: 0.0
             if (speed == 0.0) {
-                speed = el
-                    .getElementsByTagNameNS("*", "speed")
-                    .item(0)
-                    ?.textContent
-                    ?.toDoubleOrNull() ?: 0.0
+                // Check Garmin TrackPointExtension
+                val extChildren = el.childNodes
+                for (c in 0 until extChildren.length) {
+                    val child = extChildren.item(c)
+                    if (child is Element && (child.localName == "extensions" || child.tagName.endsWith("extensions"))) {
+                        val subSpeed = getChildText(child, "speed")?.toDoubleOrNull()
+                        if (subSpeed != null && subSpeed > 0.0) {
+                            speed = subSpeed
+                            break
+                        }
+                        val tpxChildren = child.childNodes
+                        for (tc in 0 until tpxChildren.length) {
+                            val tpxEl = tpxChildren.item(tc)
+                            if (tpxEl is Element) {
+                                val tpxSpeed = getChildText(tpxEl, "speed")?.toDoubleOrNull()
+                                if (tpxSpeed != null && tpxSpeed > 0.0) {
+                                    speed = tpxSpeed
+                                    break
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             points.add(
@@ -261,6 +269,33 @@ object GpxImporter {
         }
 
         return ParsedGpx(trackName, points, waypoints)
+    }
+
+    private fun isValidCoord(
+        lat: Double,
+        lon: Double,
+    ): Boolean = lat.isFinite() && lon.isFinite() && lat in -90.0..90.0 && lon in -180.0..180.0
+
+    private fun getElementsByLocalOrTagName(
+        doc: Document,
+        name: String,
+    ): NodeList {
+        val nsList = doc.getElementsByTagNameNS("*", name)
+        return if (nsList.length > 0) nsList else doc.getElementsByTagName(name)
+    }
+
+    private fun getChildText(
+        el: Element,
+        name: String,
+    ): String? {
+        val children = el.childNodes
+        for (i in 0 until children.length) {
+            val child = children.item(i)
+            if (child is Element && (child.localName == name || child.tagName == name || child.tagName.endsWith(":$name"))) {
+                return child.textContent?.trim()
+            }
+        }
+        return null
     }
 }
 
