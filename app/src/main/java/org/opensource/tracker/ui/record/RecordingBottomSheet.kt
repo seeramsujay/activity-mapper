@@ -18,12 +18,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddLocationAlt
 import androidx.compose.material.icons.filled.EnergySavingsLeaf
+import androidx.compose.material.icons.filled.LocalDrink
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.UTurnLeft
-import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -33,14 +34,17 @@ import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -55,17 +59,21 @@ import java.util.Locale
 @Composable
 fun RecordingBottomSheetContent(
     currentPoint: TrackPoint?,
+    smoothedSpeedKmh: Double,
     stats: TelemetryStats,
     points: List<TrackPoint>,
     isPaused: Boolean,
+    breakDurationSeconds: Long,
     turnBackTriggered: Boolean,
     outboundRemainingSeconds: Long,
     onTogglePause: () -> Unit,
     onAddWaypoint: () -> Unit,
+    onLogWaterBreak: () -> Unit,
     onToggleOled: () -> Unit,
     onFinish: () -> Unit
 ) {
     val scrollState = rememberScrollState()
+    var showFinishConfirmDialog by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -84,16 +92,89 @@ fun RecordingBottomSheetContent(
 
         Spacer(modifier = Modifier.height(12.dp))
 
+        // Dedicated Drinks Break Hero Banner when Paused
+        if (isPaused) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFF59E0B).copy(alpha = 0.15f))
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.LocalDrink,
+                            contentDescription = null,
+                            tint = Color(0xFFF59E0B),
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "DRINKS BREAK IN PROGRESS",
+                                fontWeight = FontWeight.Black,
+                                fontSize = 13.sp,
+                                color = Color(0xFFF59E0B)
+                            )
+                            val breakMin = breakDurationSeconds / 60
+                            val breakSec = breakDurationSeconds % 60
+                            Text(
+                                text = String.format(Locale.US, "Stationary for %02d:%02d • GPS drift blocked", breakMin, breakSec),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Big Glove-Friendly Continue Button
+                        Button(
+                            onClick = onTogglePause,
+                            modifier = Modifier
+                                .weight(1.4f)
+                                .height(52.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(22.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("CONTINUE RUN", fontWeight = FontWeight.Black, fontSize = 13.sp, color = Color.White)
+                        }
+
+                        // Quick 1-tap Water Waypoint logger
+                        OutlinedButton(
+                            onClick = onLogWaterBreak,
+                            modifier = Modifier
+                                .weight(1.0f)
+                                .height(52.dp),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Icon(Icons.Default.LocalDrink, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color(0xFF06B6D4))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("💧 LOG WATER", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
         // 1. Peek Header: Glanceable Hero Readouts (Speed/Pace, Distance, Time)
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Speed / Pace
+            // Smoothed Speed / Pace
             Column(modifier = Modifier.weight(1.3f)) {
                 Row(verticalAlignment = Alignment.Bottom) {
+                    val displaySpeed = if (smoothedSpeedKmh > 0.0) smoothedSpeedKmh else (currentPoint?.speedKmh ?: 0.0)
                     Text(
-                        text = String.format(Locale.US, "%.1f", currentPoint?.speedKmh ?: 0.0),
+                        text = String.format(Locale.US, "%.1f", displaySpeed),
                         fontSize = 32.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = (-0.5).sp
@@ -108,11 +189,11 @@ fun RecordingBottomSheetContent(
                     )
                 }
                 Text(
-                    text = "SPEED",
-                    fontSize = 10.sp,
+                    text = "PACE: ${stats.avgPaceMinKm}/km",
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    letterSpacing = 0.8.sp
+                    color = MaterialTheme.colorScheme.primary,
+                    letterSpacing = 0.5.sp
                 )
             }
 
@@ -121,7 +202,7 @@ fun RecordingBottomSheetContent(
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
                         text = String.format(Locale.US, "%.2f", stats.distanceKm),
-                        fontSize = 22.sp,
+                        fontSize = 24.sp,
                         fontWeight = FontWeight.Black
                     )
                     Spacer(modifier = Modifier.width(3.dp))
@@ -146,7 +227,7 @@ fun RecordingBottomSheetContent(
             Column(modifier = Modifier.weight(1.0f)) {
                 Text(
                     text = formatDuration(stats.totalDuration),
-                    fontSize = 22.sp,
+                    fontSize = 24.sp,
                     fontWeight = FontWeight.Black
                 )
                 Text(
@@ -178,7 +259,7 @@ fun RecordingBottomSheetContent(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 2. Action Buttons (Marker, OLED, Finish)
+        // 2. Action Buttons (Marker, OLED, Finish with Confirmation)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -200,8 +281,9 @@ fun RecordingBottomSheetContent(
                 Icon(Icons.Default.EnergySavingsLeaf, contentDescription = "OLED Eco", tint = Color(0xFF10B981), modifier = Modifier.size(18.dp))
             }
 
+            // Finish button triggers confirmation dialog to prevent accidental sweat/pocket finishes
             Button(
-                onClick = onFinish,
+                onClick = { showFinishConfirmDialog = true },
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
@@ -301,7 +383,7 @@ fun RecordingBottomSheetContent(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 5. Interactive Elevation & Speed Profile Chart
+        // 5. Interactive Elevation Profile Chart
         Text(
             text = "ELEVATION PROFILE",
             style = MaterialTheme.typography.labelSmall,
@@ -355,6 +437,35 @@ fun RecordingBottomSheetContent(
         }
 
         Spacer(modifier = Modifier.height(32.dp))
+    }
+
+    // Accidental finish confirmation dialog
+    if (showFinishConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showFinishConfirmDialog = false },
+            title = { Text("Finish & Save Workout?", fontWeight = FontWeight.Black) },
+            text = {
+                Text(
+                    "You have covered ${String.format(Locale.US, "%.2f km", stats.distanceKm)} in ${formatDuration(stats.totalDuration)}. Are you sure you want to stop recording and save this activity?"
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showFinishConfirmDialog = false
+                        onFinish()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                ) {
+                    Text("Finish & Save", fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFinishConfirmDialog = false }) {
+                    Text("Keep Running")
+                }
+            }
+        )
     }
 }
 

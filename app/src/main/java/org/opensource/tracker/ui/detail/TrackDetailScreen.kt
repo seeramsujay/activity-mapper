@@ -21,9 +21,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.FitnessCenter
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Divider
@@ -31,12 +34,14 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,6 +60,7 @@ import org.opensource.tracker.data.db.WaypointEntity
 import org.opensource.tracker.data.gpx.GpxImporter
 import org.opensource.tracker.domain.model.TrackPoint
 import org.opensource.tracker.domain.turnback.TurnBackEngine
+import org.opensource.tracker.service.TrackingService
 import org.opensource.tracker.ui.components.InteractiveProfileChart
 import java.io.File
 import java.io.FileInputStream
@@ -67,7 +73,9 @@ import java.util.Locale
 @Composable
 fun TrackDetailScreen(
     trackId: Long,
-    onBack: () -> Unit
+    service: TrackingService? = null,
+    onBack: () -> Unit,
+    onOverlayOnMap: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var track by remember { mutableStateOf<TrackEntity?>(null) }
@@ -91,6 +99,7 @@ fun TrackDetailScreen(
 
     val currentTrack = track
     val stats = remember(points) { TurnBackEngine.computeStats(points) }
+    val isCurrentlyOverlaid = service?.referenceTrack?.collectAsState()?.value?.trackId == trackId
 
     Scaffold(
         topBar = {
@@ -149,6 +158,66 @@ fun TrackDetailScreen(
             val dateStr = SimpleDateFormat("EEEE, MMMM d, yyyy • HH:mm", Locale.getDefault())
                 .format(Date(currentTrack.startTime))
             Text(dateStr, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Ghost Route Action Card: Overlay past track on map while currently running
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isCurrentlyOverlaid) Color(0xFF8B5CF6).copy(alpha = 0.15f) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Route,
+                        contentDescription = null,
+                        tint = if (isCurrentlyOverlaid) Color(0xFF8B5CF6) else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (isCurrentlyOverlaid) "GHOST TRACK ACTIVE ON MAP" else "OVERLAY ON RUN AS GHOST TRACK",
+                            fontWeight = FontWeight.Black,
+                            fontSize = 12.sp,
+                            color = if (isCurrentlyOverlaid) Color(0xFF8B5CF6) else MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "Follow this route & compare real-time pacing",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            if (isCurrentlyOverlaid) {
+                                service?.clearReferenceTrack()
+                            } else {
+                                service?.setReferenceTrack(currentTrack.id, currentTrack.title, points)
+                                onOverlayOnMap()
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isCurrentlyOverlaid) Color(0xFF6B7280) else Color(0xFF8B5CF6)
+                        )
+                    ) {
+                        Text(
+                            text = if (isCurrentlyOverlaid) "Remove" else "Overlay",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(14.dp))
 

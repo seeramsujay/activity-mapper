@@ -47,6 +47,13 @@ import java.io.File
 import java.time.Duration
 import java.time.Instant
 import java.util.Locale
+import kotlin.math.floor
+
+data class ReferenceTrack(
+    val trackId: Long,
+    val title: String,
+    val points: List<TrackPoint>
+)
 
 class TrackingService : Service(), LocationListener {
 
@@ -70,6 +77,11 @@ class TrackingService : Service(), LocationListener {
     private var startTime: Instant = Instant.now()
     private var movingTimeMs: Long = 0L
     private var lastFixTimeMs: Long = 0L
+    private var breakStartTimeMs: Long = 0L
+    private var lastAlertedKm: Int = 0
+
+    // Recent speed smoothing window (last 5 fixes)
+    private val speedHistory = ArrayDeque<Double>(5)
 
     // StateFlows exposed to Jetpack Compose UI
     private val _isTracking = MutableStateFlow(false)
@@ -78,8 +90,14 @@ class TrackingService : Service(), LocationListener {
     private val _isPaused = MutableStateFlow(false)
     val isPaused: StateFlow<Boolean> = _isPaused.asStateFlow()
 
+    private val _breakDurationSeconds = MutableStateFlow(0L)
+    val breakDurationSeconds: StateFlow<Long> = _breakDurationSeconds.asStateFlow()
+
     private val _currentPoint = MutableStateFlow<TrackPoint?>(null)
     val currentPoint: StateFlow<TrackPoint?> = _currentPoint.asStateFlow()
+
+    private val _smoothedSpeedKmh = MutableStateFlow(0.0)
+    val smoothedSpeedKmh: StateFlow<Double> = _smoothedSpeedKmh.asStateFlow()
 
     private val _points = MutableStateFlow<List<TrackPoint>>(emptyList())
     val points: StateFlow<List<TrackPoint>> = _points.asStateFlow()
@@ -95,6 +113,10 @@ class TrackingService : Service(), LocationListener {
 
     private val _outboundRemainingSeconds = MutableStateFlow(0L)
     val outboundRemainingSeconds: StateFlow<Long> = _outboundRemainingSeconds.asStateFlow()
+
+    // Ghost / Reference track overlay
+    private val _referenceTrack = MutableStateFlow<ReferenceTrack?>(null)
+    val referenceTrack: StateFlow<ReferenceTrack?> = _referenceTrack.asStateFlow()
 
     inner class LocalBinder : Binder() {
         fun getService(): TrackingService = this@TrackingService
@@ -141,6 +163,14 @@ class TrackingService : Service(), LocationListener {
         return START_STICKY
     }
 
+    fun setReferenceTrack(trackId: Long, title: String, points: List<TrackPoint>) {
+        _referenceTrack.value = ReferenceTrack(trackId, title, points)
+    }
+
+    fun clearReferenceTrack() {
+        _referenceTrack.value = null
+    }
+
     fun startTracking(
         targetSec: Long,
         beta: Double,
@@ -155,6 +185,9 @@ class TrackingService : Service(), LocationListener {
         this.startTime = Instant.now()
         this.movingTimeMs = 0L
         this.lastFixTimeMs = System.currentTimeMillis()
+        this.breakStartTimeMs = 0L
+        this.lastAlertedKm = 0
+        this.speedHistory.clear()
 
         _points.value = emptyList()
         _waypoints.value = emptyList()
@@ -162,13 +195,15 @@ class TrackingService : Service(), LocationListener {
         _turnBackTriggered.value = false
         _isTracking.value = true
         _isPaused.value = false
+        _breakDurationSeconds.value = 0L
+        _smoothedSpeedKmh.value = 0.0
 
         // Initialize crash-proof WAL
         val walFile = File(filesDir, "active_recording.wal")
         if (walFile.exists()) walFile.delete()
         wal = RecordingWal.create(walFile)
 
-        // Request GPS updates
+        // Request GPS updates directly
         try {
             locationManager.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER,
@@ -192,6 +227,7 @@ class TrackingService : Service(), LocationListener {
     fun pauseTracking() {
         if (!_isTracking.value || _isPaused.value) return
         _isPaused.value = true
+        breakStartTimeMs = System.currentTimeMillis()
         wal?.appendBreak()
         updateNotification()
     }
@@ -199,6 +235,8 @@ class TrackingService : Service(), LocationListener {
     fun resumeTracking() {
         if (!_isTracking.value || !_isPaused.value) return
         _isPaused.value = false
+        breakStartTimeMs = 0L
+        _breakDurationSeconds.value = 0L
         lastFixTimeMs = System.currentTimeMillis()
         updateNotification()
     }
@@ -217,6 +255,14 @@ class TrackingService : Service(), LocationListener {
         )
         wal?.appendWaypoint(waypoint)
         _waypoints.update { it + waypoint }
+    }
+
+    fun logWaterBreakWaypoint() {
+        addWaypoint(
+            name = "Water Stop",
+            description = "Hydration break on trail",
+            category = WaypointCategory.WATER
+        )
     }
 
     fun stopAndSave(title: String? = null, onSaved: ((Long) -> Unit)? = null) {
@@ -300,54 +346,91 @@ class TrackingService : Service(), LocationListener {
     override fun onLocationChanged(location: Location) {
         if (!_isTracking.value || _isPaused.value) return
 
-        // Sensor accuracy drift filter: drop fixes with accuracy > 35m
-        if (location.hasAccuracy() && location.accuracy > 35.0f) {
+        // 1. Accuracy Filter: discard fixes with poor horizontal accuracy (> 25m under heavy canopy)
+        if (location.hasAccuracy() && location.accuracy > 25.0f) {
             return
         }
 
+        // 2. Max Human Speed Sanity Filter: discard impossible sprint speeds (> 14 m/s ~ 50 km/h)
+        if (location.hasSpeed() && location.speed > 14.0f) {
+            return
+        }
+
+        val lastPoint = _points.value.lastOrNull()
+        val now = System.currentTimeMillis()
+
+        // 3. Teleportation / Multipath Jump Filter: discard jumps > 60m within 2 seconds
+        if (lastPoint != null && now - lastPoint.timestamp.toEpochMilli() <= 2000L) {
+            val dist = TurnBackEngine.haversineDistance(
+                lastPoint.latitude, lastPoint.longitude,
+                location.latitude, location.longitude
+            )
+            if (dist > 60.0) {
+                return
+            }
+        }
+
+        val rawSpeedMps = if (location.hasSpeed()) location.speed.toDouble() else 0.0
         val point = TrackPoint(
             latitude = location.latitude,
             longitude = location.longitude,
             altitudeMeters = if (location.hasAltitude()) location.altitude else 0.0,
-            speedMps = if (location.hasSpeed()) location.speed.toDouble() else 0.0,
+            speedMps = rawSpeedMps,
             accuracyMeters = if (location.hasAccuracy()) location.accuracy.toDouble() else 0.0,
             bearingDegrees = if (location.hasBearing()) location.bearing else 0f,
             timestamp = Instant.ofEpochMilli(location.time)
         )
 
-        // Write immediately to WAL
+        // Smooth speed via rolling window (last 5 fixes)
+        if (speedHistory.size >= 5) speedHistory.removeFirst()
+        speedHistory.addLast(point.speedKmh)
+        _smoothedSpeedKmh.value = speedHistory.average()
+
+        // Write immediately to WAL (crash safety)
         wal?.appendPoint(point)
 
         // Update state
         _currentPoint.value = point
         _points.update { it + point }
 
-        val now = System.currentTimeMillis()
-        if (lastFixTimeMs > 0 && point.speedMps >= 0.5) {
+        // Stationary Jitter Filter: only accumulate moving time if speed >= 0.4 m/s
+        if (lastFixTimeMs > 0 && point.speedMps >= 0.4) {
             movingTimeMs += (now - lastFixTimeMs).coerceAtLeast(0)
         }
         lastFixTimeMs = now
 
         val updatedStats = TurnBackEngine.computeStats(_points.value, Duration.ofMillis(now - startTime.toEpochMilli()))
         _stats.value = updatedStats
+
+        // Haptic 1-km Split Notification for Trail Runners
+        val currentKm = floor(updatedStats.distanceKm).toInt()
+        if (currentKm > lastAlertedKm) {
+            lastAlertedKm = currentKm
+            triggerSplitAlert()
+        }
     }
 
     private fun startTicker() {
         tickerJob?.cancel()
         tickerJob = serviceScope.launch {
             while (isActive) {
-                if (_isTracking.value && !_isPaused.value) {
-                    val now = Instant.now()
-                    val elapsedOutbound = Duration.between(startTime, now)
-                    val remainingSec = (outboundLimitDuration.seconds - elapsedOutbound.seconds).coerceAtLeast(0L)
-                    _outboundRemainingSeconds.value = remainingSec
+                if (_isTracking.value) {
+                    if (_isPaused.value) {
+                        if (breakStartTimeMs > 0L) {
+                            _breakDurationSeconds.value = (System.currentTimeMillis() - breakStartTimeMs) / 1000L
+                        }
+                    } else {
+                        val now = Instant.now()
+                        val elapsedOutbound = Duration.between(startTime, now)
+                        val remainingSec = (outboundLimitDuration.seconds - elapsedOutbound.seconds).coerceAtLeast(0L)
+                        _outboundRemainingSeconds.value = remainingSec
 
-                    // Check Turn-Back Trigger
-                    if (!_turnBackTriggered.value && remainingSec == 0L && outboundLimitDuration.seconds > 0) {
-                        _turnBackTriggered.value = true
-                        triggerTurnBackAlert()
+                        // Check Turn-Back Trigger
+                        if (!_turnBackTriggered.value && remainingSec == 0L && outboundLimitDuration.seconds > 0) {
+                            _turnBackTriggered.value = true
+                            triggerTurnBackAlert()
+                        }
                     }
-
                     updateNotification()
                 }
                 delay(1000L)
@@ -366,44 +449,72 @@ class TrackingService : Service(), LocationListener {
         }
     }
 
+    private fun triggerSplitAlert() {
+        // Double pulse for kilometer split
+        val pattern = longArrayOf(0, 150, 100, 150)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator?.vibrate(VibrationEffect.createWaveform(pattern, -1))
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator?.vibrate(pattern, -1)
+        }
+    }
+
     private fun updateNotification() {
         val s = _stats.value
-        val speedStr = String.format(Locale.US, "%.1f km/h", s.avgSpeedKmh)
+        val speedStr = String.format(Locale.US, "%.1f km/h", _smoothedSpeedKmh.value)
         val distStr = String.format(Locale.US, "%.2f km", s.distanceKm)
         val timeStr = formatDuration(s.totalDuration)
 
         val turnBackStatus = if (_turnBackTriggered.value) {
             "⚠️ TURN-AROUND TRIGGERED (Head Back)"
+        } else if (_isPaused.value) {
+            val breakMin = _breakDurationSeconds.value / 60
+            val breakSec = _breakDurationSeconds.value % 60
+            String.format(Locale.US, "Drinks Break: %02d:%02d (Tap to Continue)", breakMin, breakSec)
         } else {
             val remMin = _outboundRemainingSeconds.value / 60
-            "Outbound Remaining: ${remMin}m"
+            "Outbound Window: ${remMin}m remaining"
         }
 
         val content = "$distStr • $speedStr • $timeStr\n$turnBackStatus"
         val notification = buildNotification(
-            title = if (_isPaused.value) "Workout Paused" else "Recording ${activityType.displayName}",
+            title = if (_isPaused.value) "Workout Paused (Break)" else "Recording ${activityType.displayName}",
             text = content
         )
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
     private fun buildNotification(title: String, text: String): Notification {
-        val intent = Intent(this, MainActivity::class.java).apply {
+        val mainIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
-        val pendingIntent = PendingIntent.getActivity(
+        val pendingMainIntent = PendingIntent.getActivity(
             this,
             0,
-            intent,
+            mainIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+
+        // Action: Pause / Resume directly from Notification drawer
+        val actionIntent = Intent(this, TrackingService::class.java).apply {
+            action = if (_isPaused.value) ACTION_RESUME else ACTION_PAUSE
+        }
+        val pendingActionIntent = PendingIntent.getService(
+            this,
+            1,
+            actionIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val actionTitle = if (_isPaused.value) "Continue Run" else "Pause (Drink Break)"
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setSmallIcon(R.drawable.ic_foreground)
-            .setContentIntent(pendingIntent)
+            .setContentIntent(pendingMainIntent)
+            .addAction(0, actionTitle, pendingActionIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)

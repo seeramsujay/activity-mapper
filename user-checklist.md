@@ -134,6 +134,29 @@
 
 ---
 
+### Use Case 10: The In-Route Trail Runner (Drinks Break, Ghost Track, Compass & Pocket Lock)
+- **User Story:** *"As a trail runner on a technical forest trail, I want to view my previous route on the map to avoid getting lost, take a drinks break without ruining my pace or accumulating false GPS drift, and continue running without accidental touches ending my session."*
+- **Key Interactions:**
+  1. **Ghost Route Comparison:** While running, runner taps Library $\to$ opens last Sunday's trail run $\to$ taps **"Overlay on Run as Ghost Track"**. The map renders the past run as a translucent dashed purple line alongside their live cyan track.
+  2. **Background Active Mini-Bar:** While browsing the Library, a persistent floating mini-player displays: `🟢 ACTIVE RUN • 24:18 • 4.15 km • 5:12/km` with a 1-tap return button.
+  3. **Drinks Break & Continue:** Runner stops at a creek, pulls phone out, and taps **Pause**. The HUD displays **"DRINKS BREAK IN PROGRESS (Paused for 01:45)"**. Distance accumulation is frozen so stationary GPS jitter does not inflate total distance.
+  4. **Water Stop Waypoint:** Runner taps **"💧 LOG WATER"** $\to$ instantly drops a water waypoint without typing.
+  5. **Continue Run:** Runner taps the massive green **"CONTINUE RUN"** button $\to$ resumes seamlessly.
+  6. **Trail Compass (Course-Up):** Runner toggles the Compass button $\to$ map dynamically rotates with the runner's bearing so forward on the trail is always "UP" on screen.
+  7. **Pocket & Rain Lock:** Phone goes into running belt $\to$ runner taps the Padlock button to lock touch input. Accidental screen taps are blocked until tapped to unlock.
+  8. **Accidental Finish Prevention:** If "FINISH" is tapped, a confirmation modal asks *"Finish & Save Workout?"* to prevent sweaty hands from accidentally discarding or prematurely terminating the session.
+- **Verification Checklist:**
+  - [x] Previous track loaded as `ReferenceTrack` and rendered as dashed ghost polyline.
+  - [x] Background active mini-bar remains accessible across all navigation screens.
+  - [x] Stationary GPS drift discarded while paused during a drinks break.
+  - [x] 1-tap water waypoint logging.
+  - [x] Haptic double-pulse vibrates on every 1-km split.
+  - [x] Map orientation rotates dynamically in Course-Up mode.
+  - [x] Pocket lock blocks accidental touches while displaying giant glanceable metrics.
+  - [x] Finish confirmation dialog prevents accidental session ending.
+
+---
+
 ## 2. Automated Test Verification Matrix
 
 | Use Case | Component Under Test | Automated Test File | Status |
@@ -145,3 +168,5 @@
 | **UC-5: Torn-Write Drop Protection** | `RecordingWal.recover` with CRC failure | `RecordingWalTest.kt` | ✅ PASS |
 | **UC-6: 1-km Lap Split Intervals** | `TurnBackEngine.computeSplits` | `TurnBackEngineTest.kt` | ✅ PASS |
 | **UC-8: GPX 1.1 Export & Extension** | `GpxExporter.buildGpxString` | `GpxServiceTest.kt` | ✅ PASS |
+| **UC-10: Ghost Track & Drinks Break** | `ReferenceTrack` & `RecordingWal.appendBreak` | `UserUseCasesTest.kt` | ✅ PASS |
+| **UC-10: Canopy Jitter & Speed Smoothing** | Moving vs stopped threshold & rolling average | `UserUseCasesTest.kt` | ✅ PASS |

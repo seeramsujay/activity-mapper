@@ -3,6 +3,7 @@ package org.opensource.tracker.ui.map
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.DashPathEffect
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -23,13 +24,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddLocationAlt
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsBike
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Hiking
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Route
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -39,6 +45,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SuggestionChip
@@ -78,6 +85,7 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
 import java.time.Duration
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -120,35 +128,47 @@ fun MapScreen(
     var showWaypointDialog by remember { mutableStateOf(false) }
     var selectedTileSource by remember { mutableStateOf(MapTileSource.OSM) }
     var trackColorMode by remember { mutableStateOf(TrackColorMode.SPEED) }
+    var isCourseUpMode by remember { mutableStateOf(false) }
+    var isScreenLocked by remember { mutableStateOf(false) }
 
     val isTracking = service?.isTracking?.collectAsState()?.value ?: false
     val isPaused = service?.isPaused?.collectAsState()?.value ?: false
+    val breakDuration = service?.breakDurationSeconds?.collectAsState()?.value ?: 0L
     val currentPoint = service?.currentPoint?.collectAsState()?.value
+    val smoothedSpeed = service?.smoothedSpeedKmh?.collectAsState()?.value ?: 0.0
     val points = service?.points?.collectAsState()?.value ?: emptyList()
     val waypoints = service?.waypoints?.collectAsState()?.value ?: emptyList()
     val stats = service?.stats?.collectAsState()?.value ?: TelemetryStats()
     val turnBackTriggered = service?.turnBackTriggered?.collectAsState()?.value ?: false
     val outboundRemaining = service?.outboundRemainingSeconds?.collectAsState()?.value ?: 0L
+    val referenceTrack = service?.referenceTrack?.collectAsState()?.value
 
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
 
     BottomSheetScaffold(
         scaffoldState = scaffoldState,
-        sheetPeekHeight = if (isTracking) 120.dp else 220.dp,
+        sheetPeekHeight = if (isTracking) {
+            if (isPaused) 200.dp else 125.dp
+        } else {
+            240.dp
+        },
         sheetShape = MaterialTheme.shapes.extraLarge,
         sheetContent = {
             if (isTracking) {
                 RecordingBottomSheetContent(
                     currentPoint = currentPoint,
+                    smoothedSpeedKmh = smoothedSpeed,
                     stats = stats,
                     points = points,
                     isPaused = isPaused,
+                    breakDurationSeconds = breakDuration,
                     turnBackTriggered = turnBackTriggered,
                     outboundRemainingSeconds = outboundRemaining,
                     onTogglePause = {
                         if (isPaused) service?.resumeTracking() else service?.pauseTracking()
                     },
                     onAddWaypoint = { showWaypointDialog = true },
+                    onLogWaterBreak = { service?.logWaterBreakWaypoint() },
                     onToggleOled = onToggleOled,
                     onFinish = {
                         service?.stopAndSave { savedId ->
@@ -174,7 +194,7 @@ fun MapScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            // Map Canvas
+            // 1. Map Canvas
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { ctx ->
@@ -210,8 +230,29 @@ fun MapScreen(
                         }
                     )
 
+                    // Dynamic Course-Up vs North-Up orientation for trail navigation
+                    if (isCourseUpMode && currentPoint != null && currentPoint.bearingDegrees > 0f) {
+                        mapView.setMapOrientation(-currentPoint.bearingDegrees, false)
+                    } else {
+                        mapView.setMapOrientation(0f, false)
+                    }
+
                     mapView.overlays.removeAll { it is Polyline || it is Marker }
 
+                    // Render Ghost / Reference Track (Past Trail Run)
+                    if (referenceTrack != null && referenceTrack.points.isNotEmpty()) {
+                        val ghostGeoPoints = referenceTrack.points.map { GeoPoint(it.latitude, it.longitude) }
+                        val ghostPolyline = Polyline(mapView).apply {
+                            setPoints(ghostGeoPoints)
+                            outlinePaint.strokeWidth = 11f
+                            outlinePaint.color = android.graphics.Color.parseColor("#8B5CF6")
+                            outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+                            outlinePaint.pathEffect = DashPathEffect(floatArrayOf(24f, 16f), 0f)
+                        }
+                        mapView.overlays.add(ghostPolyline)
+                    }
+
+                    // Render Active Recording Polyline
                     if (points.isNotEmpty()) {
                         val geoPoints = points.map { GeoPoint(it.latitude, it.longitude) }
                         val polyline = Polyline(mapView).apply {
@@ -231,6 +272,7 @@ fun MapScreen(
                         mapView.controller.animateTo(GeoPoint(latest.latitude, latest.longitude))
                     }
 
+                    // Render Waypoint Pins
                     for (w in waypoints) {
                         val marker = Marker(mapView).apply {
                             position = GeoPoint(w.latitude, w.longitude)
@@ -245,16 +287,49 @@ fun MapScreen(
                 }
             )
 
-            // Ergonomic Heavy-Glove Floating Action Controls
+            // 2. Active Ghost Track Badge (if reference route overlaid)
+            if (referenceTrack != null) {
+                Card(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(top = 16.dp, start = 16.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Route, contentDescription = null, tint = Color(0xFF8B5CF6), modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Ghost: ${referenceTrack.title}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF8B5CF6)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        IconButton(
+                            onClick = { service?.clearReferenceTrack() },
+                            modifier = Modifier.size(20.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear Ghost", modifier = Modifier.size(14.dp))
+                        }
+                    }
+                }
+            }
+
+            // 3. Glove-Friendly Floating Action Controls
             Column(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(top = 16.dp, end = 16.dp)
             ) {
+                // Recenter
                 FloatingActionButton(
                     onClick = {
                         val last = points.lastOrNull() ?: currentPoint
-                        if (last != null && mapViewRef != null) {
+                        if (last != null) {
                             mapViewRef?.controller?.animateTo(GeoPoint(last.latitude, last.longitude))
                         }
                     },
@@ -267,6 +342,23 @@ fun MapScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
+                // Compass Course-Up / North-Up Toggle (Crucial for Trail Navigation)
+                FloatingActionButton(
+                    onClick = { isCourseUpMode = !isCourseUpMode },
+                    modifier = Modifier.size(56.dp),
+                    shape = CircleShape,
+                    containerColor = if (isCourseUpMode) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                ) {
+                    Icon(
+                        Icons.Default.Explore,
+                        contentDescription = "Trail Compass Orientation",
+                        tint = if (isCourseUpMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Map Layers Modal Switcher
                 FloatingActionButton(
                     onClick = { showLayersDialog = true },
                     modifier = Modifier.size(56.dp),
@@ -279,6 +371,23 @@ fun MapScreen(
                 if (isTracking) {
                     Spacer(modifier = Modifier.height(12.dp))
 
+                    // Screen Lock (Wet Screen / Running Vest Pocket Protection)
+                    SmallFloatingActionButton(
+                        onClick = { isScreenLocked = !isScreenLocked },
+                        modifier = Modifier.size(48.dp),
+                        shape = CircleShape,
+                        containerColor = if (isScreenLocked) Color(0xFFEF4444) else MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Icon(
+                            imageVector = if (isScreenLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                            contentDescription = "Pocket / Rain Lock",
+                            tint = if (isScreenLocked) Color.White else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Drop Waypoint
                     SmallFloatingActionButton(
                         onClick = { showWaypointDialog = true },
                         modifier = Modifier.size(48.dp),
@@ -289,21 +398,65 @@ fun MapScreen(
                     }
                 }
             }
+
+            // 4. Full-Screen Pocket / Rain Lock Overlay (Sweaty Hands & Pocket Mode)
+            if (isScreenLocked) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.85f))
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(48.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("POCKET & RAIN LOCK ACTIVE", fontWeight = FontWeight.Black, fontSize = 16.sp, color = Color.White)
+                        Text("Accidental screen touches blocked", style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
+
+                        Spacer(modifier = Modifier.height(28.dp))
+
+                        // Glanceable giant numbers while running
+                        Text(
+                            text = String.format(Locale.US, "%.2f km", stats.distanceKm),
+                            fontSize = 44.sp,
+                            fontWeight = FontWeight.Black,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "PACE ${stats.avgPaceMinKm}/km • TIME ${formatDuration(stats.totalDuration)}",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF06B6D4)
+                        )
+
+                        Spacer(modifier = Modifier.height(36.dp))
+
+                        Button(
+                            onClick = { isScreenLocked = false },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.height(52.dp)
+                        ) {
+                            Icon(Icons.Default.LockOpen, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("TAP TO UNLOCK SCREEN", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
         }
     }
 
     if (showLayersDialog) {
         MapLayersDialog(
-            selectedSource = selectedTileSource,
-            onSelectSource = {
-                selectedTileSource = it
-                showLayersDialog = false
-            },
-            trackColorMode = trackColorMode,
-            onSelectColorMode = {
-                trackColorMode = it
-                showLayersDialog = false
-            },
+            currentTileSource = selectedTileSource,
+            currentTrackColorMode = trackColorMode,
+            onSelectTileSource = { selectedTileSource = it },
+            onSelectTrackColorMode = { trackColorMode = it },
             onDismiss = { showLayersDialog = false }
         )
     }
@@ -311,8 +464,9 @@ fun MapScreen(
     if (showWaypointDialog) {
         WaypointDialog(
             onDismiss = { showWaypointDialog = false },
-            onSave = { name, desc, category ->
-                service?.addWaypoint(name, desc, category)
+            onSave = { name, description, category ->
+                service?.addWaypoint(name, description, category)
+                showWaypointDialog = false
             }
         )
     }
@@ -456,4 +610,12 @@ private fun StartActivityLaunchpad(
 
         Spacer(modifier = Modifier.height(8.dp))
     }
+}
+
+private fun formatDuration(d: Duration): String {
+    val h = d.toHours()
+    val m = (d.toMinutes() % 60)
+    val s = (d.seconds % 60)
+    return if (h > 0) String.format("%d:%02d:%02d", h, m, s)
+    else String.format("%02d:%02d", m, s)
 }

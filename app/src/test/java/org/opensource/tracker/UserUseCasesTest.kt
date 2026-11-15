@@ -13,6 +13,7 @@ import org.opensource.tracker.domain.model.TrackPoint
 import org.opensource.tracker.domain.model.Waypoint
 import org.opensource.tracker.domain.model.WaypointCategory
 import org.opensource.tracker.domain.turnback.TurnBackEngine
+import org.opensource.tracker.service.ReferenceTrack
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.time.Duration
@@ -209,5 +210,69 @@ class UserUseCasesTest {
         assertEquals(15.0, parsed.points[0].altitudeMeters, 0.1)
         assertEquals("Hazard Tree", parsed.waypoints[0].name)
         assertEquals(WaypointCategory.HAZARD, parsed.waypoints[0].category)
+    }
+
+    @Test
+    fun testUseCase10_TrailRunnerGhostTrackOverlayAndDrinksBreak() {
+        val now = Instant.now()
+        // 1. Previous session track (Ghost reference track)
+        val previousSessionPoints = listOf(
+            TrackPoint(37.7800, -122.4200, 50.0, 3.0, 5.0, 45f, now.minusSeconds(3600)),
+            TrackPoint(37.7810, -122.4210, 55.0, 3.2, 5.0, 45f, now.minusSeconds(3500)),
+            TrackPoint(37.7820, -122.4220, 60.0, 3.1, 5.0, 45f, now.minusSeconds(3400))
+        )
+        val ghost = ReferenceTrack(trackId = 42L, title = "Last Week's Mountain Trail", points = previousSessionPoints)
+        assertEquals(42L, ghost.trackId)
+        assertEquals(3, ghost.points.size)
+        assertEquals("Last Week's Mountain Trail", ghost.title)
+
+        // 2. Drinks break logging via WAL
+        val walFile = File(tempFolder.root, "drinks_break.wal")
+        val wal = RecordingWal.create(walFile)
+        wal.appendPoint(TrackPoint(37.7800, -122.4200, 50.0, 3.0, 5.0, 45f, now))
+        // Runner takes a drinks break -> appends break record
+        wal.appendBreak()
+        // Runner logs a water waypoint during break
+        val waterStop = Waypoint(
+            sessionId = 0L,
+            name = "Water Stop",
+            description = "Hydration break on trail",
+            latitude = 37.7800,
+            longitude = -122.4200,
+            altitudeMeters = 50.0,
+            category = WaypointCategory.WATER,
+            timestamp = now.plusSeconds(30)
+        )
+        wal.appendWaypoint(waterStop)
+        wal.close()
+
+        val recovered = RecordingWal.recover(walFile)
+        assertEquals(1, recovered.points.size)
+        assertEquals(1, recovered.waypoints.size)
+        assertEquals(WaypointCategory.WATER, recovered.waypoints[0].category)
+        assertEquals("Water Stop", recovered.waypoints[0].name)
+    }
+
+    @Test
+    fun testUseCase11_CanopyGpsNoiseAndJitterSuppression() {
+        val now = Instant.now()
+        // Stationary jitter: runner standing still or drinking water for 3 minutes
+        // Small multipath jitter < 0.3 m/s should NOT count towards moving time
+        val jitterPoints = listOf(
+            TrackPoint(37.78000, -122.42000, 50.0, 0.1, 20.0, 0f, now),
+            TrackPoint(37.78001, -122.42001, 50.2, 0.2, 22.0, 0f, now.plusSeconds(60)),
+            TrackPoint(37.78000, -122.42002, 49.8, 0.15, 21.0, 0f, now.plusSeconds(120)),
+            TrackPoint(37.78001, -122.42000, 50.1, 0.1, 23.0, 0f, now.plusSeconds(180))
+        )
+
+        val stats = TurnBackEngine.computeStats(jitterPoints, totalDuration = Duration.ofSeconds(180))
+        // Moving duration should be 0 because all points are below the 0.5 m/s threshold
+        assertEquals(0, stats.movingDuration.toSeconds())
+        assertEquals(180, stats.stoppedDuration.toSeconds())
+
+        // Moving Average speed smoothing check
+        val rawSpeedsKmh = listOf(10.0, 11.0, 9.5, 10.5, 10.0)
+        val smoothed = rawSpeedsKmh.average()
+        assertEquals(10.2, smoothed, 0.05)
     }
 }
