@@ -16,13 +16,23 @@ reviews:
     enabled: true
     drafts: false
     base_branches:
-      - "master"
       - "main"
+      - "master"
       - "redesign-v2"
+  tools:
+    ast-grep:
+      enabled: true
+    shellcheck:
+      enabled: true
+    markdownlint:
+      enabled: true
+    github-checks:
+      enabled: true
+  path_filters:
+    - "!**/build/**"
+    - "!**/.dart_tool/**"
+    - "!**/ios/Pods/**"
+    - "!**/android/.gradle/**"
 
 chat:
   auto_reply: true
-
-tools:
-  github-checks:
-    enabled: true
