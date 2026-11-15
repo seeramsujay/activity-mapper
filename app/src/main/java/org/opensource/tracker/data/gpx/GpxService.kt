@@ -3,14 +3,13 @@ package org.opensource.tracker.data.gpx
 import org.opensource.tracker.domain.model.TrackPoint
 import org.opensource.tracker.domain.model.Waypoint
 import org.opensource.tracker.domain.model.WaypointCategory
-import org.xmlpull.v1.XmlPullParser
-import org.xmlpull.v1.XmlPullParserFactory
+import org.w3c.dom.Element
 import java.io.File
 import java.io.InputStream
 import java.io.StringWriter
 import java.time.Instant
 import java.time.format.DateTimeFormatter
-import java.util.Locale
+import javax.xml.parsers.DocumentBuilderFactory
 
 /**
  * Standard GPX 1.1 Exporter and Importer.
@@ -45,9 +44,9 @@ object GpxExporter {
 
         // Waypoints (<wpt>)
         for (w in waypoints) {
-            writer.write(String.format(Locale.US, "  <wpt lat=\"%.7f\" lon=\"%.7f\">\n", w.latitude, w.longitude))
+            writer.write("  <wpt lat=\"${w.latitude}\" lon=\"${w.longitude}\">\n")
             if (w.altitudeMeters != 0.0) {
-                writer.write(String.format(Locale.US, "    <ele>%.2f</ele>\n", w.altitudeMeters))
+                writer.write("    <ele>${w.altitudeMeters}</ele>\n")
             }
             writer.write("    <time>${ISO_FORMATTER.format(w.timestamp)}</time>\n")
             writer.write("    <name>${escapeXml(w.name)}</name>\n")
@@ -61,17 +60,17 @@ object GpxExporter {
         // Track (<trk>)
         writer.write("  <trk>\n")
         writer.write("    <name>${escapeXml(trackName)}</name>\n")
-        writer.write("    <type>${escapeXml(activityType.lowercase(Locale.ROOT))}</type>\n")
+        writer.write("    <type>${escapeXml(activityType)}</type>\n")
         writer.write("    <trkseg>\n")
 
         for (p in points) {
-            writer.write(String.format(Locale.US, "      <trkpt lat=\"%.7f\" lon=\"%.7f\">\n", p.latitude, p.longitude))
-            writer.write(String.format(Locale.US, "        <ele>%.2f</ele>\n", p.altitudeMeters))
+            writer.write("      <trkpt lat=\"${p.latitude}\" lon=\"${p.longitude}\">\n")
+            writer.write("        <ele>${p.altitudeMeters}</ele>\n")
             writer.write("        <time>${ISO_FORMATTER.format(p.timestamp)}</time>\n")
             if (p.speedMps > 0.0) {
                 writer.write("        <extensions>\n")
                 writer.write("          <gpxtpx:TrackPointExtension>\n")
-                writer.write(String.format(Locale.US, "            <gpxtpx:speed>%.2f</gpxtpx:speed>\n", p.speedMps))
+                writer.write("            <gpxtpx:speed>${p.speedMps}</gpxtpx:speed>\n")
                 writer.write("          </gpxtpx:TrackPointExtension>\n")
                 writer.write("        </extensions>\n")
             }
@@ -91,14 +90,14 @@ object GpxExporter {
         activityType: String,
         points: List<TrackPoint>,
         waypoints: List<Waypoint> = emptyList(),
-    ): File {
-        file.parentFile?.mkdirs()
-        file.writeText(buildGpxString(trackName, activityType, points, waypoints))
-        return file
+        startTime: Instant = points.firstOrNull()?.timestamp ?: Instant.now(),
+    ) {
+        val gpx = buildGpxString(trackName, activityType, points, waypoints, startTime)
+        file.writeText(gpx, Charsets.UTF_8)
     }
 
-    private fun escapeXml(str: String): String =
-        str
+    private fun escapeXml(input: String): String =
+        input
             .replace("&", "&amp;")
             .replace("<", "&lt;")
             .replace(">", "&gt;")
@@ -108,120 +107,157 @@ object GpxExporter {
 
 object GpxImporter {
     fun parse(inputStream: InputStream): ParsedGpx {
-        val factory = XmlPullParserFactory.newInstance()
-        factory.isNamespaceAware = true
-        val parser = factory.newPullParser()
-        parser.setInput(inputStream, "UTF-8")
+        val factory =
+            DocumentBuilderFactory.newInstance().apply {
+                isNamespaceAware = true
+            }
+        val builder = factory.newDocumentBuilder()
+        val doc = builder.parse(inputStream)
 
         var trackName = "Imported Track"
-        val points = mutableListOf<TrackPoint>()
-        val waypoints = mutableListOf<Waypoint>()
-
-        var inTrk = false
-        var inWpt = false
-        var curLat = 0.0
-        var curLon = 0.0
-        var curEle = 0.0
-        var curSpeed = 0.0
-        var curTime = Instant.now()
-        var curName = ""
-        var curDesc = ""
-        var curSym = ""
-
-        var eventType = parser.eventType
-        while (eventType != XmlPullParser.END_DOCUMENT) {
-            val tag = parser.name
-            when (eventType) {
-                XmlPullParser.START_TAG -> {
-                    when (tag) {
-                        "wpt" -> {
-                            inWpt = true
-                            curLat = parser.getAttributeValue(null, "lat")?.toDoubleOrNull() ?: 0.0
-                            curLon = parser.getAttributeValue(null, "lon")?.toDoubleOrNull() ?: 0.0
-                            curEle = 0.0
-                            curTime = Instant.now()
-                            curName = ""
-                            curDesc = ""
-                            curSym = ""
-                        }
-                        "trk" -> inTrk = true
-                        "trkpt" -> {
-                            curLat = parser.getAttributeValue(null, "lat")?.toDoubleOrNull() ?: 0.0
-                            curLon = parser.getAttributeValue(null, "lon")?.toDoubleOrNull() ?: 0.0
-                            curEle = 0.0
-                            curSpeed = 0.0
-                            curTime = Instant.now()
-                        }
-                        "name" -> {
-                            val text = parser.nextText()
-                            if (inWpt) {
-                                curName = text
-                            } else if (inTrk && trackName == "Imported Track") {
-                                trackName = text
-                            }
-                        }
-                        "desc" -> if (inWpt) curDesc = parser.nextText()
-                        "sym" -> if (inWpt) curSym = parser.nextText()
-                        "ele" -> curEle = parser.nextText()?.toDoubleOrNull() ?: 0.0
-                        "time" -> {
-                            val timeStr = parser.nextText()
-                            try {
-                                curTime = Instant.parse(timeStr)
-                            } catch (_: Exception) {
-                            }
-                        }
-                        "speed" -> curSpeed = parser.nextText()?.toDoubleOrNull() ?: 0.0
-                    }
-                }
-                XmlPullParser.END_TAG -> {
-                    when (tag) {
-                        "wpt" -> {
-                            inWpt = false
-                            val category =
-                                when {
-                                    curSym.contains("water", ignoreCase = true) -> WaypointCategory.WATER
-                                    curSym.contains(
-                                        "scenic",
-                                        ignoreCase = true,
-                                    ) ||
-                                        curSym.contains("view", ignoreCase = true) -> WaypointCategory.VIEWPOINT
-                                    curSym.contains("camp", ignoreCase = true) -> WaypointCategory.CAMP
-                                    curSym.contains(
-                                        "danger",
-                                        ignoreCase = true,
-                                    ) ||
-                                        curSym.contains("hazard", ignoreCase = true) -> WaypointCategory.HAZARD
-                                    else -> WaypointCategory.NOTE
-                                }
-                            waypoints.add(
-                                Waypoint(
-                                    sessionId = 0L,
-                                    name = curName.ifBlank { "Waypoint" },
-                                    description = curDesc,
-                                    latitude = curLat,
-                                    longitude = curLon,
-                                    altitudeMeters = curEle,
-                                    category = category,
-                                    timestamp = curTime,
-                                ),
-                            )
-                        }
-                        "trkpt" -> {
-                            points.add(
-                                TrackPoint(
-                                    latitude = curLat,
-                                    longitude = curLon,
-                                    altitudeMeters = curEle,
-                                    speedMps = curSpeed,
-                                    timestamp = curTime,
-                                ),
-                            )
-                        }
-                        "trk" -> inTrk = false
-                    }
+        val trkNodes = doc.getElementsByTagName("trk")
+        if (trkNodes.length > 0) {
+            val trk = trkNodes.item(0) as? Element
+            val nameEl = trk?.getElementsByTagName("name")?.item(0)
+            if (nameEl != null && nameEl.textContent.isNotBlank()) {
+                trackName = nameEl.textContent.trim()
+            }
+        }
+        if (trackName == "Imported Track") {
+            val metaNodes = doc.getElementsByTagName("metadata")
+            if (metaNodes.length > 0) {
+                val meta = metaNodes.item(0) as? Element
+                val metaNameEl = meta?.getElementsByTagName("name")?.item(0)
+                if (metaNameEl != null && metaNameEl.textContent.isNotBlank()) {
+                    trackName = metaNameEl.textContent.trim()
                 }
             }
-            eventType = parser.next()
+        }
+
+        val waypoints = mutableListOf<Waypoint>()
+        val wptNodes = doc.getElementsByTagName("wpt")
+        for (i in 0 until wptNodes.length) {
+            val el = wptNodes.item(i) as? Element ?: continue
+            val lat = el.getAttribute("lat").toDoubleOrNull() ?: 0.0
+            val lon = el.getAttribute("lon").toDoubleOrNull() ?: 0.0
+            val ele =
+                el
+                    .getElementsByTagName("ele")
+                    .item(0)
+                    ?.textContent
+                    ?.toDoubleOrNull() ?: 0.0
+            val name =
+                el
+                    .getElementsByTagName("name")
+                    .item(0)
+                    ?.textContent
+                    ?.trim() ?: "Waypoint"
+            val desc =
+                el
+                    .getElementsByTagName("desc")
+                    .item(0)
+                    ?.textContent
+                    ?.trim() ?: ""
+            val sym =
+                el
+                    .getElementsByTagName("sym")
+                    .item(0)
+                    ?.textContent
+                    ?.trim() ?: ""
+            val timeStr =
+                el
+                    .getElementsByTagName("time")
+                    .item(0)
+                    ?.textContent
+                    ?.trim()
+            val time =
+                try {
+                    if (timeStr != null) Instant.parse(timeStr) else Instant.now()
+                } catch (_: Exception) {
+                    Instant.now()
+                }
+
+            val category =
+                when {
+                    sym.contains("water", ignoreCase = true) -> WaypointCategory.WATER
+                    sym.contains("scenic", ignoreCase = true) ||
+                        sym.contains(
+                            "view",
+                            ignoreCase = true,
+                        ) -> WaypointCategory.VIEWPOINT
+
+                    sym.contains("camp", ignoreCase = true) -> WaypointCategory.CAMP
+                    sym.contains("danger", ignoreCase = true) ||
+                        sym.contains(
+                            "hazard",
+                            ignoreCase = true,
+                        ) -> WaypointCategory.HAZARD
+
+                    else -> WaypointCategory.NOTE
+                }
+
+            waypoints.add(
+                Waypoint(
+                    sessionId = 0L,
+                    name = name.ifBlank { "Waypoint" },
+                    description = desc,
+                    latitude = lat,
+                    longitude = lon,
+                    altitudeMeters = ele,
+                    category = category,
+                    timestamp = time,
+                ),
+            )
+        }
+
+        val points = mutableListOf<TrackPoint>()
+        val trkptNodes = doc.getElementsByTagName("trkpt")
+        for (i in 0 until trkptNodes.length) {
+            val el = trkptNodes.item(i) as? Element ?: continue
+            val lat = el.getAttribute("lat").toDoubleOrNull() ?: 0.0
+            val lon = el.getAttribute("lon").toDoubleOrNull() ?: 0.0
+            val ele =
+                el
+                    .getElementsByTagName("ele")
+                    .item(0)
+                    ?.textContent
+                    ?.toDoubleOrNull() ?: 0.0
+            val timeStr =
+                el
+                    .getElementsByTagName("time")
+                    .item(0)
+                    ?.textContent
+                    ?.trim()
+            val time =
+                try {
+                    if (timeStr != null) Instant.parse(timeStr) else Instant.now()
+                } catch (_: Exception) {
+                    Instant.now()
+                }
+
+            var speed =
+                el
+                    .getElementsByTagName("speed")
+                    .item(0)
+                    ?.textContent
+                    ?.toDoubleOrNull() ?: 0.0
+            if (speed == 0.0) {
+                speed = el
+                    .getElementsByTagNameNS("*", "speed")
+                    .item(0)
+                    ?.textContent
+                    ?.toDoubleOrNull() ?: 0.0
+            }
+
+            points.add(
+                TrackPoint(
+                    latitude = lat,
+                    longitude = lon,
+                    altitudeMeters = ele,
+                    speedMps = speed,
+                    timestamp = time,
+                ),
+            )
         }
 
         return ParsedGpx(trackName, points, waypoints)
