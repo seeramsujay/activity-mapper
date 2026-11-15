@@ -79,6 +79,7 @@ class TrackingService :
     private var movingTimeMs: Long = 0L
     private var lastFixTimeMs: Long = 0L
     private var breakStartTimeMs: Long = 0L
+    private var totalBreakDurationMs: Long = 0L
     private var lastAlertedKm: Int = 0
 
     // Recent speed smoothing window (last 5 fixes)
@@ -163,6 +164,7 @@ class TrackingService :
                         },
                 )
             }
+
             ACTION_PAUSE -> pauseTracking()
             ACTION_RESUME -> resumeTracking()
             ACTION_STOP -> stopTracking()
@@ -190,19 +192,27 @@ class TrackingService :
         if (_isTracking.value) return
 
         this.targetDuration = Duration.ofSeconds(targetSec)
-        this.fatigueBeta = beta
         this.activityType = activityType
-        this.outboundLimitDuration = TurnBackEngine.computeOutboundLimit(targetDuration, fatigueBeta, safetyBufferPercent)
+
+        // Car mode has 0 return fatigue and symmetric 50% split
+        val effectiveBeta = if (activityType == ActivityType.CAR) 0.0 else beta
+        val effectiveSafetyBuffer = if (activityType == ActivityType.CAR) 0.0 else safetyBufferPercent
+        this.fatigueBeta = effectiveBeta
+        this.safetyBufferPercent = effectiveSafetyBuffer
+        this.outboundLimitDuration =
+            TurnBackEngine.computeOutboundLimit(targetDuration, effectiveBeta, effectiveSafetyBuffer)
+
         this.startTime = Instant.now()
         this.movingTimeMs = 0L
         this.lastFixTimeMs = System.currentTimeMillis()
         this.breakStartTimeMs = 0L
+        this.totalBreakDurationMs = 0L
         this.lastAlertedKm = 0
         this.speedHistory.clear()
 
         _points.value = emptyList()
         _waypoints.value = emptyList()
-        _stats.value = TelemetryStats()
+        _stats.value = TelemetryStats(totalDuration = Duration.ZERO)
         _turnBackTriggered.value = false
         _isTracking.value = true
         _isPaused.value = false
@@ -254,7 +264,10 @@ class TrackingService :
     fun resumeTracking() {
         if (!_isTracking.value || !_isPaused.value) return
         _isPaused.value = false
-        breakStartTimeMs = 0L
+        if (breakStartTimeMs > 0L) {
+            totalBreakDurationMs += (System.currentTimeMillis() - breakStartTimeMs)
+            breakStartTimeMs = 0L
+        }
         _breakDurationSeconds.value = 0L
         lastFixTimeMs = System.currentTimeMillis()
 
@@ -309,7 +322,10 @@ class TrackingService :
         serviceScope.launch(Dispatchers.IO) {
             val finalPoints = _points.value
             val finalWaypoints = _waypoints.value
-            val finalStats = TurnBackEngine.computeStats(finalPoints)
+            val nowMs = System.currentTimeMillis()
+            val totalElapsed =
+                Duration.ofMillis(((nowMs - startTime.toEpochMilli()) - totalBreakDurationMs).coerceAtLeast(0L))
+            val finalStats = TurnBackEngine.computeStats(finalPoints, totalElapsed)
             val sessionTitle = title?.ifBlank { null } ?: "${activityType.displayName} ${System.currentTimeMillis()}"
 
             // 1. Export GPX file
@@ -393,15 +409,17 @@ class TrackingService :
             return
         }
 
-        // 2. Max Human Speed Sanity Filter: discard impossible sprint speeds (> 14 m/s ~ 50 km/h)
-        if (location.hasSpeed() && location.speed > 14.0f) {
+        // 2. Speed Sanity Filter: CAR allows up to 70 m/s (~250 km/h), foot activities capped at 14 m/s (~50 km/h)
+        val maxSpeedMps = if (activityType == ActivityType.CAR) 70.0f else 14.0f
+        if (location.hasSpeed() && location.speed > maxSpeedMps) {
             return
         }
 
         val lastPoint = _points.value.lastOrNull()
         val now = System.currentTimeMillis()
 
-        // 3. Teleportation / Multipath Jump Filter: discard jumps > 60m within 2 seconds
+        // 3. Teleportation / Multipath Jump Filter: discard jumps > 60m (250m for CAR) within 2 seconds
+        val maxJumpMeters = if (activityType == ActivityType.CAR) 250.0 else 60.0
         if (lastPoint != null && now - lastPoint.timestamp.toEpochMilli() <= 2000L) {
             val dist =
                 TurnBackEngine.haversineDistanceMeters(
@@ -410,7 +428,7 @@ class TrackingService :
                     location.latitude,
                     location.longitude,
                 )
-            if (dist > 60.0) {
+            if (dist > maxJumpMeters) {
                 return
             }
         }
@@ -445,7 +463,9 @@ class TrackingService :
         }
         lastFixTimeMs = now
 
-        val updatedStats = TurnBackEngine.computeStats(_points.value, Duration.ofMillis(now - startTime.toEpochMilli()))
+        val activeElapsed =
+            Duration.ofMillis(((now - startTime.toEpochMilli()) - totalBreakDurationMs).coerceAtLeast(0L))
+        val updatedStats = TurnBackEngine.computeStats(_points.value, activeElapsed)
         _stats.value = updatedStats
 
         // Haptic 1-km Split Notification for Trail Runners
@@ -467,9 +487,15 @@ class TrackingService :
                                 _breakDurationSeconds.value = (System.currentTimeMillis() - breakStartTimeMs) / 1000L
                             }
                         } else {
-                            val now = Instant.now()
-                            val elapsedOutbound = Duration.between(startTime, now)
-                            val remainingSec = (outboundLimitDuration.seconds - elapsedOutbound.seconds).coerceAtLeast(0L)
+                            val nowMs = System.currentTimeMillis()
+                            val totalElapsedMs = (nowMs - startTime.toEpochMilli()) - totalBreakDurationMs
+                            val activeDuration = Duration.ofMillis(totalElapsedMs.coerceAtLeast(0L))
+
+                            // Continuous 1-second elapsed time update so stopwatch ticks immediately
+                            _stats.update { it.copy(totalDuration = activeDuration) }
+
+                            val remainingSec =
+                                (outboundLimitDuration.seconds - activeDuration.seconds).coerceAtLeast(0L)
                             _outboundRemainingSeconds.value = remainingSec
 
                             // Check Turn-Back Trigger

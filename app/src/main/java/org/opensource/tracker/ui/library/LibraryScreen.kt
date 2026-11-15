@@ -1,5 +1,8 @@
 package org.opensource.tracker.ui.library
 
+import android.content.Context
+import android.content.Intent
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,10 +22,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DirectionsBike
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Hiking
 import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,9 +49,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import kotlinx.coroutines.launch
 import org.opensource.tracker.data.db.AppDatabase
 import org.opensource.tracker.data.db.TrackEntity
+import java.io.File
 import java.text.SimpleDateFormat
 import java.time.Duration
 import java.util.Date
@@ -110,6 +117,7 @@ fun LibraryScreen(onTrackClick: (Long) -> Unit) {
                     TrackItemCard(
                         track = track,
                         onClick = { onTrackClick(track.id) },
+                        onShareGpx = { shareGpxTrack(context, track) },
                         onDelete = {
                             scope.launch {
                                 db.trackDao().deleteTrack(track)
@@ -122,10 +130,41 @@ fun LibraryScreen(onTrackClick: (Long) -> Unit) {
     }
 }
 
+private fun shareGpxTrack(
+    context: Context,
+    track: TrackEntity,
+) {
+    val gpxPath = track.gpxFilePath
+    if (gpxPath.isNullOrBlank()) {
+        Toast.makeText(context, "No GPX file available for this activity", Toast.LENGTH_SHORT).show()
+        return
+    }
+    val file = File(gpxPath)
+    if (!file.exists()) {
+        Toast.makeText(context, "GPX file not found on disk", Toast.LENGTH_SHORT).show()
+        return
+    }
+    val uri =
+        FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file,
+        )
+    val shareIntent =
+        Intent(Intent.ACTION_SEND).apply {
+            type = "application/gpx+xml"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, track.title)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+    context.startActivity(Intent.createChooser(shareIntent, "Export GPX Track"))
+}
+
 @Composable
 private fun TrackItemCard(
     track: TrackEntity,
     onClick: () -> Unit,
+    onShareGpx: () -> Unit,
     onDelete: () -> Unit,
 ) {
     Card(
@@ -148,6 +187,7 @@ private fun TrackItemCard(
                     "HIKE" -> Icons.Default.Hiking
                     "CYCLE", "BIKE" -> Icons.Default.DirectionsBike
                     "WALK" -> Icons.Default.DirectionsWalk
+                    "CAR" -> Icons.Default.DirectionsCar
                     else -> Icons.Default.DirectionsRun
                 }
 
@@ -158,7 +198,12 @@ private fun TrackItemCard(
                         .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), RoundedCornerShape(12.dp)),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp),
+                )
             }
 
             Spacer(modifier = Modifier.width(14.dp))
@@ -198,6 +243,14 @@ private fun TrackItemCard(
                         color = Color(0xFF10B981),
                     )
                 }
+            }
+
+            IconButton(onClick = onShareGpx) {
+                Icon(
+                    imageVector = Icons.Default.Share,
+                    contentDescription = "Export GPX",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
             }
 
             IconButton(onClick = onDelete) {

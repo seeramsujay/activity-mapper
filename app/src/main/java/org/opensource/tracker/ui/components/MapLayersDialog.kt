@@ -7,17 +7,20 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.DownloadForOffline
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Terrain
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -57,6 +60,7 @@ fun MapLayersDialog(
     onSelectSource: (MapTileSource) -> Unit,
     trackColorMode: TrackColorMode,
     onSelectColorMode: (TrackColorMode) -> Unit,
+    onOpenOfflineMaps: () -> Unit = {},
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(
@@ -75,6 +79,22 @@ fun MapLayersDialog(
                 fontWeight = FontWeight.Black,
                 letterSpacing = 0.5.sp,
             )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Offline Maps action button
+            FilledTonalButton(
+                onClick = {
+                    onDismiss()
+                    onOpenOfflineMaps()
+                },
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                Icon(Icons.Default.DownloadForOffline, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Offline Maps & Vectors (.map)", fontWeight = FontWeight.Bold)
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -158,7 +178,7 @@ fun MapLayersDialog(
                         onClick = { onSelectColorMode(mode) },
                         shape = SegmentedButtonDefaults.itemShape(index = index, count = TrackColorMode.values().size),
                     ) {
-                        Text(mode.name.lowercase().capitalize())
+                        Text(mode.name.lowercase().replaceFirstChar { it.uppercase() })
                     }
                 }
             }

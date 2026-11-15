@@ -21,6 +21,14 @@ class TurnBackEngineTest {
     }
 
     @Test
+    fun testCarModeNoReturnFatigue() {
+        val target = Duration.ofMinutes(60)
+        // For CAR mode: beta = 0.0, safetyBufferPercent = 0.0 -> exact 50% split (30 minutes outbound)
+        val limit = TurnBackEngine.computeOutboundLimit(target, beta = 0.0, safetyBufferPercent = 0.0)
+        assertEquals(30L, limit.toMinutes())
+    }
+
+    @Test
     fun testHaversineDistance() {
         // Distance between (0, 0) and (1, 0) is ~111.19 km (111190 m)
         val dist = TurnBackEngine.haversineDistanceMeters(0.0, 0.0, 1.0, 0.0)
@@ -34,8 +42,20 @@ class TurnBackEngineTest {
         val points =
             listOf(
                 TrackPoint(latitude = 12.0, longitude = 77.0, altitudeMeters = 100.0, speedMps = 3.5, timestamp = now),
-                TrackPoint(latitude = 12.01, longitude = 77.0, altitudeMeters = 110.0, speedMps = 3.5, timestamp = now.plusSeconds(300)),
-                TrackPoint(latitude = 12.02, longitude = 77.0, altitudeMeters = 120.0, speedMps = 3.5, timestamp = now.plusSeconds(600)),
+                TrackPoint(
+                    latitude = 12.01,
+                    longitude = 77.0,
+                    altitudeMeters = 110.0,
+                    speedMps = 3.5,
+                    timestamp = now.plusSeconds(300),
+                ),
+                TrackPoint(
+                    latitude = 12.02,
+                    longitude = 77.0,
+                    altitudeMeters = 120.0,
+                    speedMps = 3.5,
+                    timestamp = now.plusSeconds(600),
+                ),
             )
 
         val splits = TurnBackEngine.computeSplits(points, splitIntervalKm = 1.0)
@@ -87,9 +107,24 @@ class TurnBackEngineTest {
         val points =
             listOf(
                 TrackPoint(latitude = 12.0, longitude = 77.0, altitudeMeters = 100.0, timestamp = now),
-                TrackPoint(latitude = 12.001, longitude = 77.0, altitudeMeters = 101.0, timestamp = now.plusSeconds(10)),
-                TrackPoint(latitude = 12.002, longitude = 77.0, altitudeMeters = 100.5, timestamp = now.plusSeconds(20)),
-                TrackPoint(latitude = 12.003, longitude = 77.0, altitudeMeters = 101.2, timestamp = now.plusSeconds(30)),
+                TrackPoint(
+                    latitude = 12.001,
+                    longitude = 77.0,
+                    altitudeMeters = 101.0,
+                    timestamp = now.plusSeconds(10),
+                ),
+                TrackPoint(
+                    latitude = 12.002,
+                    longitude = 77.0,
+                    altitudeMeters = 100.5,
+                    timestamp = now.plusSeconds(20),
+                ),
+                TrackPoint(
+                    latitude = 12.003,
+                    longitude = 77.0,
+                    altitudeMeters = 101.2,
+                    timestamp = now.plusSeconds(30),
+                ),
             )
 
         val stats = TurnBackEngine.computeStats(points)

@@ -2,11 +2,11 @@ package org.opensource.tracker.ui.map
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.DashPathEffect
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,13 +26,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddLocationAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsBike
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Hiking
 import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Route
@@ -47,11 +46,12 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.SmallFloatingActionButton
-import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -74,6 +74,7 @@ import org.opensource.tracker.domain.turnback.TurnBackEngine
 import org.opensource.tracker.service.TrackingService
 import org.opensource.tracker.ui.components.MapLayersDialog
 import org.opensource.tracker.ui.components.MapTileSource
+import org.opensource.tracker.ui.components.OfflineMapsDialog
 import org.opensource.tracker.ui.components.TrackColorMode
 import org.opensource.tracker.ui.components.WaypointDialog
 import org.opensource.tracker.ui.record.RecordingBottomSheetContent
@@ -84,8 +85,9 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
+import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
+import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import java.time.Duration
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -126,11 +128,11 @@ fun MapScreen(
 
     val scaffoldState = rememberBottomSheetScaffoldState()
     var showLayersDialog by remember { mutableStateOf(false) }
+    var showOfflineMapsDialog by remember { mutableStateOf(false) }
     var showWaypointDialog by remember { mutableStateOf(false) }
     var selectedTileSource by remember { mutableStateOf(MapTileSource.OSM) }
     var trackColorMode by remember { mutableStateOf(TrackColorMode.SPEED) }
     var isCourseUpMode by remember { mutableStateOf(false) }
-    var isScreenLocked by remember { mutableStateOf(false) }
 
     val isTracking = service?.isTracking?.collectAsState()?.value ?: false
     val isPaused = service?.isPaused?.collectAsState()?.value ?: false
@@ -146,13 +148,20 @@ fun MapScreen(
 
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
 
+    DisposableEffect(mapViewRef) {
+        mapViewRef?.onResume()
+        onDispose {
+            mapViewRef?.onPause()
+        }
+    }
+
     BottomSheetScaffold(
         scaffoldState = scaffoldState,
         sheetPeekHeight =
             if (isTracking) {
                 if (isPaused) 200.dp else 125.dp
             } else {
-                240.dp
+                260.dp
             },
         sheetShape = MaterialTheme.shapes.extraLarge,
         sheetContent = {
@@ -181,9 +190,21 @@ fun MapScreen(
             } else {
                 StartActivityLaunchpad(
                     onStartWorkout = { targetMinutes, activityType ->
+                        // Ensure foreground service is launched
+                        val serviceIntent =
+                            Intent(context, TrackingService::class.java).apply {
+                                action = TrackingService.ACTION_START
+                                putExtra(TrackingService.EXTRA_TARGET_DURATION_SEC, targetMinutes * 60L)
+                                putExtra(
+                                    TrackingService.EXTRA_BETA,
+                                    if (activityType == ActivityType.CAR) 0.0 else 0.12,
+                                )
+                                putExtra(TrackingService.EXTRA_ACTIVITY_TYPE, activityType.name)
+                            }
+                        ContextCompat.startForegroundService(context, serviceIntent)
                         service?.startTracking(
                             targetSec = targetMinutes * 60L,
-                            beta = 0.12,
+                            beta = if (activityType == ActivityType.CAR) 0.0 else 0.12,
                             activityType = activityType,
                         )
                     },
@@ -197,15 +218,25 @@ fun MapScreen(
                     .fillMaxSize()
                     .padding(paddingValues),
         ) {
-            // 1. Map Canvas
+            // 1. Map Canvas with GPS Location Overlay
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { ctx ->
+                    Configuration.getInstance().userAgentValue = ctx.packageName
                     Configuration.getInstance().load(ctx, ctx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
                     MapView(ctx).apply {
                         setMultiTouchControls(true)
                         controller.setZoom(16.5)
                         isTilesScaledToDpi = true
+
+                        // Real-time GPS Location overlay with heading indicator
+                        val myLocationOverlay =
+                            MyLocationNewOverlay(GpsMyLocationProvider(ctx), this).apply {
+                                enableMyLocation()
+                                enableFollowLocation()
+                            }
+                        overlays.add(myLocationOverlay)
+
                         mapViewRef = this
                     }
                 },
@@ -223,6 +254,7 @@ fun MapScreen(
                                     ".png",
                                     arrayOf("https://a.basemaps.cartocdn.com/dark_all/"),
                                 )
+
                             MapTileSource.HOT ->
                                 XYTileSource(
                                     "OSM_HOT",
@@ -242,7 +274,7 @@ fun MapScreen(
                         mapView.setMapOrientation(0f, false)
                     }
 
-                    mapView.overlays.removeAll { it is Polyline || it is Marker }
+                    mapView.overlays.removeAll { it is Polyline || (it is Marker && it !is MyLocationNewOverlay) }
 
                     // Render Ghost / Reference Track (Past Trail Run)
                     if (referenceTrack != null && referenceTrack.points.isNotEmpty()) {
@@ -310,7 +342,12 @@ fun MapScreen(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(Icons.Default.Route, contentDescription = null, tint = Color(0xFF8B5CF6), modifier = Modifier.size(16.dp))
+                        Icon(
+                            Icons.Default.Route,
+                            contentDescription = null,
+                            tint = Color(0xFF8B5CF6),
+                            modifier = Modifier.size(16.dp),
+                        )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = "Ghost: ${referenceTrack.title}",
@@ -323,7 +360,11 @@ fun MapScreen(
                             onClick = { service?.clearReferenceTrack() },
                             modifier = Modifier.size(20.dp),
                         ) {
-                            Icon(Icons.Default.Close, contentDescription = "Clear Ghost", modifier = Modifier.size(14.dp))
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Clear Ghost",
+                                modifier = Modifier.size(14.dp),
+                            )
                         }
                     }
                 }
@@ -342,6 +383,12 @@ fun MapScreen(
                         val last = points.lastOrNull() ?: currentPoint
                         if (last != null) {
                             mapViewRef?.controller?.animateTo(GeoPoint(last.latitude, last.longitude))
+                        } else {
+                            val locOverlay =
+                                mapViewRef?.overlays?.filterIsInstance<MyLocationNewOverlay>()?.firstOrNull()
+                            locOverlay?.myLocation?.let {
+                                mapViewRef?.controller?.animateTo(it)
+                            }
                         }
                     },
                     modifier = Modifier.size(56.dp),
@@ -382,22 +429,6 @@ fun MapScreen(
                 if (isTracking) {
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Screen Lock (Wet Screen / Running Vest Pocket Protection)
-                    SmallFloatingActionButton(
-                        onClick = { isScreenLocked = !isScreenLocked },
-                        modifier = Modifier.size(48.dp),
-                        shape = CircleShape,
-                        containerColor = if (isScreenLocked) Color(0xFFEF4444) else MaterialTheme.colorScheme.surfaceVariant,
-                    ) {
-                        Icon(
-                            imageVector = if (isScreenLocked) Icons.Default.Lock else Icons.Default.LockOpen,
-                            contentDescription = "Pocket / Rain Lock",
-                            tint = if (isScreenLocked) Color.White else MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
                     // Drop Waypoint
                     SmallFloatingActionButton(
                         onClick = { showWaypointDialog = true },
@@ -406,57 +437,6 @@ fun MapScreen(
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
                     ) {
                         Icon(Icons.Default.AddLocationAlt, contentDescription = "Add Waypoint")
-                    }
-                }
-            }
-
-            // 4. Full-Screen Pocket / Rain Lock Overlay (Sweaty Hands & Pocket Mode)
-            if (isScreenLocked) {
-                Box(
-                    modifier =
-                        Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.85f))
-                            .padding(24.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center,
-                    ) {
-                        Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(48.dp))
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text("POCKET & RAIN LOCK ACTIVE", fontWeight = FontWeight.Black, fontSize = 16.sp, color = Color.White)
-                        Text("Accidental screen touches blocked", style = MaterialTheme.typography.bodySmall, color = Color.LightGray)
-
-                        Spacer(modifier = Modifier.height(28.dp))
-
-                        // Glanceable giant numbers while running
-                        Text(
-                            text = String.format(Locale.US, "%.2f km", stats.distanceKm),
-                            fontSize = 44.sp,
-                            fontWeight = FontWeight.Black,
-                            color = Color.White,
-                        )
-                        Text(
-                            text = "PACE ${stats.avgPaceMinKm}/km • TIME ${formatDuration(stats.totalDuration)}",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF06B6D4),
-                        )
-
-                        Spacer(modifier = Modifier.height(36.dp))
-
-                        Button(
-                            onClick = { isScreenLocked = false },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                            shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier.height(52.dp),
-                        ) {
-                            Icon(Icons.Default.LockOpen, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("TAP TO UNLOCK SCREEN", fontWeight = FontWeight.Bold)
-                        }
                     }
                 }
             }
@@ -469,7 +449,15 @@ fun MapScreen(
             onSelectSource = { selectedTileSource = it },
             trackColorMode = trackColorMode,
             onSelectColorMode = { trackColorMode = it },
+            onOpenOfflineMaps = { showOfflineMapsDialog = true },
             onDismiss = { showLayersDialog = false },
+        )
+    }
+
+    if (showOfflineMapsDialog) {
+        OfflineMapsDialog(
+            currentLocation = currentPoint?.let { GeoPoint(it.latitude, it.longitude) },
+            onDismiss = { showOfflineMapsDialog = false },
         )
     }
 
@@ -485,7 +473,7 @@ fun MapScreen(
 }
 
 /**
- * Clean, distraction-free outdoor launchpad (inspired by OfflineGPX & rando-gpx).
+ * Clean outdoor launchpad with duration slider and activity selection.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -493,31 +481,20 @@ private fun StartActivityLaunchpad(onStartWorkout: (targetMinutes: Int, activity
     var selectedActivity by remember { mutableStateOf(ActivityType.RUN) }
     var selectedDurationMinutes by remember { mutableIntStateOf(60) }
 
+    val isCar = selectedActivity == ActivityType.CAR
     val outboundLimit =
         TurnBackEngine.computeOutboundLimit(
             targetDuration = Duration.ofMinutes(selectedDurationMinutes.toLong()),
-            beta = 0.12,
-            safetyBufferPercent = 15.0,
+            beta = if (isCar) 0.0 else 0.12,
+            safetyBufferPercent = if (isCar) 0.0 else 15.0,
         )
 
     Column(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 10.dp),
+                .padding(horizontal = 20.dp, vertical = 6.dp),
     ) {
-        // Drag Pill
-        Box(
-            modifier =
-                Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .width(44.dp)
-                    .height(4.dp)
-                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(2.dp)),
-        )
-
-        Spacer(modifier = Modifier.height(14.dp))
-
         Text(
             text = "READY FOR AN OUT-AND-BACK",
             style = MaterialTheme.typography.titleMedium,
@@ -539,6 +516,7 @@ private fun StartActivityLaunchpad(onStartWorkout: (targetMinutes: Int, activity
                         ActivityType.HIKE -> Icons.Default.Hiking
                         ActivityType.CYCLE -> Icons.Default.DirectionsBike
                         ActivityType.WALK -> Icons.Default.DirectionsWalk
+                        ActivityType.CAR -> Icons.Default.DirectionsCar
                     }
                 FilterChip(
                     selected = selectedActivity == activity,
@@ -549,30 +527,45 @@ private fun StartActivityLaunchpad(onStartWorkout: (targetMinutes: Int, activity
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
-        // Duration selector chips
+        // Duration Slider (10 min to 240 min)
+        val durationHours = selectedDurationMinutes / 60
+        val durationMins = selectedDurationMinutes % 60
+        val durationDisplay =
+            if (durationHours > 0) {
+                if (durationMins > 0) "${durationHours}h ${durationMins}m" else "${durationHours}h"
+            } else {
+                "${durationMins}m"
+            }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            listOf(30, 45, 60, 90, 120).forEach { mins ->
-                val isSelected = selectedDurationMinutes == mins
-                SuggestionChip(
-                    onClick = { selectedDurationMinutes = mins },
-                    label = {
-                        Text(
-                            "${mins}m",
-                            fontWeight = if (isSelected) FontWeight.Black else FontWeight.Bold,
-                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                        )
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-            }
+            Text(
+                "TOTAL TARGET DURATION",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = durationDisplay,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Black,
+                color = MaterialTheme.colorScheme.primary,
+            )
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Slider(
+            value = selectedDurationMinutes.toFloat(),
+            onValueChange = { selectedDurationMinutes = ((it / 5).toInt() * 5).coerceIn(10, 240) },
+            valueRange = 10f..240f,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
 
         // Turn-Around Preview Badge
         Card(
@@ -595,7 +588,7 @@ private fun StartActivityLaunchpad(onStartWorkout: (targetMinutes: Int, activity
                 )
                 Spacer(modifier = Modifier.weight(1f))
                 Text(
-                    text = "Returns on time",
+                    text = if (isCar) "Symmetric 50% split (Car)" else "Fatigue compensated",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -625,16 +618,5 @@ private fun StartActivityLaunchpad(onStartWorkout: (targetMinutes: Int, activity
         }
 
         Spacer(modifier = Modifier.height(8.dp))
-    }
-}
-
-private fun formatDuration(d: Duration): String {
-    val h = d.toHours()
-    val m = (d.toMinutes() % 60)
-    val s = (d.seconds % 60)
-    return if (h > 0) {
-        String.format("%d:%02d:%02d", h, m, s)
-    } else {
-        String.format("%02d:%02d", m, s)
     }
 }

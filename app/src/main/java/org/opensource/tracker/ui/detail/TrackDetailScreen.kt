@@ -22,7 +22,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -128,6 +127,7 @@ fun TrackDetailScreen(
                                         Intent(Intent.ACTION_SEND).apply {
                                             type = "application/gpx+xml"
                                             putExtra(Intent.EXTRA_STREAM, uri)
+                                            putExtra(Intent.EXTRA_SUBJECT, currentTrack.title)
                                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                         }
                                     context.startActivity(Intent.createChooser(shareIntent, "Share GPX Track"))
@@ -159,13 +159,66 @@ fun TrackDetailScreen(
                     .verticalScroll(scrollState)
                     .padding(16.dp),
         ) {
-            // Header Info
-            val dateStr =
-                SimpleDateFormat("EEEE, MMMM d, yyyy • HH:mm", Locale.getDefault())
-                    .format(Date(currentTrack.startTime))
-            Text(dateStr, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            // Activity Title & Date Header Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Text(
+                        text = currentTrack.title,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 20.sp,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    val dateFormatted =
+                        SimpleDateFormat("EEEE, MMMM d, yyyy • HH:mm", Locale.getDefault()).format(
+                            Date(currentTrack.startTime),
+                        )
+                    Text(
+                        text = "$dateFormatted • ${currentTrack.activityType}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Export GPX Action Button
+            Button(
+                onClick = {
+                    currentTrack.gpxFilePath?.let { path ->
+                        val file = File(path)
+                        if (file.exists()) {
+                            val uri =
+                                FileProvider.getUriForFile(
+                                    context,
+                                    "${context.packageName}.fileprovider",
+                                    file,
+                                )
+                            val shareIntent =
+                                Intent(Intent.ACTION_SEND).apply {
+                                    type = "application/gpx+xml"
+                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                    putExtra(Intent.EXTRA_SUBJECT, currentTrack.title)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                            context.startActivity(Intent.createChooser(shareIntent, "Export GPX Track"))
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            ) {
+                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("EXPORT AS GPX", fontWeight = FontWeight.Black, fontSize = 13.sp)
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
 
             // Ghost Route Action Card: Overlay past track on map while currently running
             Card(
@@ -328,7 +381,13 @@ fun TrackDetailScreen(
                     stats.fastestSplit?.let { fast ->
                         DetailRow(
                             "⚡ Fastest 1-km Split",
-                            "Lap ${fast.lapNumber} • ${fast.paceMinKm} /km (${String.format(Locale.US, "%.1f km/h", fast.avgSpeedKmh)})",
+                            "Lap ${fast.lapNumber} • ${fast.paceMinKm} /km (${
+                                String.format(
+                                    Locale.US,
+                                    "%.1f km/h",
+                                    fast.avgSpeedKmh,
+                                )
+                            })",
                             Color(0xFFD97706),
                         )
                     }
@@ -344,47 +403,79 @@ fun TrackDetailScreen(
 
                     DetailRow("Elevation Gain", String.format(Locale.US, "+%.0f m", currentTrack.elevationGainMeters))
                     DetailRow("Elevation Loss", String.format(Locale.US, "-%.0f m", currentTrack.elevationLossMeters))
-                    DetailRow("Altitude Range", String.format(Locale.US, "%.0fm – %.0fm", stats.minAltitudeM, stats.maxAltitudeM))
+                    DetailRow(
+                        "Altitude Range",
+                        String.format(Locale.US, "%.0fm – %.0fm", stats.minAltitudeM, stats.maxAltitudeM),
+                    )
 
                     Divider(modifier = Modifier.padding(vertical = 10.dp))
 
-                    DetailRow("Active Moving Duration", formatDuration(Duration.ofSeconds(currentTrack.movingDurationSeconds)))
-                    DetailRow("Total Duration", formatDuration(Duration.ofSeconds(currentTrack.totalDurationSeconds)))
-                    DetailRow("Recorded Trackpoints", "${points.size} coordinates")
-                    if (currentTrack.turnBackTriggeredAt != null) {
-                        DetailRow("Turn-Around Signal", "TRIGGERED", Color(0xFF10B981))
-                    }
+                    DetailRow("Out-and-Back Threshold", "${currentTrack.targetDurationSeconds / 60}m target")
+                    DetailRow(
+                        "Turn-Around Triggered",
+                        if (currentTrack.turnBackTriggeredAt != null) "Yes (Turned back)" else "Completed Outbound",
+                    )
                 }
             }
 
-            // Lap Splits Table
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Lap Splits Table (1-km / 1-mi endurance splits)
             if (stats.splits.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(20.dp))
+                Text(
+                    text = "KILOMETER SPLITS",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    colors =
+                        CardDefaults.cardColors(
+                            containerColor =
+                                MaterialTheme.colorScheme.surfaceVariant.copy(
+                                    alpha = 0.5f,
+                                ),
+                        ),
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Default.Timer,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp),
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                "KM",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("1-KM LAP SPLITS", fontWeight = FontWeight.Black, fontSize = 12.sp)
+                            Text(
+                                "PACE",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                "TIME",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                "ELEV",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
+                        Divider()
 
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        stats.splits.forEach { split ->
+                        for (split in stats.splits) {
                             Row(
                                 modifier =
                                     Modifier
                                         .fillMaxWidth()
-                                        .padding(vertical = 4.dp),
+                                        .padding(vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Box(
@@ -393,9 +484,7 @@ fun TrackDetailScreen(
                                             .size(24.dp)
                                             .background(
                                                 if (split.isFastest) {
-                                                    Color(
-                                                        0xFFF59E0B,
-                                                    )
+                                                    Color(0xFFD97706).copy(alpha = 0.2f)
                                                 } else {
                                                     MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                                                 },
@@ -424,7 +513,12 @@ fun TrackDetailScreen(
                                     )
                                     if (split.isFastest) {
                                         Spacer(modifier = Modifier.width(4.dp))
-                                        Text("FASTEST", fontSize = 9.sp, fontWeight = FontWeight.Black, color = Color(0xFFD97706))
+                                        Text(
+                                            "FASTEST",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = Color(0xFFD97706),
+                                        )
                                     }
                                 }
                                 Text(
@@ -434,7 +528,13 @@ fun TrackDetailScreen(
                                     modifier = Modifier.weight(1f),
                                 )
                                 Text(
-                                    text = String.format(Locale.US, "+%.0fm / -%.0fm", split.elevationGainM, split.elevationLossM),
+                                    text =
+                                        String.format(
+                                            Locale.US,
+                                            "+%.0fm / -%.0fm",
+                                            split.elevationGainM,
+                                            split.elevationLossM,
+                                        ),
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -462,7 +562,12 @@ private fun MetricCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            Text(title, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                title,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Spacer(modifier = Modifier.height(4.dp))
             Text(value, fontSize = 18.sp, fontWeight = FontWeight.Black, color = valueColor)
         }

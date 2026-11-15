@@ -10,6 +10,7 @@ enum class ActivityType(
     HIKE("Hiking", "hiking"),
     CYCLE("Cycling", "directions_bike"),
     WALK("Walking", "directions_walk"),
+    CAR("Driving / Car", "directions_car"),
 }
 
 data class SplitLap(
