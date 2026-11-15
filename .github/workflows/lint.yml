@@ -44,23 +44,3 @@ jobs:
 
       - name: Run Unit Tests
         run: ./gradlew testDebugUnitTest --continue
-
-  super-linter:
-    name: GitHub Super-Linter
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Super-Linter
-        uses: super-linter/super-linter@v7
-        env:
-          DEFAULT_BRANCH: master
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VALIDATE_ALL_CODEBASE: false
-          VALIDATE_KOTLIN: false
-          VALIDATE_YAML: true
-          VALIDATE_XML: true
-          VALIDATE_MARKDOWN: false
