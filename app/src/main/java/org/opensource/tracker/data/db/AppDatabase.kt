@@ -28,9 +28,6 @@ interface TrackDao {
 
     @Delete
     suspend fun deleteTrack(track: TrackEntity)
-
-    @Query("DELETE FROM tracks WHERE id = :id")
-    suspend fun deleteTrackById(id: Long)
 }
 
 @Dao
@@ -42,9 +39,6 @@ interface WaypointDao {
     suspend fun getWaypointsList(trackId: Long): List<WaypointEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertWaypoint(waypoint: WaypointEntity): Long
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertWaypoints(waypoints: List<WaypointEntity>)
 
     @Delete
@@ -54,26 +48,29 @@ interface WaypointDao {
 @Database(
     entities = [TrackEntity::class, WaypointEntity::class],
     version = 1,
-    exportSchema = false
+    exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
+
     abstract fun waypointDao(): WaypointDao
 
     companion object {
         @Volatile
-        private var INSTANCE: AppDatabase? = null
+        private var instance: AppDatabase? = null
 
-        fun getInstance(context: Context): AppDatabase {
-            return INSTANCE ?: synchronized(this) {
-                val instance = Room.databaseBuilder(
-                    context.applicationContext,
-                    AppDatabase::class.java,
-                    "turnback_compose.db"
-                ).fallbackToDestructiveMigration().build()
-                INSTANCE = instance
-                instance
+        fun getInstance(context: Context): AppDatabase =
+            instance ?: synchronized(this) {
+                val newInstance =
+                    Room
+                        .databaseBuilder(
+                            context.applicationContext,
+                            AppDatabase::class.java,
+                            "turnback_compose.db",
+                        ).fallbackToDestructiveMigration()
+                        .build()
+                instance = newInstance
+                newInstance
             }
-        }
     }
 }

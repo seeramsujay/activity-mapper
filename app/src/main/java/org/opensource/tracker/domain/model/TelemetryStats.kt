@@ -2,11 +2,14 @@ package org.opensource.tracker.domain.model
 
 import java.time.Duration
 
-enum class ActivityType(val displayName: String, val iconName: String) {
+enum class ActivityType(
+    val displayName: String,
+    val iconName: String,
+) {
     RUN("Running", "directions_run"),
     HIKE("Hiking", "hiking"),
     CYCLE("Cycling", "directions_bike"),
-    WALK("Walking", "directions_walk")
+    WALK("Walking", "directions_walk"),
 }
 
 data class SplitLap(
@@ -18,7 +21,7 @@ data class SplitLap(
     val elevationGainM: Double = 0.0,
     val elevationLossM: Double = 0.0,
     val isFastest: Boolean = false,
-    val isSlowest: Boolean = false
+    val isSlowest: Boolean = false,
 )
 
 data class TelemetryStats(
@@ -37,5 +40,5 @@ data class TelemetryStats(
     val splits: List<SplitLap> = emptyList(),
     val totalTrackpoints: Int = 0,
     val fastestSplit: SplitLap? = null,
-    val slowestSplit: SplitLap? = null
+    val slowestSplit: SplitLap? = null,
 )

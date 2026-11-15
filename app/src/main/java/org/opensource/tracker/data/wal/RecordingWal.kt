@@ -23,9 +23,8 @@ import java.util.zip.CRC32
  */
 class RecordingWal(
     val file: File,
-    private val writer: BufferedWriter
+    private val writer: BufferedWriter,
 ) : Closeable {
-
     companion object {
         private const val VERSION = 1
         private const val HEADER_PREFIX = "V,"
@@ -43,9 +42,7 @@ class RecordingWal(
             return wal
         }
 
-        fun hasActiveRecording(file: File): Boolean {
-            return file.exists() && file.length() > 0L
-        }
+        fun hasActiveRecording(file: File): Boolean = file.exists() && file.length() > 0L
 
         /**
          * Recovers all points, waypoints, and segment breaks from a WAL file.
@@ -88,16 +85,18 @@ class RecordingWal(
                             val lon = parts[2].toDoubleOrNull() ?: continue
                             val ele = parts[3].toDoubleOrNull() ?: 0.0
                             val categoryStr = parts[4]
-                            val category = try {
-                                WaypointCategory.valueOf(categoryStr)
-                            } catch (_: Exception) {
-                                WaypointCategory.NOTE
-                            }
-                            val name = try {
-                                String(Base64.getDecoder().decode(parts[5]), Charsets.UTF_8)
-                            } catch (_: Exception) {
-                                "Waypoint"
-                            }
+                            val category =
+                                try {
+                                    WaypointCategory.valueOf(categoryStr)
+                                } catch (_: Exception) {
+                                    WaypointCategory.NOTE
+                                }
+                            val name =
+                                try {
+                                    String(Base64.getDecoder().decode(parts[5]), Charsets.UTF_8)
+                                } catch (_: Exception) {
+                                    "Waypoint"
+                                }
                             waypoints.add(
                                 Waypoint(
                                     sessionId = 0L,
@@ -106,8 +105,8 @@ class RecordingWal(
                                     longitude = lon,
                                     altitudeMeters = ele,
                                     category = category,
-                                    timestamp = Instant.ofEpochMilli(timeMs)
-                                )
+                                    timestamp = Instant.ofEpochMilli(timeMs),
+                                ),
                             )
                         }
                     } else {
@@ -128,8 +127,8 @@ class RecordingWal(
                                     altitudeMeters = alt,
                                     speedMps = speed,
                                     accuracyMeters = acc,
-                                    timestamp = Instant.ofEpochMilli(timeMs)
-                                )
+                                    timestamp = Instant.ofEpochMilli(timeMs),
+                                ),
                             )
                         }
                     }
@@ -148,7 +147,9 @@ class RecordingWal(
     fun appendWaypoint(waypoint: Waypoint) {
         val timeMs = waypoint.timestamp.toEpochMilli()
         val base64Name = Base64.getEncoder().encodeToString(waypoint.name.toByteArray(Charsets.UTF_8))
-        writeLine("$WAYPOINT_PREFIX$timeMs,${waypoint.latitude},${waypoint.longitude},${waypoint.altitudeMeters},${waypoint.category.name},$base64Name")
+        writeLine(
+            "$WAYPOINT_PREFIX$timeMs,${waypoint.latitude},${waypoint.longitude},${waypoint.altitudeMeters},${waypoint.category.name},$base64Name",
+        )
     }
 
     fun appendBreak() {
@@ -170,5 +171,5 @@ class RecordingWal(
 
 data class RecoveredData(
     val points: List<TrackPoint>,
-    val waypoints: List<Waypoint>
+    val waypoints: List<Waypoint>,
 )

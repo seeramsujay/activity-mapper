@@ -1,6 +1,5 @@
 package org.opensource.tracker.ui.detail
 
-import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -20,9 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.FitnessCenter
-import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Timer
@@ -35,7 +32,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -76,7 +72,7 @@ fun TrackDetailScreen(
     trackId: Long,
     service: TrackingService? = null,
     onBack: () -> Unit,
-    onOverlayOnMap: () -> Unit = {}
+    onOverlayOnMap: () -> Unit = {},
 ) {
     val context = LocalContext.current
     var track by remember { mutableStateOf<TrackEntity?>(null) }
@@ -100,7 +96,12 @@ fun TrackDetailScreen(
 
     val currentTrack = track
     val stats = remember(points) { TurnBackEngine.computeStats(points) }
-    val isCurrentlyOverlaid = service?.referenceTrack?.collectAsState()?.value?.trackId == trackId
+    val isCurrentlyOverlaid =
+        service
+            ?.referenceTrack
+            ?.collectAsState()
+            ?.value
+            ?.trackId == trackId
 
     Scaffold(
         topBar = {
@@ -117,27 +118,29 @@ fun TrackDetailScreen(
                             onClick = {
                                 val file = File(path)
                                 if (file.exists()) {
-                                    val uri = FileProvider.getUriForFile(
-                                        context,
-                                        "${context.packageName}.fileprovider",
-                                        file
-                                    )
-                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "application/gpx+xml"
-                                        putExtra(Intent.EXTRA_STREAM, uri)
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    }
+                                    val uri =
+                                        FileProvider.getUriForFile(
+                                            context,
+                                            "${context.packageName}.fileprovider",
+                                            file,
+                                        )
+                                    val shareIntent =
+                                        Intent(Intent.ACTION_SEND).apply {
+                                            type = "application/gpx+xml"
+                                            putExtra(Intent.EXTRA_STREAM, uri)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
                                     context.startActivity(Intent.createChooser(shareIntent, "Share GPX Track"))
                                 }
-                            }
+                            },
                         ) {
                             Icon(Icons.Default.Share, contentDescription = "Share GPX")
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
             )
-        }
+        },
     ) { padding ->
         if (currentTrack == null) {
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
@@ -149,15 +152,17 @@ fun TrackDetailScreen(
         val scrollState = rememberScrollState()
 
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(scrollState)
-                .padding(16.dp)
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .verticalScroll(scrollState)
+                    .padding(16.dp),
         ) {
             // Header Info
-            val dateStr = SimpleDateFormat("EEEE, MMMM d, yyyy • HH:mm", Locale.getDefault())
-                .format(Date(currentTrack.startTime))
+            val dateStr =
+                SimpleDateFormat("EEEE, MMMM d, yyyy • HH:mm", Locale.getDefault())
+                    .format(Date(currentTrack.startTime))
             Text(dateStr, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
             Spacer(modifier = Modifier.height(14.dp))
@@ -166,21 +171,30 @@ fun TrackDetailScreen(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isCurrentlyOverlaid) Color(0xFF8B5CF6).copy(alpha = 0.15f) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                )
+                colors =
+                    CardDefaults.cardColors(
+                        containerColor =
+                            if (isCurrentlyOverlaid) {
+                                Color(
+                                    0xFF8B5CF6,
+                                ).copy(alpha = 0.15f)
+                            } else {
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                            },
+                    ),
             ) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
                         imageVector = Icons.Default.Route,
                         contentDescription = null,
                         tint = if (isCurrentlyOverlaid) Color(0xFF8B5CF6) else MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(24.dp),
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
@@ -188,12 +202,12 @@ fun TrackDetailScreen(
                             text = if (isCurrentlyOverlaid) "GHOST TRACK ACTIVE ON MAP" else "OVERLAY ON RUN AS GHOST TRACK",
                             fontWeight = FontWeight.Black,
                             fontSize = 12.sp,
-                            color = if (isCurrentlyOverlaid) Color(0xFF8B5CF6) else MaterialTheme.colorScheme.primary
+                            color = if (isCurrentlyOverlaid) Color(0xFF8B5CF6) else MaterialTheme.colorScheme.primary,
                         )
                         Text(
                             text = "Follow this route & compare real-time pacing",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Button(
@@ -206,15 +220,16 @@ fun TrackDetailScreen(
                             }
                         },
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isCurrentlyOverlaid) Color(0xFF6B7280) else Color(0xFF8B5CF6)
-                        )
+                        colors =
+                            ButtonDefaults.buttonColors(
+                                containerColor = if (isCurrentlyOverlaid) Color(0xFF6B7280) else Color(0xFF8B5CF6),
+                            ),
                     ) {
                         Text(
                             text = if (isCurrentlyOverlaid) "Remove" else "Overlay",
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp,
-                            color = Color.White
+                            color = Color.White,
                         )
                     }
                 }
@@ -227,12 +242,12 @@ fun TrackDetailScreen(
                 MetricCard(
                     title = "DISTANCE",
                     value = String.format(Locale.US, "%.2f km", currentTrack.distanceKm),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
                 )
                 MetricCard(
                     title = "DURATION",
                     value = formatDuration(Duration.ofSeconds(currentTrack.totalDurationSeconds)),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
                 )
             }
 
@@ -242,13 +257,13 @@ fun TrackDetailScreen(
                 MetricCard(
                     title = "AVG SPEED",
                     value = String.format(Locale.US, "%.1f km/h", currentTrack.avgSpeedKmh),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
                 )
                 MetricCard(
                     title = "ELEV GAIN",
                     value = String.format(Locale.US, "+%.0f m", currentTrack.elevationGainMeters),
                     valueColor = Color(0xFF10B981),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
                 )
             }
 
@@ -260,13 +275,13 @@ fun TrackDetailScreen(
                         title = "⚡ FASTEST SPLIT",
                         value = "Lap ${fast.lapNumber} (${fast.paceMinKm}/km)",
                         valueColor = Color(0xFFD97706),
-                        modifier = Modifier.weight(1.3f)
+                        modifier = Modifier.weight(1.3f),
                     )
                     MetricCard(
                         title = "TOP SPLIT SPEED",
                         value = String.format(Locale.US, "%.1f km/h", fast.avgSpeedKmh),
                         valueColor = Color(0xFFD97706),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
                     )
                 }
             }
@@ -278,7 +293,7 @@ fun TrackDetailScreen(
                 text = "ELEVATION & SPEED PROFILE",
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(modifier = Modifier.height(8.dp))
             InteractiveProfileChart(points = points)
@@ -289,11 +304,16 @@ fun TrackDetailScreen(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.FitnessCenter, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                        Icon(
+                            Icons.Default.FitnessCenter,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp),
+                        )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("TELEMETRY BREAKDOWN", fontWeight = FontWeight.Black, fontSize = 12.sp)
                     }
@@ -309,14 +329,14 @@ fun TrackDetailScreen(
                         DetailRow(
                             "⚡ Fastest 1-km Split",
                             "Lap ${fast.lapNumber} • ${fast.paceMinKm} /km (${String.format(Locale.US, "%.1f km/h", fast.avgSpeedKmh)})",
-                            Color(0xFFD97706)
+                            Color(0xFFD97706),
                         )
                     }
                     stats.slowestSplit?.let { slow ->
                         DetailRow(
                             "Slowest 1-km Split",
                             "Lap ${slow.lapNumber} • ${slow.paceMinKm} /km",
-                            MaterialTheme.colorScheme.onSurfaceVariant
+                            MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
 
@@ -343,11 +363,16 @@ fun TrackDetailScreen(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Timer, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                            Icon(
+                                Icons.Default.Timer,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp),
+                            )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("1-KM LAP SPLITS", fontWeight = FontWeight.Black, fontSize = 12.sp)
                         }
@@ -356,24 +381,37 @@ fun TrackDetailScreen(
 
                         stats.splits.forEach { split ->
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Box(
-                                    modifier = Modifier
-                                        .size(24.dp)
-                                        .background(
-                                            if (split.isFastest) Color(0xFFF59E0B) else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                            CircleShape
-                                        ),
-                                    contentAlignment = Alignment.Center
+                                    modifier =
+                                        Modifier
+                                            .size(24.dp)
+                                            .background(
+                                                if (split.isFastest) {
+                                                    Color(
+                                                        0xFFF59E0B,
+                                                    )
+                                                } else {
+                                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                                },
+                                                CircleShape,
+                                            ),
+                                    contentAlignment = Alignment.Center,
                                 ) {
                                     if (split.isFastest) {
                                         Text("⚡", fontSize = 11.sp)
                                     } else {
-                                        Text("${split.lapNumber}", fontSize = 10.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
+                                        Text(
+                                            "${split.lapNumber}",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
                                     }
                                 }
                                 Spacer(modifier = Modifier.width(10.dp))
@@ -382,18 +420,23 @@ fun TrackDetailScreen(
                                         text = "${split.paceMinKm} /km",
                                         fontSize = 12.sp,
                                         fontWeight = if (split.isFastest) FontWeight.Black else FontWeight.Bold,
-                                        color = if (split.isFastest) Color(0xFFD97706) else MaterialTheme.colorScheme.onSurface
+                                        color = if (split.isFastest) Color(0xFFD97706) else MaterialTheme.colorScheme.onSurface,
                                     )
                                     if (split.isFastest) {
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text("FASTEST", fontSize = 9.sp, fontWeight = FontWeight.Black, color = Color(0xFFD97706))
                                     }
                                 }
-                                Text(formatDuration(split.duration), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                                Text(
+                                    formatDuration(split.duration),
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f),
+                                )
                                 Text(
                                     text = String.format(Locale.US, "+%.0fm / -%.0fm", split.elevationGainM, split.elevationLossM),
                                     fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }
@@ -411,12 +454,12 @@ private fun MetricCard(
     title: String,
     value: String,
     valueColor: Color = MaterialTheme.colorScheme.onSurface,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     Card(
         modifier = modifier,
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text(title, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -427,12 +470,17 @@ private fun MetricCard(
 }
 
 @Composable
-private fun DetailRow(label: String, value: String, color: Color = MaterialTheme.colorScheme.onSurface) {
+private fun DetailRow(
+    label: String,
+    value: String,
+    color: Color = MaterialTheme.colorScheme.onSurface,
+) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = color)
@@ -443,6 +491,9 @@ private fun formatDuration(d: Duration): String {
     val h = d.toHours()
     val m = (d.toMinutes() % 60)
     val s = (d.seconds % 60)
-    return if (h > 0) String.format("%d:%02d:%02d", h, m, s)
-    else String.format("%02d:%02d", m, s)
+    return if (h > 0) {
+        String.format("%d:%02d:%02d", h, m, s)
+    } else {
+        String.format("%02d:%02d", m, s)
+    }
 }

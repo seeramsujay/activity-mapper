@@ -2,13 +2,11 @@ package org.opensource.tracker.ui.navigation
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -16,7 +14,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -59,10 +56,17 @@ import org.opensource.tracker.ui.settings.SettingsScreen
 import java.time.Duration
 import java.util.Locale
 
-sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
+sealed class Screen(
+    val route: String,
+    val title: String,
+    val icon: ImageVector,
+) {
     object Map : Screen("map", "Map", Icons.Default.Map)
+
     object Library : Screen("library", "Library", Icons.Default.Route)
+
     object Settings : Screen("settings", "Settings", Icons.Default.Settings)
+
     object Detail : Screen("detail/{trackId}", "Detail", Icons.Default.Route) {
         fun createRoute(trackId: Long) = "detail/$trackId"
     }
@@ -73,7 +77,7 @@ fun TurnBackNavGraph(
     service: TrackingService?,
     isOled: Boolean,
     onToggleOled: () -> Unit,
-    navController: NavHostController = rememberNavController()
+    navController: NavHostController = rememberNavController(),
 ) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -102,7 +106,7 @@ fun TurnBackNavGraph(
                                 launchSingleTop = true
                                 restoreState = true
                             }
-                        }
+                        },
                     )
                 }
 
@@ -121,18 +125,18 @@ fun TurnBackNavGraph(
                                         launchSingleTop = true
                                         restoreState = true
                                     }
-                                }
+                                },
                             )
                         }
                     }
                 }
             }
-        }
+        },
     ) { padding ->
         NavHost(
             navController = navController,
             startDestination = Screen.Map.route,
-            modifier = Modifier.padding(padding)
+            modifier = Modifier.padding(padding),
         ) {
             composable(Screen.Map.route) {
                 MapScreen(
@@ -144,25 +148,25 @@ fun TurnBackNavGraph(
                         navController.navigate(Screen.Library.route)
                     },
                     isOled = isOled,
-                    onToggleOled = onToggleOled
+                    onToggleOled = onToggleOled,
                 )
             }
             composable(Screen.Library.route) {
                 LibraryScreen(
                     onTrackClick = { trackId ->
                         navController.navigate(Screen.Detail.createRoute(trackId))
-                    }
+                    },
                 )
             }
             composable(Screen.Settings.route) {
                 SettingsScreen(
                     isOled = isOled,
-                    onToggleOled = onToggleOled
+                    onToggleOled = onToggleOled,
                 )
             }
             composable(
                 route = Screen.Detail.route,
-                arguments = listOf(navArgument("trackId") { type = NavType.LongType })
+                arguments = listOf(navArgument("trackId") { type = NavType.LongType }),
             ) { backStackEntry ->
                 val trackId = backStackEntry.arguments?.getLong("trackId") ?: 0L
                 TrackDetailScreen(
@@ -177,7 +181,7 @@ fun TurnBackNavGraph(
                             launchSingleTop = true
                             restoreState = true
                         }
-                    }
+                    },
                 )
             }
         }
@@ -193,28 +197,32 @@ private fun ActiveRecordingMiniBar(
     isPaused: Boolean,
     stats: TelemetryStats,
     onTogglePause: () -> Unit,
-    onClick: () -> Unit
+    onClick: () -> Unit,
 ) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .clickable(onClick = onClick),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .clickable(onClick = onClick),
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isPaused) Color(0xFFF59E0B).copy(alpha = 0.2f) else MaterialTheme.colorScheme.primaryContainer
-        )
+        colors =
+            CardDefaults.cardColors(
+                containerColor = if (isPaused) Color(0xFFF59E0B).copy(alpha = 0.2f) else MaterialTheme.colorScheme.primaryContainer,
+            ),
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
-                modifier = Modifier
-                    .size(10.dp)
-                    .background(if (isPaused) Color(0xFFF59E0B) else Color(0xFF10B981), CircleShape)
+                modifier =
+                    Modifier
+                        .size(10.dp)
+                        .background(if (isPaused) Color(0xFFF59E0B) else Color(0xFF10B981), CircleShape),
             )
 
             Spacer(modifier = Modifier.width(10.dp))
@@ -224,12 +232,14 @@ private fun ActiveRecordingMiniBar(
                     text = if (isPaused) "DRINKS BREAK (PAUSED)" else "ACTIVE RUNNING SESSION",
                     fontWeight = FontWeight.Black,
                     fontSize = 11.sp,
-                    color = if (isPaused) Color(0xFFD97706) else MaterialTheme.colorScheme.primary
+                    color = if (isPaused) Color(0xFFD97706) else MaterialTheme.colorScheme.primary,
                 )
                 Text(
-                    text = "${formatDuration(stats.totalDuration)} • ${String.format(Locale.US, "%.2f km", stats.distanceKm)} • ${stats.avgPaceMinKm}/km",
+                    text = "${formatDuration(
+                        stats.totalDuration,
+                    )} • ${String.format(Locale.US, "%.2f km", stats.distanceKm)} • ${stats.avgPaceMinKm}/km",
                     style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
                 )
             }
 
@@ -237,15 +247,16 @@ private fun ActiveRecordingMiniBar(
             FilledIconButton(
                 onClick = onTogglePause,
                 modifier = Modifier.size(38.dp),
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = if (isPaused) Color(0xFF10B981) else MaterialTheme.colorScheme.surfaceVariant
-                )
+                colors =
+                    IconButtonDefaults.filledIconButtonColors(
+                        containerColor = if (isPaused) Color(0xFF10B981) else MaterialTheme.colorScheme.surfaceVariant,
+                    ),
             ) {
                 Icon(
                     imageVector = if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
                     contentDescription = if (isPaused) "Resume" else "Pause",
                     modifier = Modifier.size(20.dp),
-                    tint = if (isPaused) Color.White else MaterialTheme.colorScheme.onSurface
+                    tint = if (isPaused) Color.White else MaterialTheme.colorScheme.onSurface,
                 )
             }
 
@@ -255,7 +266,7 @@ private fun ActiveRecordingMiniBar(
                 imageVector = Icons.AutoMirrored.Default.ArrowForward,
                 contentDescription = "Return to Map",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(18.dp),
             )
         }
     }
@@ -265,6 +276,9 @@ private fun formatDuration(d: Duration): String {
     val h = d.toHours()
     val m = (d.toMinutes() % 60)
     val s = (d.seconds % 60)
-    return if (h > 0) String.format("%d:%02d:%02d", h, m, s)
-    else String.format("%02d:%02d", m, s)
+    return if (h > 0) {
+        String.format("%d:%02d:%02d", h, m, s)
+    } else {
+        String.format("%02d:%02d", m, s)
+    }
 }

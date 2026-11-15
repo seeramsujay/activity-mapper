@@ -26,7 +26,7 @@ import org.opensource.tracker.domain.model.WaypointCategory
 @Composable
 fun WaypointDialog(
     onDismiss: () -> Unit,
-    onSave: (name: String, desc: String, category: WaypointCategory) -> Unit
+    onSave: (name: String, desc: String, category: WaypointCategory) -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
@@ -42,7 +42,7 @@ fun WaypointDialog(
                     onValueChange = { name = it },
                     label = { Text("Name (e.g. Spring, Peak, Camp)") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
                 )
 
                 Spacer(modifier = Modifier.height(10.dp))
@@ -51,7 +51,7 @@ fun WaypointDialog(
                     value = description,
                     onValueChange = { description = it },
                     label = { Text("Notes / Description (Optional)") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
@@ -60,13 +60,13 @@ fun WaypointDialog(
 
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
                     WaypointCategory.values().forEach { category ->
                         FilterChip(
                             selected = selectedCategory == category,
                             onClick = { selectedCategory = category },
-                            label = { Text(category.displayName) }
+                            label = { Text(category.displayName) },
                         )
                     }
                 }
@@ -77,7 +77,7 @@ fun WaypointDialog(
                 onClick = {
                     onSave(name.ifBlank { selectedCategory.displayName }, description, selectedCategory)
                     onDismiss()
-                }
+                },
             ) {
                 Text("Add Pin")
             }
@@ -86,6 +86,6 @@ fun WaypointDialog(
             TextButton(onClick = onDismiss) {
                 Text("Cancel")
             }
-        }
+        },
     )
 }

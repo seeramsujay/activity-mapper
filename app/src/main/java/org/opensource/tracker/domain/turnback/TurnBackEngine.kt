@@ -17,7 +17,6 @@ import kotlin.math.sqrt
  * and fastest/slowest split identification.
  */
 object TurnBackEngine {
-
     /**
      * Calculates optimal outbound duration before turning back.
      *
@@ -30,7 +29,7 @@ object TurnBackEngine {
     fun computeOutboundLimit(
         targetDuration: Duration,
         beta: Double = 0.12,
-        safetyBufferPercent: Double = 15.0
+        safetyBufferPercent: Double = 15.0,
     ): Duration {
         val targetSeconds = targetDuration.seconds.toDouble()
         if (targetSeconds <= 0.0) return Duration.ZERO
@@ -49,15 +48,16 @@ object TurnBackEngine {
         lat1: Double,
         lon1: Double,
         lat2: Double,
-        lon2: Double
+        lon2: Double,
     ): Double {
         val dLat = Math.toRadians(lat2 - lat1)
         val dLon = Math.toRadians(lon2 - lon1)
         val rLat1 = Math.toRadians(lat1)
         val rLat2 = Math.toRadians(lat2)
 
-        val a = sin(dLat / 2) * sin(dLat / 2) +
-            cos(rLat1) * cos(rLat2) * sin(dLon / 2) * sin(dLon / 2)
+        val a =
+            sin(dLat / 2) * sin(dLat / 2) +
+                cos(rLat1) * cos(rLat2) * sin(dLon / 2) * sin(dLon / 2)
         val c = 2 * asin(sqrt(a.coerceIn(0.0, 1.0)))
 
         return 6371000.0 * c
@@ -80,7 +80,7 @@ object TurnBackEngine {
      */
     fun computeStats(
         points: List<TrackPoint>,
-        totalDuration: Duration = Duration.ZERO
+        totalDuration: Duration = Duration.ZERO,
     ): TelemetryStats {
         if (points.isEmpty()) return TelemetryStats(totalDuration = totalDuration)
 
@@ -119,12 +119,13 @@ object TurnBackEngine {
 
             if (i > 0) {
                 val prev = points[i - 1]
-                val d = haversineDistanceMeters(
-                    prev.latitude,
-                    prev.longitude,
-                    curr.latitude,
-                    curr.longitude
-                )
+                val d =
+                    haversineDistanceMeters(
+                        prev.latitude,
+                        prev.longitude,
+                        curr.latitude,
+                        curr.longitude,
+                    )
                 totalDistM += d
 
                 val dt = Duration.between(prev.timestamp, curr.timestamp).seconds.coerceAtLeast(0)
@@ -136,18 +137,22 @@ object TurnBackEngine {
 
         val totalDistKm = totalDistM / 1000.0
         val movingDuration = Duration.ofSeconds(movingSeconds.toLong())
-        val effectiveTotalDuration = if (totalDuration.isZero && points.size >= 2) {
-            Duration.between(points.first().timestamp, points.last().timestamp)
-        } else {
-            totalDuration
-        }
+        val effectiveTotalDuration =
+            if (totalDuration.isZero && points.size >= 2) {
+                Duration.between(points.first().timestamp, points.last().timestamp)
+            } else {
+                totalDuration
+            }
 
         val stoppedSeconds = (effectiveTotalDuration.seconds - movingSeconds).coerceAtLeast(0.0)
         val stoppedDuration = Duration.ofSeconds(stoppedSeconds.toLong())
 
-        val avgSpeedKmh = if (movingSeconds > 0) {
-            (totalDistKm / (movingSeconds / 3600.0))
-        } else 0.0
+        val avgSpeedKmh =
+            if (movingSeconds > 0) {
+                (totalDistKm / (movingSeconds / 3600.0))
+            } else {
+                0.0
+            }
 
         val avgMps = if (movingSeconds > 0) totalDistM / movingSeconds else 0.0
         val splits = computeSplits(points)
@@ -170,7 +175,7 @@ object TurnBackEngine {
             splits = splits,
             totalTrackpoints = points.size,
             fastestSplit = fastestSplit,
-            slowestSplit = slowestSplit
+            slowestSplit = slowestSplit,
         )
     }
 
@@ -179,7 +184,7 @@ object TurnBackEngine {
      */
     fun computeSplits(
         points: List<TrackPoint>,
-        splitIntervalKm: Double = 1.0
+        splitIntervalKm: Double = 1.0,
     ): List<SplitLap> {
         if (points.size < 2 || splitIntervalKm <= 0.0) return emptyList()
 
@@ -195,12 +200,13 @@ object TurnBackEngine {
             val prev = points[i - 1]
             val curr = points[i]
 
-            var segDist = haversineDistanceMeters(
-                prev.latitude,
-                prev.longitude,
-                curr.latitude,
-                curr.longitude
-            )
+            var segDist =
+                haversineDistanceMeters(
+                    prev.latitude,
+                    prev.longitude,
+                    curr.latitude,
+                    curr.longitude,
+                )
             var segDt = Duration.between(prev.timestamp, curr.timestamp).toMillis() / 1000.0
             val dAlt = curr.altitudeMeters - prev.altitudeMeters
 
@@ -211,8 +217,11 @@ object TurnBackEngine {
 
                 currentLapDistM += needed
                 currentLapDurationSec += dtPart
-                if (dAlt > 0) currentLapGain += dAlt * ratio
-                else if (dAlt < 0) currentLapLoss += (-dAlt) * ratio
+                if (dAlt > 0) {
+                    currentLapGain += dAlt * ratio
+                } else if (dAlt < 0) {
+                    currentLapLoss += (-dAlt) * ratio
+                }
 
                 val dur = Duration.ofSeconds(currentLapDurationSec.toLong())
                 val durHours = currentLapDurationSec / 3600.0
@@ -227,8 +236,8 @@ object TurnBackEngine {
                         avgSpeedKmh = speedKmh,
                         paceMinKm = formatPaceFromMps(paceMps),
                         elevationGainM = currentLapGain,
-                        elevationLossM = currentLapLoss
-                    )
+                        elevationLossM = currentLapLoss,
+                    ),
                 )
 
                 segDist -= needed
@@ -242,8 +251,11 @@ object TurnBackEngine {
             if (segDist > 0) {
                 currentLapDistM += segDist
                 currentLapDurationSec += segDt
-                if (dAlt > 0) currentLapGain += dAlt
-                else if (dAlt < 0) currentLapLoss += (-dAlt)
+                if (dAlt > 0) {
+                    currentLapGain += dAlt
+                } else if (dAlt < 0) {
+                    currentLapLoss += (-dAlt)
+                }
             }
         }
 
@@ -262,8 +274,8 @@ object TurnBackEngine {
                     avgSpeedKmh = speedKmh,
                     paceMinKm = formatPaceFromMps(paceMps),
                     elevationGainM = currentLapGain,
-                    elevationLossM = currentLapLoss
-                )
+                    elevationLossM = currentLapLoss,
+                ),
             )
         }
 
@@ -279,7 +291,7 @@ object TurnBackEngine {
         return splits.map { s ->
             s.copy(
                 isFastest = fastest != null && s.lapNumber == fastest.lapNumber,
-                isSlowest = slowest != null && s.lapNumber == slowest.lapNumber
+                isSlowest = slowest != null && s.lapNumber == slowest.lapNumber,
             )
         }
     }

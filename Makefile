@@ -1,14 +1,13 @@
-.PHONY: lint test build clean help
+.PHONY: lint format test build clean help
 
 help: ## Show help for each target
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
-lint: ## Run Kotlin & Android linters (ktlint + lint)
-	./gradlew ktlintCheck
-	./gradlew lintDebug
+lint: ## Run Kotlin linter (ktlint)
+	ktlint "app/src/**/*.kt"
 
 format: ## Auto-format Kotlin files using ktlint
-	./gradlew ktlintFormat
+	ktlint --format "app/src/**/*.kt"
 
 test: ## Run JVM unit tests
 	./gradlew testDebugUnitTest

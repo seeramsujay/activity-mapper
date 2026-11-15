@@ -31,24 +31,27 @@ import org.opensource.tracker.ui.theme.TurnBackTheme
 import java.io.File
 
 class MainActivity : ComponentActivity() {
-
     private var trackingService: TrackingService? = null
     private var isServiceBound = false
 
-    private val serviceConnection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            val binder = service as TrackingService.LocalBinder
-            trackingService = binder.getService()
-            isServiceBound = true
-            serviceBoundState.value = trackingService
-        }
+    private val serviceConnection =
+        object : ServiceConnection {
+            override fun onServiceConnected(
+                name: ComponentName?,
+                service: IBinder?,
+            ) {
+                val binder = service as TrackingService.LocalBinder
+                trackingService = binder.getService()
+                isServiceBound = true
+                serviceBoundState.value = trackingService
+            }
 
-        override fun onServiceDisconnected(name: ComponentName?) {
-            trackingService = null
-            isServiceBound = false
-            serviceBoundState.value = null
+            override fun onServiceDisconnected(name: ComponentName?) {
+                trackingService = null
+                isServiceBound = false
+                serviceBoundState.value = null
+            }
         }
-    }
 
     private val serviceBoundState = mutableStateOf<TrackingService?>(null)
 
@@ -72,14 +75,18 @@ class MainActivity : ComponentActivity() {
                 TurnBackNavGraph(
                     service = serviceBoundState.value,
                     isOled = isOled,
-                    onToggleOled = { isOled = !isOled }
+                    onToggleOled = { isOled = !isOled },
                 )
 
                 if (showRecoveryDialog) {
                     AlertDialog(
                         onDismissRequest = { showRecoveryDialog = false },
                         title = { Text("Recover Previous Session") },
-                        text = { Text("A recording was interrupted unexpectedly (battery loss or crash). Would you like to restore and save it to your library?") },
+                        text = {
+                            Text(
+                                "A recording was interrupted unexpectedly (battery loss or crash). Would you like to restore and save it to your library?",
+                            )
+                        },
                         confirmButton = {
                             Button(
                                 onClick = {
@@ -95,24 +102,33 @@ class MainActivity : ComponentActivity() {
                                                 trackName = title,
                                                 activityType = "RUN",
                                                 points = recovered.points,
-                                                waypoints = recovered.waypoints
+                                                waypoints = recovered.waypoints,
                                             )
                                             val db = AppDatabase.getInstance(applicationContext)
-                                            val id = db.trackDao().insertTrack(
-                                                TrackEntity(
-                                                    title = title,
-                                                    startTime = recovered.points.first().timestamp.toEpochMilli(),
-                                                    endTime = recovered.points.last().timestamp.toEpochMilli(),
-                                                    distanceKm = stats.distanceKm,
-                                                    movingDurationSeconds = stats.movingDuration.seconds,
-                                                    totalDurationSeconds = stats.totalDuration.seconds,
-                                                    avgSpeedKmh = stats.avgSpeedKmh,
-                                                    maxSpeedKmh = stats.maxSpeedKmh,
-                                                    elevationGainMeters = stats.elevationGainM,
-                                                    elevationLossMeters = stats.elevationLossM,
-                                                    gpxFilePath = gpxFile.absolutePath
+                                            val id =
+                                                db.trackDao().insertTrack(
+                                                    TrackEntity(
+                                                        title = title,
+                                                        startTime =
+                                                            recovered.points
+                                                                .first()
+                                                                .timestamp
+                                                                .toEpochMilli(),
+                                                        endTime =
+                                                            recovered.points
+                                                                .last()
+                                                                .timestamp
+                                                                .toEpochMilli(),
+                                                        distanceKm = stats.distanceKm,
+                                                        movingDurationSeconds = stats.movingDuration.seconds,
+                                                        totalDurationSeconds = stats.totalDuration.seconds,
+                                                        avgSpeedKmh = stats.avgSpeedKmh,
+                                                        maxSpeedKmh = stats.maxSpeedKmh,
+                                                        elevationGainMeters = stats.elevationGainM,
+                                                        elevationLossMeters = stats.elevationLossM,
+                                                        gpxFilePath = gpxFile.absolutePath,
+                                                    ),
                                                 )
-                                            )
                                             db.waypointDao().insertWaypoints(
                                                 recovered.waypoints.map { w ->
                                                     WaypointEntity(
@@ -123,14 +139,14 @@ class MainActivity : ComponentActivity() {
                                                         longitude = w.longitude,
                                                         altitudeMeters = w.altitudeMeters,
                                                         category = w.category.name,
-                                                        timestamp = w.timestamp.toEpochMilli()
+                                                        timestamp = w.timestamp.toEpochMilli(),
                                                     )
-                                                }
+                                                },
                                             )
                                         }
                                         walFile.delete()
                                     }
-                                }
+                                },
                             ) {
                                 Text("Restore & Save")
                             }
@@ -140,11 +156,11 @@ class MainActivity : ComponentActivity() {
                                 onClick = {
                                     showRecoveryDialog = false
                                     walFile.delete()
-                                }
+                                },
                             ) {
                                 Text("Discard")
                             }
-                        }
+                        },
                     )
                 }
             }

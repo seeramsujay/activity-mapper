@@ -52,11 +52,12 @@ import kotlin.math.floor
 data class ReferenceTrack(
     val trackId: Long,
     val title: String,
-    val points: List<TrackPoint>
+    val points: List<TrackPoint>,
 )
 
-class TrackingService : Service(), LocationListener {
-
+class TrackingService :
+    Service(),
+    LocationListener {
     private val binder = LocalBinder()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -129,18 +130,23 @@ class TrackingService : Service(), LocationListener {
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-        vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-            vibratorManager?.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        }
+        vibrator =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                vibratorManager?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            }
 
         createNotificationChannel()
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int,
+    ): Int {
         when (intent?.action) {
             ACTION_START -> {
                 val targetSec = intent.getLongExtra(EXTRA_TARGET_DURATION_SEC, 3600L)
@@ -149,11 +155,12 @@ class TrackingService : Service(), LocationListener {
                 startTracking(
                     targetSec = targetSec,
                     beta = beta,
-                    activityType = try {
-                        ActivityType.valueOf(typeStr)
-                    } catch (_: Exception) {
-                        ActivityType.RUN
-                    }
+                    activityType =
+                        try {
+                            ActivityType.valueOf(typeStr)
+                        } catch (_: Exception) {
+                            ActivityType.RUN
+                        },
                 )
             }
             ACTION_PAUSE -> pauseTracking()
@@ -163,7 +170,11 @@ class TrackingService : Service(), LocationListener {
         return START_STICKY
     }
 
-    fun setReferenceTrack(trackId: Long, title: String, points: List<TrackPoint>) {
+    fun setReferenceTrack(
+        trackId: Long,
+        title: String,
+        points: List<TrackPoint>,
+    ) {
         _referenceTrack.value = ReferenceTrack(trackId, title, points)
     }
 
@@ -174,7 +185,7 @@ class TrackingService : Service(), LocationListener {
     fun startTracking(
         targetSec: Long,
         beta: Double,
-        activityType: ActivityType
+        activityType: ActivityType,
     ) {
         if (_isTracking.value) return
 
@@ -209,9 +220,10 @@ class TrackingService : Service(), LocationListener {
                 LocationManager.GPS_PROVIDER,
                 1000L,
                 1.0f,
-                this
+                this,
             )
-        } catch (_: SecurityException) {}
+        } catch (_: SecurityException) {
+        }
 
         // Launch Foreground Service Notification
         val notification = buildNotification("Recording started...", "Calculating out-and-back threshold")
@@ -241,18 +253,23 @@ class TrackingService : Service(), LocationListener {
         updateNotification()
     }
 
-    fun addWaypoint(name: String, description: String = "", category: WaypointCategory = WaypointCategory.NOTE) {
+    fun addWaypoint(
+        name: String,
+        description: String = "",
+        category: WaypointCategory = WaypointCategory.NOTE,
+    ) {
         val cur = _currentPoint.value ?: return
-        val waypoint = Waypoint(
-            sessionId = 0L,
-            name = name.ifBlank { category.displayName },
-            description = description,
-            latitude = cur.latitude,
-            longitude = cur.longitude,
-            altitudeMeters = cur.altitudeMeters,
-            category = category,
-            timestamp = Instant.now()
-        )
+        val waypoint =
+            Waypoint(
+                sessionId = 0L,
+                name = name.ifBlank { category.displayName },
+                description = description,
+                latitude = cur.latitude,
+                longitude = cur.longitude,
+                altitudeMeters = cur.altitudeMeters,
+                category = category,
+                timestamp = Instant.now(),
+            )
         wal?.appendWaypoint(waypoint)
         _waypoints.update { it + waypoint }
     }
@@ -261,11 +278,14 @@ class TrackingService : Service(), LocationListener {
         addWaypoint(
             name = "Water Stop",
             description = "Hydration break on trail",
-            category = WaypointCategory.WATER
+            category = WaypointCategory.WATER,
         )
     }
 
-    fun stopAndSave(title: String? = null, onSaved: ((Long) -> Unit)? = null) {
+    fun stopAndSave(
+        title: String? = null,
+        onSaved: ((Long) -> Unit)? = null,
+    ) {
         if (!_isTracking.value) return
         serviceScope.launch(Dispatchers.IO) {
             val finalPoints = _points.value
@@ -280,42 +300,44 @@ class TrackingService : Service(), LocationListener {
                 trackName = sessionTitle,
                 activityType = activityType.name,
                 points = finalPoints,
-                waypoints = finalWaypoints
+                waypoints = finalWaypoints,
             )
 
             // 2. Persist in Room Database
             val db = AppDatabase.getInstance(applicationContext)
-            val trackEntity = TrackEntity(
-                title = sessionTitle,
-                activityType = activityType.name,
-                startTime = startTime.toEpochMilli(),
-                endTime = System.currentTimeMillis(),
-                targetDurationSeconds = targetDuration.seconds,
-                safetyBufferPercent = safetyBufferPercent,
-                turnBackTriggeredAt = if (_turnBackTriggered.value) System.currentTimeMillis() else null,
-                distanceKm = finalStats.distanceKm,
-                movingDurationSeconds = finalStats.movingDuration.seconds,
-                totalDurationSeconds = finalStats.totalDuration.seconds,
-                avgSpeedKmh = finalStats.avgSpeedKmh,
-                maxSpeedKmh = finalStats.maxSpeedKmh,
-                elevationGainMeters = finalStats.elevationGainM,
-                elevationLossMeters = finalStats.elevationLossM,
-                gpxFilePath = gpxFile.absolutePath
-            )
+            val trackEntity =
+                TrackEntity(
+                    title = sessionTitle,
+                    activityType = activityType.name,
+                    startTime = startTime.toEpochMilli(),
+                    endTime = System.currentTimeMillis(),
+                    targetDurationSeconds = targetDuration.seconds,
+                    safetyBufferPercent = safetyBufferPercent,
+                    turnBackTriggeredAt = if (_turnBackTriggered.value) System.currentTimeMillis() else null,
+                    distanceKm = finalStats.distanceKm,
+                    movingDurationSeconds = finalStats.movingDuration.seconds,
+                    totalDurationSeconds = finalStats.totalDuration.seconds,
+                    avgSpeedKmh = finalStats.avgSpeedKmh,
+                    maxSpeedKmh = finalStats.maxSpeedKmh,
+                    elevationGainMeters = finalStats.elevationGainM,
+                    elevationLossMeters = finalStats.elevationLossM,
+                    gpxFilePath = gpxFile.absolutePath,
+                )
             val trackId = db.trackDao().insertTrack(trackEntity)
 
-            val waypointEntities = finalWaypoints.map { w ->
-                WaypointEntity(
-                    trackId = trackId,
-                    name = w.name,
-                    description = w.description,
-                    latitude = w.latitude,
-                    longitude = w.longitude,
-                    altitudeMeters = w.altitudeMeters,
-                    category = w.category.name,
-                    timestamp = w.timestamp.toEpochMilli()
-                )
-            }
+            val waypointEntities =
+                finalWaypoints.map { w ->
+                    WaypointEntity(
+                        trackId = trackId,
+                        name = w.name,
+                        description = w.description,
+                        latitude = w.latitude,
+                        longitude = w.longitude,
+                        altitudeMeters = w.altitudeMeters,
+                        category = w.category.name,
+                        timestamp = w.timestamp.toEpochMilli(),
+                    )
+                }
             db.waypointDao().insertWaypoints(waypointEntities)
 
             // 3. Clean up active WAL
@@ -334,7 +356,8 @@ class TrackingService : Service(), LocationListener {
         tickerJob = null
         try {
             locationManager.removeUpdates(this)
-        } catch (_: Exception) {}
+        } catch (_: Exception) {
+        }
         wal?.close()
         wal = null
         _isTracking.value = false
@@ -361,25 +384,29 @@ class TrackingService : Service(), LocationListener {
 
         // 3. Teleportation / Multipath Jump Filter: discard jumps > 60m within 2 seconds
         if (lastPoint != null && now - lastPoint.timestamp.toEpochMilli() <= 2000L) {
-            val dist = TurnBackEngine.haversineDistance(
-                lastPoint.latitude, lastPoint.longitude,
-                location.latitude, location.longitude
-            )
+            val dist =
+                TurnBackEngine.haversineDistance(
+                    lastPoint.latitude,
+                    lastPoint.longitude,
+                    location.latitude,
+                    location.longitude,
+                )
             if (dist > 60.0) {
                 return
             }
         }
 
         val rawSpeedMps = if (location.hasSpeed()) location.speed.toDouble() else 0.0
-        val point = TrackPoint(
-            latitude = location.latitude,
-            longitude = location.longitude,
-            altitudeMeters = if (location.hasAltitude()) location.altitude else 0.0,
-            speedMps = rawSpeedMps,
-            accuracyMeters = if (location.hasAccuracy()) location.accuracy.toDouble() else 0.0,
-            bearingDegrees = if (location.hasBearing()) location.bearing else 0f,
-            timestamp = Instant.ofEpochMilli(location.time)
-        )
+        val point =
+            TrackPoint(
+                latitude = location.latitude,
+                longitude = location.longitude,
+                altitudeMeters = if (location.hasAltitude()) location.altitude else 0.0,
+                speedMps = rawSpeedMps,
+                accuracyMeters = if (location.hasAccuracy()) location.accuracy.toDouble() else 0.0,
+                bearingDegrees = if (location.hasBearing()) location.bearing else 0f,
+                timestamp = Instant.ofEpochMilli(location.time),
+            )
 
         // Smooth speed via rolling window (last 5 fixes)
         if (speedHistory.size >= 5) speedHistory.removeFirst()
@@ -412,30 +439,31 @@ class TrackingService : Service(), LocationListener {
 
     private fun startTicker() {
         tickerJob?.cancel()
-        tickerJob = serviceScope.launch {
-            while (isActive) {
-                if (_isTracking.value) {
-                    if (_isPaused.value) {
-                        if (breakStartTimeMs > 0L) {
-                            _breakDurationSeconds.value = (System.currentTimeMillis() - breakStartTimeMs) / 1000L
-                        }
-                    } else {
-                        val now = Instant.now()
-                        val elapsedOutbound = Duration.between(startTime, now)
-                        val remainingSec = (outboundLimitDuration.seconds - elapsedOutbound.seconds).coerceAtLeast(0L)
-                        _outboundRemainingSeconds.value = remainingSec
+        tickerJob =
+            serviceScope.launch {
+                while (isActive) {
+                    if (_isTracking.value) {
+                        if (_isPaused.value) {
+                            if (breakStartTimeMs > 0L) {
+                                _breakDurationSeconds.value = (System.currentTimeMillis() - breakStartTimeMs) / 1000L
+                            }
+                        } else {
+                            val now = Instant.now()
+                            val elapsedOutbound = Duration.between(startTime, now)
+                            val remainingSec = (outboundLimitDuration.seconds - elapsedOutbound.seconds).coerceAtLeast(0L)
+                            _outboundRemainingSeconds.value = remainingSec
 
-                        // Check Turn-Back Trigger
-                        if (!_turnBackTriggered.value && remainingSec == 0L && outboundLimitDuration.seconds > 0) {
-                            _turnBackTriggered.value = true
-                            triggerTurnBackAlert()
+                            // Check Turn-Back Trigger
+                            if (!_turnBackTriggered.value && remainingSec == 0L && outboundLimitDuration.seconds > 0) {
+                                _turnBackTriggered.value = true
+                                triggerTurnBackAlert()
+                            }
                         }
+                        updateNotification()
                     }
-                    updateNotification()
+                    delay(1000L)
                 }
-                delay(1000L)
             }
-        }
     }
 
     private fun triggerTurnBackAlert() {
@@ -466,49 +494,59 @@ class TrackingService : Service(), LocationListener {
         val distStr = String.format(Locale.US, "%.2f km", s.distanceKm)
         val timeStr = formatDuration(s.totalDuration)
 
-        val turnBackStatus = if (_turnBackTriggered.value) {
-            "⚠️ TURN-AROUND TRIGGERED (Head Back)"
-        } else if (_isPaused.value) {
-            val breakMin = _breakDurationSeconds.value / 60
-            val breakSec = _breakDurationSeconds.value % 60
-            String.format(Locale.US, "Drinks Break: %02d:%02d (Tap to Continue)", breakMin, breakSec)
-        } else {
-            val remMin = _outboundRemainingSeconds.value / 60
-            "Outbound Window: ${remMin}m remaining"
-        }
+        val turnBackStatus =
+            if (_turnBackTriggered.value) {
+                "⚠️ TURN-AROUND TRIGGERED (Head Back)"
+            } else if (_isPaused.value) {
+                val breakMin = _breakDurationSeconds.value / 60
+                val breakSec = _breakDurationSeconds.value % 60
+                String.format(Locale.US, "Drinks Break: %02d:%02d (Tap to Continue)", breakMin, breakSec)
+            } else {
+                val remMin = _outboundRemainingSeconds.value / 60
+                "Outbound Window: ${remMin}m remaining"
+            }
 
         val content = "$distStr • $speedStr • $timeStr\n$turnBackStatus"
-        val notification = buildNotification(
-            title = if (_isPaused.value) "Workout Paused (Break)" else "Recording ${activityType.displayName}",
-            text = content
-        )
+        val notification =
+            buildNotification(
+                title = if (_isPaused.value) "Workout Paused (Break)" else "Recording ${activityType.displayName}",
+                text = content,
+            )
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
-    private fun buildNotification(title: String, text: String): Notification {
-        val mainIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
-        }
-        val pendingMainIntent = PendingIntent.getActivity(
-            this,
-            0,
-            mainIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+    private fun buildNotification(
+        title: String,
+        text: String,
+    ): Notification {
+        val mainIntent =
+            Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+        val pendingMainIntent =
+            PendingIntent.getActivity(
+                this,
+                0,
+                mainIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
 
         // Action: Pause / Resume directly from Notification drawer
-        val actionIntent = Intent(this, TrackingService::class.java).apply {
-            action = if (_isPaused.value) ACTION_RESUME else ACTION_PAUSE
-        }
-        val pendingActionIntent = PendingIntent.getService(
-            this,
-            1,
-            actionIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        val actionIntent =
+            Intent(this, TrackingService::class.java).apply {
+                action = if (_isPaused.value) ACTION_RESUME else ACTION_PAUSE
+            }
+        val pendingActionIntent =
+            PendingIntent.getService(
+                this,
+                1,
+                actionIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
         val actionTitle = if (_isPaused.value) "Continue Run" else "Pause (Drink Break)"
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        return NotificationCompat
+            .Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
@@ -523,14 +561,15 @@ class TrackingService : Service(), LocationListener {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                getString(R.string.tracking_notification_channel_name),
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = getString(R.string.tracking_notification_channel_desc)
-                setShowBadge(false)
-            }
+            val channel =
+                NotificationChannel(
+                    CHANNEL_ID,
+                    getString(R.string.tracking_notification_channel_name),
+                    NotificationManager.IMPORTANCE_LOW,
+                ).apply {
+                    description = getString(R.string.tracking_notification_channel_desc)
+                    setShowBadge(false)
+                }
             notificationManager.createNotificationChannel(channel)
         }
     }
@@ -539,8 +578,11 @@ class TrackingService : Service(), LocationListener {
         val h = d.toHours()
         val m = (d.toMinutes() % 60)
         val s = (d.seconds % 60)
-        return if (h > 0) String.format("%d:%02d:%02d", h, m, s)
-        else String.format("%02d:%02d", m, s)
+        return if (h > 0) {
+            String.format("%d:%02d:%02d", h, m, s)
+        } else {
+            String.format("%02d:%02d", m, s)
+        }
     }
 
     override fun onDestroy() {

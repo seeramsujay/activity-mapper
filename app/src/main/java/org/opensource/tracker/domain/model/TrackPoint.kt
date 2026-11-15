@@ -20,7 +20,7 @@ data class TrackPoint(
     val speedMps: Double = 0.0,
     val accuracyMeters: Double = 0.0,
     val bearingDegrees: Float = 0f,
-    val timestamp: Instant = Instant.now()
+    val timestamp: Instant = Instant.now(),
 ) {
     val speedKmh: Double get() = speedMps * 3.6
 }

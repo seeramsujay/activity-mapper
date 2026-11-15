@@ -17,7 +17,6 @@ import java.util.Locale
  * Fully compatible with Strava, Garmin Connect, OsmAnd, and Organic Maps.
  */
 object GpxExporter {
-
     private val ISO_FORMATTER: DateTimeFormatter = DateTimeFormatter.ISO_INSTANT
 
     fun buildGpxString(
@@ -25,7 +24,7 @@ object GpxExporter {
         activityType: String,
         points: List<TrackPoint>,
         waypoints: List<Waypoint> = emptyList(),
-        startTime: Instant = points.firstOrNull()?.timestamp ?: Instant.now()
+        startTime: Instant = points.firstOrNull()?.timestamp ?: Instant.now(),
     ): String {
         val writer = StringWriter()
         writer.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
@@ -34,7 +33,9 @@ object GpxExporter {
         writer.write("xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" ")
         writer.write("xmlns:gpxtpx=\"http://www.garmin.com/xmlschemas/TrackPointExtension/v1\" ")
         writer.write("xsi:schemaLocation=\"http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd ")
-        writer.write("http://www.garmin.com/xmlschemas/TrackPointExtension/v1 http://www.garmin.com/xmlschemas/TrackPointExtensionv1.xsd\">\n")
+        writer.write(
+            "http://www.garmin.com/xmlschemas/TrackPointExtension/v1 http://www.garmin.com/xmlschemas/TrackPointExtensionv1.xsd\">\n",
+        )
 
         // Metadata
         writer.write("  <metadata>\n")
@@ -89,24 +90,23 @@ object GpxExporter {
         trackName: String,
         activityType: String,
         points: List<TrackPoint>,
-        waypoints: List<Waypoint> = emptyList()
+        waypoints: List<Waypoint> = emptyList(),
     ): File {
         file.parentFile?.mkdirs()
         file.writeText(buildGpxString(trackName, activityType, points, waypoints))
         return file
     }
 
-    private fun escapeXml(str: String): String {
-        return str.replace("&", "&amp;")
+    private fun escapeXml(str: String): String =
+        str
+            .replace("&", "&amp;")
             .replace("<", "&lt;")
             .replace(">", "&gt;")
             .replace("\"", "&quot;")
             .replace("'", "&apos;")
-    }
 }
 
 object GpxImporter {
-
     fun parse(inputStream: InputStream): ParsedGpx {
         val factory = XmlPullParserFactory.newInstance()
         factory.isNamespaceAware = true
@@ -154,8 +154,11 @@ object GpxImporter {
                         }
                         "name" -> {
                             val text = parser.nextText()
-                            if (inWpt) curName = text
-                            else if (inTrk && trackName == "Imported Track") trackName = text
+                            if (inWpt) {
+                                curName = text
+                            } else if (inTrk && trackName == "Imported Track") {
+                                trackName = text
+                            }
                         }
                         "desc" -> if (inWpt) curDesc = parser.nextText()
                         "sym" -> if (inWpt) curSym = parser.nextText()
@@ -164,7 +167,8 @@ object GpxImporter {
                             val timeStr = parser.nextText()
                             try {
                                 curTime = Instant.parse(timeStr)
-                            } catch (_: Exception) {}
+                            } catch (_: Exception) {
+                            }
                         }
                         "speed" -> curSpeed = parser.nextText()?.toDoubleOrNull() ?: 0.0
                     }
@@ -173,13 +177,22 @@ object GpxImporter {
                     when (tag) {
                         "wpt" -> {
                             inWpt = false
-                            val category = when {
-                                curSym.contains("water", ignoreCase = true) -> WaypointCategory.WATER
-                                curSym.contains("scenic", ignoreCase = true) || curSym.contains("view", ignoreCase = true) -> WaypointCategory.VIEWPOINT
-                                curSym.contains("camp", ignoreCase = true) -> WaypointCategory.CAMP
-                                curSym.contains("danger", ignoreCase = true) || curSym.contains("hazard", ignoreCase = true) -> WaypointCategory.HAZARD
-                                else -> WaypointCategory.NOTE
-                            }
+                            val category =
+                                when {
+                                    curSym.contains("water", ignoreCase = true) -> WaypointCategory.WATER
+                                    curSym.contains(
+                                        "scenic",
+                                        ignoreCase = true,
+                                    ) ||
+                                        curSym.contains("view", ignoreCase = true) -> WaypointCategory.VIEWPOINT
+                                    curSym.contains("camp", ignoreCase = true) -> WaypointCategory.CAMP
+                                    curSym.contains(
+                                        "danger",
+                                        ignoreCase = true,
+                                    ) ||
+                                        curSym.contains("hazard", ignoreCase = true) -> WaypointCategory.HAZARD
+                                    else -> WaypointCategory.NOTE
+                                }
                             waypoints.add(
                                 Waypoint(
                                     sessionId = 0L,
@@ -189,8 +202,8 @@ object GpxImporter {
                                     longitude = curLon,
                                     altitudeMeters = curEle,
                                     category = category,
-                                    timestamp = curTime
-                                )
+                                    timestamp = curTime,
+                                ),
                             )
                         }
                         "trkpt" -> {
@@ -200,8 +213,8 @@ object GpxImporter {
                                     longitude = curLon,
                                     altitudeMeters = curEle,
                                     speedMps = curSpeed,
-                                    timestamp = curTime
-                                )
+                                    timestamp = curTime,
+                                ),
                             )
                         }
                         "trk" -> inTrk = false
@@ -218,5 +231,5 @@ object GpxImporter {
 data class ParsedGpx(
     val name: String,
     val points: List<TrackPoint>,
-    val waypoints: List<Waypoint>
+    val waypoints: List<Waypoint>,
 )

@@ -10,7 +10,6 @@ import java.time.Duration
 import java.time.Instant
 
 class TurnBackEngineTest {
-
     @Test
     fun testComputeOutboundLimit() {
         val target = Duration.ofMinutes(60)
@@ -32,11 +31,12 @@ class TurnBackEngineTest {
     fun testComputeSplits() {
         val now = Instant.now()
         // 3 points, total ~2.22 km
-        val points = listOf(
-            TrackPoint(latitude = 12.0, longitude = 77.0, altitudeMeters = 100.0, speedMps = 3.5, timestamp = now),
-            TrackPoint(latitude = 12.01, longitude = 77.0, altitudeMeters = 110.0, speedMps = 3.5, timestamp = now.plusSeconds(300)),
-            TrackPoint(latitude = 12.02, longitude = 77.0, altitudeMeters = 120.0, speedMps = 3.5, timestamp = now.plusSeconds(600))
-        )
+        val points =
+            listOf(
+                TrackPoint(latitude = 12.0, longitude = 77.0, altitudeMeters = 100.0, speedMps = 3.5, timestamp = now),
+                TrackPoint(latitude = 12.01, longitude = 77.0, altitudeMeters = 110.0, speedMps = 3.5, timestamp = now.plusSeconds(300)),
+                TrackPoint(latitude = 12.02, longitude = 77.0, altitudeMeters = 120.0, speedMps = 3.5, timestamp = now.plusSeconds(600)),
+            )
 
         val splits = TurnBackEngine.computeSplits(points, splitIntervalKm = 1.0)
         assertTrue(splits.size >= 2)
@@ -84,12 +84,13 @@ class TurnBackEngineTest {
     fun testElevationHysteresisIgnoresJitter() {
         val now = Instant.now()
         // Small 1m jitter should not accumulate gain
-        val points = listOf(
-            TrackPoint(latitude = 12.0, longitude = 77.0, altitudeMeters = 100.0, timestamp = now),
-            TrackPoint(latitude = 12.001, longitude = 77.0, altitudeMeters = 101.0, timestamp = now.plusSeconds(10)),
-            TrackPoint(latitude = 12.002, longitude = 77.0, altitudeMeters = 100.5, timestamp = now.plusSeconds(20)),
-            TrackPoint(latitude = 12.003, longitude = 77.0, altitudeMeters = 101.2, timestamp = now.plusSeconds(30))
-        )
+        val points =
+            listOf(
+                TrackPoint(latitude = 12.0, longitude = 77.0, altitudeMeters = 100.0, timestamp = now),
+                TrackPoint(latitude = 12.001, longitude = 77.0, altitudeMeters = 101.0, timestamp = now.plusSeconds(10)),
+                TrackPoint(latitude = 12.002, longitude = 77.0, altitudeMeters = 100.5, timestamp = now.plusSeconds(20)),
+                TrackPoint(latitude = 12.003, longitude = 77.0, altitudeMeters = 101.2, timestamp = now.plusSeconds(30)),
+            )
 
         val stats = TurnBackEngine.computeStats(points)
         assertEquals(0.0, stats.elevationGainM, 0.1)

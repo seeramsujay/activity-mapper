@@ -1,7 +1,6 @@
 package org.opensource.tracker
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -13,7 +12,6 @@ import java.io.File
 import java.time.Instant
 
 class RecordingWalTest {
-
     @get:Rule
     val tempFolder = TemporaryFolder()
 
@@ -24,7 +22,18 @@ class RecordingWalTest {
 
         val pt1 = TrackPoint(12.34, 56.78, 100.0, 3.5, 4.0, timestamp = Instant.ofEpochMilli(1000000))
         val pt2 = TrackPoint(12.35, 56.79, 105.0, 3.6, 4.5, timestamp = Instant.ofEpochMilli(2000000))
-        val wpt = Waypoint(0L, 1L, "Fresh Spring", "Clear drinking water", 12.345, 56.785, 102.0, WaypointCategory.WATER, timestamp = Instant.ofEpochMilli(1500000))
+        val wpt =
+            Waypoint(
+                0L,
+                1L,
+                "Fresh Spring",
+                "Clear drinking water",
+                12.345,
+                56.785,
+                102.0,
+                WaypointCategory.WATER,
+                timestamp = Instant.ofEpochMilli(1500000),
+            )
 
         wal.appendPoint(pt1)
         wal.appendWaypoint(wpt)

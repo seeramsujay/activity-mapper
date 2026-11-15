@@ -53,9 +53,7 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LibraryScreen(
-    onTrackClick: (Long) -> Unit
-) {
+fun LibraryScreen(onTrackClick: (Long) -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val db = AppDatabase.getInstance(context)
@@ -65,45 +63,47 @@ fun LibraryScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Track Library", fontWeight = FontWeight.Black) },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
             )
-        }
+        },
     ) { padding ->
         if (tracks.isEmpty()) {
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentAlignment = Alignment.Center
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(padding),
+                contentAlignment = Alignment.Center,
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
                         imageVector = Icons.Default.Route,
                         contentDescription = null,
                         modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
                         "No recorded workouts yet",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         "Start an out-and-back session to log GPS tracks",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
         } else {
             LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(tracks, key = { it.id }) { track ->
                     TrackItemCard(
@@ -113,7 +113,7 @@ fun LibraryScreen(
                             scope.launch {
                                 db.trackDao().deleteTrack(track)
                             }
-                        }
+                        },
                     )
                 }
             }
@@ -125,33 +125,37 @@ fun LibraryScreen(
 private fun TrackItemCard(
     track: TrackEntity,
     onClick: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
 ) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            val icon = when (track.activityType.uppercase(Locale.ROOT)) {
-                "HIKE" -> Icons.Default.Hiking
-                "CYCLE", "BIKE" -> Icons.Default.DirectionsBike
-                "WALK" -> Icons.Default.DirectionsWalk
-                else -> Icons.Default.DirectionsRun
-            }
+            val icon =
+                when (track.activityType.uppercase(Locale.ROOT)) {
+                    "HIKE" -> Icons.Default.Hiking
+                    "CYCLE", "BIKE" -> Icons.Default.DirectionsBike
+                    "WALK" -> Icons.Default.DirectionsWalk
+                    else -> Icons.Default.DirectionsRun
+                }
 
             Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), RoundedCornerShape(12.dp)),
-                contentAlignment = Alignment.Center
+                modifier =
+                    Modifier
+                        .size(44.dp)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center,
             ) {
                 Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
             }
@@ -163,7 +167,7 @@ private fun TrackItemCard(
                     text = track.title,
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 15.sp,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 Spacer(modifier = Modifier.height(3.dp))
                 val dateStr = SimpleDateFormat("MMM d, yyyy • HH:mm", Locale.getDefault()).format(Date(track.startTime))
@@ -176,21 +180,21 @@ private fun TrackItemCard(
                         text = String.format(Locale.US, "%.2f km", track.distanceKm),
                         fontWeight = FontWeight.Black,
                         fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.primary,
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = formatDuration(Duration.ofSeconds(track.totalDurationSeconds)),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = String.format(Locale.US, "+%.0fm", track.elevationGainMeters),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF10B981)
+                        color = Color(0xFF10B981),
                     )
                 }
             }
@@ -199,7 +203,7 @@ private fun TrackItemCard(
                 Icon(
                     imageVector = Icons.Default.Delete,
                     contentDescription = "Delete",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                 )
             }
         }
@@ -210,6 +214,9 @@ private fun formatDuration(d: Duration): String {
     val h = d.toHours()
     val m = (d.toMinutes() % 60)
     val s = (d.seconds % 60)
-    return if (h > 0) String.format("%d:%02d:%02d", h, m, s)
-    else String.format("%02d:%02d", m, s)
+    return if (h > 0) {
+        String.format("%d:%02d:%02d", h, m, s)
+    } else {
+        String.format("%02d:%02d", m, s)
+    }
 }

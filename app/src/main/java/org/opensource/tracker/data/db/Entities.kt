@@ -23,7 +23,7 @@ data class TrackEntity(
     val maxSpeedKmh: Double = 0.0,
     val elevationGainMeters: Double = 0.0,
     val elevationLossMeters: Double = 0.0,
-    val gpxFilePath: String? = null
+    val gpxFilePath: String? = null,
 )
 
 @Entity(
@@ -33,10 +33,10 @@ data class TrackEntity(
             entity = TrackEntity::class,
             parentColumns = ["id"],
             childColumns = ["trackId"],
-            onDelete = ForeignKey.CASCADE
-        )
+            onDelete = ForeignKey.CASCADE,
+        ),
     ],
-    indices = [Index(value = ["trackId"])]
+    indices = [Index(value = ["trackId"])],
 )
 data class WaypointEntity(
     @PrimaryKey(autoGenerate = true)
@@ -48,5 +48,5 @@ data class WaypointEntity(
     val longitude: Double,
     val altitudeMeters: Double = 0.0,
     val category: String = "NOTE",
-    val timestamp: Long
+    val timestamp: Long,
 )
