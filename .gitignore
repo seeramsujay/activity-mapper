@@ -85,3 +85,7 @@ future_checklist.md
 android/key.properties
 *.jks
 *.keystore
+
+# Agent system skills
+skills/
+app/build/

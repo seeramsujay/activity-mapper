@@ -8,6 +8,10 @@ import '../services/adaptive_pacing_service.dart';
 import '../services/platform_service.dart';
 import '../services/settings_service.dart';
 import '../services/tile_cache_service.dart';
+import '../models/location_point.dart';
+import '../models/waypoint.dart';
+import '../services/track_gradient_service.dart';
+
 
 /// In-memory LRU Tile Texture Cache strictly capped at 32 MB RAM.
 class VectorTileTextureCache {
@@ -68,6 +72,10 @@ enum CameraMode {
 /// Vector Map Engine Canvas with Dual Camera View Modes and 32 MB RAM Texture Cache.
 class VectorMapView extends StatefulWidget {
   final List<Point<double>> points;
+  final List<LocationPoint>? telemetryPoints;
+  final List<Waypoint>? waypoints;
+  final TrackColorMode? trackColorMode;
+  final ValueChanged<TrackColorMode>? onTrackColorModeChanged;
   final Brightness brightness;
   final bool isReturning;
   final double returnPathRemainingKm;
@@ -77,6 +85,10 @@ class VectorMapView extends StatefulWidget {
   const VectorMapView({
     super.key,
     required this.points,
+    this.telemetryPoints,
+    this.waypoints,
+    this.trackColorMode,
+    this.onTrackColorModeChanged,
     required this.brightness,
     this.isReturning = false,
     this.returnPathRemainingKm = 0.0,
@@ -90,6 +102,15 @@ class VectorMapView extends StatefulWidget {
 
 class _VectorMapViewState extends State<VectorMapView> with SingleTickerProviderStateMixin {
   CameraMode _cameraMode = CameraMode.navigation;
+  TrackColorMode _trackColorMode = TrackColorMode.speed;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.trackColorMode != null) {
+      _trackColorMode = widget.trackColorMode!;
+    }
+  }
   double _smoothedHeadingRad = 0.0;
   Offset _manualPanOffset = Offset.zero;
   double _zoomScale = 1.0;
@@ -105,6 +126,9 @@ class _VectorMapViewState extends State<VectorMapView> with SingleTickerProvider
   @override
   void didUpdateWidget(covariant VectorMapView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.trackColorMode != null && widget.trackColorMode != oldWidget.trackColorMode) {
+      _trackColorMode = widget.trackColorMode!;
+    }
     if (widget.points.isNotEmpty && _cameraMode == CameraMode.navigation && !_isManualPanning) {
       _updateSmoothedHeading();
     }
@@ -388,6 +412,9 @@ class _VectorMapViewState extends State<VectorMapView> with SingleTickerProvider
                                     size: size,
                                     painter: _VectorTrailPainter(
                                       points: pts,
+                                      telemetryPoints: widget.telemetryPoints,
+                                      waypoints: widget.waypoints,
+                                      trackColorMode: _trackColorMode,
                                       pointCount: pts.length,
                                       geometry: geo,
                                       accentColor: accentColor,
@@ -451,7 +478,11 @@ class _VectorMapViewState extends State<VectorMapView> with SingleTickerProvider
                     const SizedBox(width: 6),
                     Text(
                       _cameraMode == CameraMode.navigation
-                          ? 'POINT MODE (55° COURSE-UP)'
+                          ? (_trackColorMode == TrackColorMode.speed
+                              ? 'COURSE-UP • SPEED GRADIENT'
+                              : (_trackColorMode == TrackColorMode.elevation
+                                  ? 'COURSE-UP • ELEVATION GRADIENT'
+                                  : 'POINT MODE (55° COURSE-UP)'))
                           : 'SKY VIEW (NORTH-UP)',
                       style: TextStyle(
                         fontSize: 9.5,
@@ -496,16 +527,49 @@ class _VectorMapViewState extends State<VectorMapView> with SingleTickerProvider
                   ),
                   const SizedBox(height: 12),
 
-                  // 3. Tile Layer Toggle (68dp x 68dp)
+                  // 3. Tile Layer & Map Style Picker (OsmAnd / Organic Maps modal)
                   _buildErgonomicActionButton(
                     icon: widget.showTiles ? Icons.layers_rounded : Icons.layers_clear_rounded,
-                    tooltip: 'Toggle Offline Vector / OSM Tiles',
+                    tooltip: 'Map Layers & Visual Styles (Tap to open, hold to toggle)',
                     isActive: widget.showTiles,
                     activeColor: accentColor,
                     isDark: isDark,
                     onTap: () {
-                      HapticFeedback.selectionClick();
+                      HapticFeedback.mediumImpact();
+                      _showMapLayersModal(context);
+                    },
+                    onLongPress: () {
+                      HapticFeedback.heavyImpact();
                       widget.onToggleTiles?.call(!widget.showTiles);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+
+                  // 4. Dynamic Track Gradient Switcher (Geo Tracker style)
+                  _buildErgonomicActionButton(
+                    icon: _trackColorMode == TrackColorMode.speed
+                        ? Icons.speed_rounded
+                        : (_trackColorMode == TrackColorMode.elevation
+                            ? Icons.terrain_rounded
+                            : Icons.palette_outlined),
+                    tooltip: 'Track Style: ${_trackColorMode.name.toUpperCase()}',
+                    isActive: _trackColorMode != TrackColorMode.solid,
+                    activeColor: _trackColorMode == TrackColorMode.speed
+                        ? const Color(0xFF06B6D4)
+                        : const Color(0xFFEAB308),
+                    isDark: isDark,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      setState(() {
+                        if (_trackColorMode == TrackColorMode.speed) {
+                          _trackColorMode = TrackColorMode.elevation;
+                        } else if (_trackColorMode == TrackColorMode.elevation) {
+                          _trackColorMode = TrackColorMode.solid;
+                        } else {
+                          _trackColorMode = TrackColorMode.speed;
+                        }
+                      });
+                      widget.onTrackColorModeChanged?.call(_trackColorMode);
                     },
                   ),
                 ],
@@ -525,6 +589,7 @@ class _VectorMapViewState extends State<VectorMapView> with SingleTickerProvider
     required Color activeColor,
     required bool isDark,
     required VoidCallback onTap,
+    VoidCallback? onLongPress,
   }) {
     return Semantics(
       button: true,
@@ -544,6 +609,7 @@ class _VectorMapViewState extends State<VectorMapView> with SingleTickerProvider
             child: InkWell(
               customBorder: const CircleBorder(),
               onTap: onTap,
+              onLongPress: onLongPress,
               child: Center(
                 child: Icon(
                   icon,
@@ -591,6 +657,334 @@ class _VectorMapViewState extends State<VectorMapView> with SingleTickerProvider
               size: 13,
               color: Colors.white,
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  static const List<Map<String, dynamic>> _tileSources = [
+    {
+      'title': 'Standard OpenStreetMap',
+      'subtitle': 'Default worldwide crowd-sourced map',
+      'url': 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      'icon': Icons.public_rounded,
+    },
+    {
+      'title': 'OpenTopoMap (Topographic)',
+      'subtitle': 'Elevation contours, hillshading & summits',
+      'url': 'https://a.tile.opentopomap.org/{z}/{x}/{y}.png',
+      'icon': Icons.filter_hdr_rounded,
+    },
+    {
+      'title': 'CartoDB Dark Matter',
+      'subtitle': 'Ultra-dark contrast for night runs & rides',
+      'url': 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
+      'icon': Icons.dark_mode_rounded,
+    },
+    {
+      'title': 'Humanitarian OSM (HOT)',
+      'subtitle': 'High-contrast trails, unpaved roads & footpaths',
+      'url': 'https://a.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png',
+      'icon': Icons.explore_rounded,
+    },
+    {
+      'title': 'Google Maps (Satellite & Hybrid)',
+      'subtitle': 'Photorealistic satellite aerial imagery',
+      'url': 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+      'icon': Icons.satellite_alt_rounded,
+    },
+    {
+      'title': 'Google Maps (Terrain)',
+      'subtitle': 'Topographic shading and elevation contours',
+      'url': 'https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}',
+      'icon': Icons.terrain_rounded,
+    },
+    {
+      'title': 'Google Maps (Roadmap)',
+      'subtitle': 'Clear street grid with live vector styling',
+      'url': 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+      'icon': Icons.map_rounded,
+    },
+  ];
+
+  void _showMapLayersModal(BuildContext context) {
+    final isDark = widget.brightness == Brightness.dark;
+    final bgColor = isDark ? const Color(0xFF181C24) : Colors.white;
+    final cardBg = isDark ? const Color(0xFF222834) : const Color(0xFFF3F4F6);
+    final borderColor = isDark ? const Color(0xFF2D333F) : const Color(0xFFE5E7EB);
+    final textColor = isDark ? Colors.white : const Color(0xFF111827);
+    final accentColor = Theme.of(context).colorScheme.primary;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            final currentTileSource = SettingsService.instance.mapTileSource;
+            return Container(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(ctx).size.height * 0.78,
+              ),
+              decoration: BoxDecoration(
+                color: bgColor,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                border: Border.all(color: borderColor),
+              ),
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: isDark ? Colors.white24 : Colors.black12,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.layers_rounded, color: accentColor, size: 22),
+                          const SizedBox(width: 10),
+                          Text(
+                            'MAP LAYERS & STYLES',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.8,
+                              color: textColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded),
+                        color: textColor.withValues(alpha: 0.6),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // 1. Toggle Base Tiles Switch
+                  Container(
+                    decoration: BoxDecoration(
+                      color: cardBg,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: borderColor),
+                    ),
+                    child: SwitchListTile(
+                      value: widget.showTiles,
+                      activeColor: accentColor,
+                      title: Text(
+                        'Render Map Tiles',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: textColor,
+                        ),
+                      ),
+                      subtitle: Text(
+                        widget.showTiles
+                            ? 'Displaying offline vector / OSM tiles'
+                            : 'Clean high-contrast vector grid only (OLED eco mode)',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: textColor.withValues(alpha: 0.6),
+                        ),
+                      ),
+                      onChanged: (val) {
+                        HapticFeedback.selectionClick();
+                        widget.onToggleTiles?.call(val);
+                        setModalState(() {});
+                        setState(() {});
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+
+                  // 2. Base Map Tile Providers
+                  Text(
+                    'BASE MAP PROVIDER',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.8,
+                      color: textColor.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  ..._tileSources.map((tile) {
+                    final isSelected = currentTileSource == tile['url'];
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: InkWell(
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          SettingsService.instance.setMapTileSource(tile['url'] as String);
+                          setModalState(() {});
+                          setState(() {});
+                        },
+                        borderRadius: BorderRadius.circular(14),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                          decoration: BoxDecoration(
+                            color: isSelected ? accentColor.withValues(alpha: 0.15) : cardBg,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: isSelected ? accentColor : borderColor,
+                              width: isSelected ? 1.5 : 1.0,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                tile['icon'] as IconData,
+                                color: isSelected ? accentColor : textColor.withValues(alpha: 0.6),
+                                size: 20,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      tile['title'] as String,
+                                      style: TextStyle(
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w800,
+                                        color: textColor,
+                                      ),
+                                    ),
+                                    Text(
+                                      tile['subtitle'] as String,
+                                      style: TextStyle(
+                                        fontSize: 10.5,
+                                        color: textColor.withValues(alpha: 0.5),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (isSelected)
+                                Icon(Icons.check_circle_rounded, color: accentColor, size: 20),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                  const SizedBox(height: 14),
+
+                  // 3. Track Color Mode
+                  Text(
+                    'TRACK GRADIENT COLOR',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.8,
+                      color: textColor.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      _buildGradientModeChip(
+                        mode: TrackColorMode.speed,
+                        label: 'Speed',
+                        icon: Icons.speed_rounded,
+                        activeColor: const Color(0xFF06B6D4),
+                        textColor: textColor,
+                        cardBg: cardBg,
+                        borderColor: borderColor,
+                        setModalState: setModalState,
+                      ),
+                      const SizedBox(width: 8),
+                      _buildGradientModeChip(
+                        mode: TrackColorMode.elevation,
+                        label: 'Elevation',
+                        icon: Icons.terrain_rounded,
+                        activeColor: const Color(0xFFEAB308),
+                        textColor: textColor,
+                        cardBg: cardBg,
+                        borderColor: borderColor,
+                        setModalState: setModalState,
+                      ),
+                      const SizedBox(width: 8),
+                      _buildGradientModeChip(
+                        mode: TrackColorMode.solid,
+                        label: 'Solid',
+                        icon: Icons.palette_outlined,
+                        activeColor: accentColor,
+                        textColor: textColor,
+                        cardBg: cardBg,
+                        borderColor: borderColor,
+                        setModalState: setModalState,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildGradientModeChip({
+    required TrackColorMode mode,
+    required String label,
+    required IconData icon,
+    required Color activeColor,
+    required Color textColor,
+    required Color cardBg,
+    required Color borderColor,
+    required StateSetter setModalState,
+  }) {
+    final isSelected = _trackColorMode == mode;
+    return Expanded(
+      child: InkWell(
+        onTap: () {
+          HapticFeedback.selectionClick();
+          setState(() => _trackColorMode = mode);
+          widget.onTrackColorModeChanged?.call(mode);
+          setModalState(() {});
+        },
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+          decoration: BoxDecoration(
+            color: isSelected ? activeColor.withValues(alpha: 0.15) : cardBg,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: isSelected ? activeColor : borderColor,
+              width: isSelected ? 1.5 : 1.0,
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 20, color: isSelected ? activeColor : textColor.withValues(alpha: 0.6)),
+              const SizedBox(height: 6),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: isSelected ? activeColor : textColor,
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -821,6 +1215,9 @@ class _TileGeometry {
 /// Custom painter rendering the 3D GPS route polyline, start point, and turnaround vectors.
 class _VectorTrailPainter extends CustomPainter {
   final List<Point<double>> points;
+  final List<LocationPoint>? telemetryPoints;
+  final List<Waypoint>? waypoints;
+  final TrackColorMode trackColorMode;
   // Snapshot of points.length: the HUD appends to the same list instance.
   final int pointCount;
   final _TileGeometry geometry;
@@ -831,6 +1228,9 @@ class _VectorTrailPainter extends CustomPainter {
 
   _VectorTrailPainter({
     required this.points,
+    this.telemetryPoints,
+    this.waypoints,
+    this.trackColorMode = TrackColorMode.speed,
     required this.pointCount,
     required this.geometry,
     required this.accentColor,
@@ -845,43 +1245,113 @@ class _VectorTrailPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (points.length < 2) return;
 
-    final path = Path();
     final first = _toScreenOffset(points.first.x, points.first.y, size);
-    path.moveTo(first.dx, first.dy);
 
-    for (int i = 1; i < points.length; i++) {
-      final pt = _toScreenOffset(points[i].x, points[i].y, size);
-      path.lineTo(pt.dx, pt.dy);
+    // Dynamic gradient drawing when telemetryPoints is available and not in solid mode
+    if (!isReturning &&
+        telemetryPoints != null &&
+        telemetryPoints!.length >= 2 &&
+        trackColorMode != TrackColorMode.solid) {
+      final colors = TrackGradientService.computeSegmentColors(
+        points: telemetryPoints!,
+        mode: trackColorMode,
+        defaultColor: accentColor,
+      );
+
+      final double glowWidth = isNavMode ? 10.0 : 7.0;
+      final double trackWidth = isNavMode ? 5.5 : 3.5;
+
+      for (int i = 0; i < points.length - 1 && i < colors.length; i++) {
+        final p1 = _toScreenOffset(points[i].x, points[i].y, size);
+        final p2 = _toScreenOffset(points[i + 1].x, points[i + 1].y, size);
+        final color = colors[i];
+
+        final glowPaint = Paint()
+          ..color = color.withValues(alpha: 0.35)
+          ..strokeWidth = glowWidth
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round;
+        canvas.drawLine(p1, p2, glowPaint);
+
+        final trackPaint = Paint()
+          ..color = color
+          ..strokeWidth = trackWidth
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round;
+        canvas.drawLine(p1, p2, trackPaint);
+      }
+    } else {
+      final path = Path();
+      path.moveTo(first.dx, first.dy);
+
+      for (int i = 1; i < points.length; i++) {
+        final pt = _toScreenOffset(points[i].x, points[i].y, size);
+        path.lineTo(pt.dx, pt.dy);
+      }
+
+      // Outer glow / shadow
+      final glowPaint = Paint()
+        ..color = (isReturning ? const Color(0xFFEF4444) : accentColor).withValues(alpha: 0.3)
+        ..strokeWidth = isNavMode ? 10.0 : 7.0
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+      canvas.drawPath(path, glowPaint);
+
+      // Primary breadcrumb vector track
+      final trackPaint = Paint()
+        ..color = isReturning ? const Color(0xFFEF4444) : accentColor
+        ..strokeWidth = isNavMode ? 5.5 : 3.5
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+      canvas.drawPath(path, trackPaint);
     }
-
-    // Outer glow / shadow
-    final glowPaint = Paint()
-      ..color = accentColor.withValues(alpha: 0.3)
-      ..strokeWidth = isNavMode ? 10.0 : 7.0
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-    canvas.drawPath(path, glowPaint);
-
-    // Primary breadcrumb vector track
-    final trackPaint = Paint()
-      ..color = isReturning ? const Color(0xFFEF4444) : accentColor
-      ..strokeWidth = isNavMode ? 5.5 : 3.5
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-    canvas.drawPath(path, trackPaint);
 
     // Start point marker (Green origin flag)
     final startPaint = Paint()..color = const Color(0xFF10B981);
     canvas.drawCircle(first, 6.0, startPaint);
     canvas.drawCircle(first, 8.0, Paint()..color = Colors.white..style = PaintingStyle.stroke..strokeWidth = 2);
+
+    // Render Waypoints / POIs pinned along the route (OsmAnd / GPSLogger style)
+    if (waypoints != null && waypoints!.isNotEmpty) {
+      for (final w in waypoints!) {
+        final pt = _toScreenOffset(w.lat, w.lng, size);
+        Color catColor;
+        switch (w.category.toLowerCase()) {
+          case 'water':
+            catColor = const Color(0xFF06B6D4);
+            break;
+          case 'view':
+            catColor = const Color(0xFFA855F7);
+            break;
+          case 'camp':
+            catColor = const Color(0xFF10B981);
+            break;
+          case 'hazard':
+            catColor = const Color(0xFFEF4444);
+            break;
+          default:
+            catColor = const Color(0xFFF59E0B);
+        }
+
+        // Drop shadow circle
+        canvas.drawCircle(pt, 10.0, Paint()..color = Colors.black.withValues(alpha: 0.35));
+        // Outer colored ring
+        canvas.drawCircle(pt, 8.5, Paint()..color = Colors.white);
+        canvas.drawCircle(pt, 7.0, Paint()..color = catColor);
+        // Center white dot
+        canvas.drawCircle(pt, 2.5, Paint()..color = Colors.white);
+      }
+    }
   }
 
   @override
   bool shouldRepaint(covariant _VectorTrailPainter oldDelegate) {
     return oldDelegate.pointCount != pointCount ||
         !identical(oldDelegate.points, points) ||
+        !identical(oldDelegate.telemetryPoints, telemetryPoints) ||
+        oldDelegate.trackColorMode != trackColorMode ||
         oldDelegate.geometry != geometry ||
         oldDelegate.accentColor != accentColor ||
         oldDelegate.isReturning != isReturning ||

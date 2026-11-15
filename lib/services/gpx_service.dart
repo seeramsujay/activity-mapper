@@ -22,7 +22,8 @@ class GpxService {
 
     final rawAltitudes = points.map((p) => ((p['altitude'] as num?)?.toDouble()) ?? 0.0).toList();
     final smoothedAltitudes = ElevationFilterService.instance.filterFullElevationProfile(rawAltitudes);
-    return TrackFormats.buildGpx(points, activityName, altitudes: smoothedAltitudes);
+    final waypoints = await dbHelper.getWaypointMaps(sessionId);
+    return TrackFormats.buildGpx(points, activityName, altitudes: smoothedAltitudes, waypoints: waypoints);
   }
 
   /// Writes a GPX XML string to a file in the app documents directory.

@@ -3,6 +3,8 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'workout_summary_screen.dart';
+import '../models/location_point.dart';
+import '../models/waypoint.dart';
 import '../services/adaptive_pacing_service.dart';
 import '../services/ble_sensor_service.dart';
 import '../services/db_service.dart';
@@ -16,6 +18,7 @@ import '../services/p2p_mesh_service.dart';
 import '../widgets/musicolet_4x1_widget.dart';
 import '../widgets/interactive_telemetry_graph.dart';
 import '../widgets/vector_map_view.dart';
+import '../widgets/telemetry_bottom_sheet.dart';
 import '../widgets/telemetry_chart.dart';
 import '../widgets/mesh_radar_widget.dart';
 import '../widgets/colab_comms_sheet.dart';
@@ -55,6 +58,8 @@ class _HudScreenState extends State<HudScreen> {
 
   // Telemetry list
   final List<Point<double>> _points = [];
+  final List<LocationPoint> _telemetryPoints = [];
+  final List<Waypoint> _waypoints = [];
   final List<TelemetrySample> _chartSamples = [];
 
   // Real-time metrics
@@ -94,6 +99,13 @@ class _HudScreenState extends State<HudScreen> {
   int _consecutivePaceTicks = 0;
   int _adaptiveHysteresisTicks = 5;
   static const double _speedThresholdMps = 5.0; // 18 km/h
+
+  List<SplitLap> get _liveSplits {
+    if (_telemetryPoints.length < 2) return const [];
+    return ExerciseStatsService.computeSplits(
+      _telemetryPoints.map((p) => p.toMap()).toList(),
+    );
+  }
 
   double get _liveCalories => ExerciseStatsService.calculateCaloriesBurnt(
     activityType: widget.activityType,
@@ -622,10 +634,23 @@ class _HudScreenState extends State<HudScreen> {
               ((p['lat'] ?? 0.0) as num).toDouble(),
               ((p['lng'] ?? 0.0) as num).toDouble(),
             )));
+      _telemetryPoints
+        ..clear()
+        ..addAll(storedPoints.map((p) => LocationPoint.fromMap(p)));
       _chartSamples
         ..clear()
         ..addAll(samples);
       _calculateSummaryMetrics(storedPoints);
+    });
+    final storedWaypoints = await dbHelper.getWaypoints(widget.sessionId);
+    if (mounted) {
+      setState(() {
+        _waypoints
+          ..clear()
+          ..addAll(storedWaypoints);
+      });
+    }
+    if (false) {
     });
 
     if (_turnBackTriggered) {
@@ -750,6 +775,15 @@ class _HudScreenState extends State<HudScreen> {
         }
 
         _points.add(Point(lat, lng));
+        _telemetryPoints.add(LocationPoint(
+          sessionId: widget.sessionId,
+          timestamp: DateTime.now(),
+          lat: lat,
+          lng: lng,
+          altitude: alt,
+          accuracy: acc,
+          speed: speed,
+        ));
         _currentSpeed = speed;
         _altitude = alt;
         _accuracy = acc;
@@ -896,6 +930,8 @@ class _HudScreenState extends State<HudScreen> {
               // 1. Fullscreen Vector Tile Map Canvas (>90% screen area)
               VectorMapView(
                 points: _points,
+                telemetryPoints: _telemetryPoints,
+                waypoints: _waypoints,
                 brightness: brightness,
                 isReturning: _freeRunReturning,
                 returnPathRemainingKm: _returnPathRemainingKm,
@@ -928,13 +964,47 @@ class _HudScreenState extends State<HudScreen> {
                   currentLng: _points.isNotEmpty ? _points.last.y : 0.0,
                 ),
 
-              // 6. Collapsed Floating Bottom Control Bar (Heavy-Glove >=68dp touch targets)
-              _buildCollapsedBottomControlBar(
-                textColor: textColor,
-                cardBg: cardBg,
-                borderColor: borderColor,
+              // 6. Expandable Draggable Telemetry Bottom Sheet (Geo Tracker / Apple Maps style)
+              TelemetryBottomSheet(
+                currentSpeedMps: _currentSpeed,
+                avgSpeedMps: _avgSpeed,
+                maxSpeedMps: _maxSpeed,
+                distanceKm: _distanceKm,
+                elapsed: _elapsed,
+                movingDuration: _elapsed,
+                splits: _liveSplits,
+                altitude: _altitude,
+                totalAscent: _totalAscent,
+                totalDescent: _totalDescent,
+                activityType: widget.activityType,
+                isSpeedMode: _isSpeedMode,
+                isPaused: _isPaused,
+                isReturning: _freeRunReturning,
+                remainingReturnDuration: remainingOutboundSeconds > 0
+                    ? Duration(seconds: remainingOutboundSeconds)
+                    : null,
+                graphPoints: _chartSamples.map((s) => GraphPoint(
+                  distanceKm: s.distanceKm,
+                  elapsedSeconds: s.elapsedSeconds,
+                  speedKmh: s.speedKmh,
+                  altitudeMeters: s.altitudeMeters,
+                  heartRateBpm: s.heartRateBpm,
+                  cadenceRpm: s.cadenceRpm,
+                )).toList(),
+                onTogglePause: () {
+                  if (_isPaused) {
+                    _showResumeOptionsDialog();
+                  } else {
+                    _pauseTracking();
+                  }
+                },
+                onFinish: _showExitConfirmDialog,
+                onAddWaypoint: _showAddWaypointDialog,
+                onToggleOled: _toggleOledDimming,
+                onToggleGoogleMaps: _toggleGoogleMapsMode,
+                googleMapsMode: _googleMapsMode,
+                brightness: brightness,
                 accentColor: accentColor,
-                isDark: isDark,
               ),
 
               // 7. OLED Battery Saver: pure-black screen (pixels off) until touched
@@ -1893,6 +1963,115 @@ class _HudScreenState extends State<HudScreen> {
               child: const Text('FINISH & SAVE', style: TextStyle(fontWeight: FontWeight.w900)),
             ),
           ],
+        );
+      },
+    );
+  }
+
+  void _showAddWaypointDialog() {
+    HapticFeedback.selectionClick();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textColor = isDark ? Colors.white : const Color(0xFF111827);
+    final bg = isDark ? const Color(0xFF14171C) : Colors.white;
+    final textController = TextEditingController();
+    String selectedCategory = 'Pin';
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (dialogCtx, setDialogState) {
+            return AlertDialog(
+              backgroundColor: bg,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              title: Row(
+                children: [
+                  const Icon(Icons.add_location_alt_rounded, color: Color(0xFF10B981)),
+                  const SizedBox(width: 8),
+                  Text('DROP WAYPOINT', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: textColor)),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Drop a waypoint at your current GPS coordinates:',
+                    style: TextStyle(fontSize: 12, color: textColor.withValues(alpha: 0.7)),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: textController,
+                    autofocus: true,
+                    style: TextStyle(color: textColor),
+                    decoration: InputDecoration(
+                      hintText: 'e.g. Water Spring, Scenic View',
+                      hintStyle: TextStyle(color: textColor.withValues(alpha: 0.4)),
+                      filled: true,
+                      fillColor: isDark ? const Color(0xFF1E232B) : const Color(0xFFF3F4F6),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    children: ['Water', 'View', 'Camp', 'Hazard', 'Pin'].map((cat) {
+                      final isSelected = selectedCategory == cat;
+                      return ChoiceChip(
+                        label: Text(cat),
+                        selected: isSelected,
+                        onSelected: (_) => setDialogState(() => selectedCategory = cat),
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: Text('CANCEL', style: TextStyle(color: textColor.withValues(alpha: 0.6))),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () async {
+                    final name = textController.text.trim().isEmpty ? selectedCategory : textController.text.trim();
+                    Navigator.pop(ctx);
+                    final wp = Waypoint(
+                      sessionId: widget.sessionId,
+                      timestamp: DateTime.now(),
+                      lat: _points.isNotEmpty ? _points.last.x : 0.0,
+                      lng: _points.isNotEmpty ? _points.last.y : 0.0,
+                      altitude: _altitude > 0 ? _altitude : null,
+                      name: name,
+                      category: selectedCategory.toLowerCase(),
+                    );
+                    await DbService.instance.insertWaypoint(wp);
+                    if (mounted) {
+                      setState(() => _waypoints.add(wp));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Row(
+                            children: [
+                              const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+                              const SizedBox(width: 8),
+                              Text('Waypoint "$name" marked!'),
+                            ],
+                          ),
+                          behavior: SnackBarBehavior.floating,
+                          backgroundColor: const Color(0xFF10B981),
+                        ),
+                      );
+                    }
+                  },
+                  child: const Text('SAVE WAYPOINT', style: TextStyle(fontWeight: FontWeight.w900)),
+                ),
+              ],
+            );
+          },
         );
       },
     );

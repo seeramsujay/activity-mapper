@@ -1,6 +1,9 @@
-# CodeRabbit Full-Repository Configuration
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 version: "2"
 language: "en-US"
+tone_instructions: "You are an expert reviewer for open-source Android applications written in Kotlin and Jetpack Compose under the GNU AGPL v3.0 license. Prioritize memory leaks, lifecycle issues, Coroutine/Flow concurrency bugs, crash-proof WAL reliability, GPS battery consumption, and Material 3 design accessibility."
+early_access: false
+
 reviews:
   profile: "assertive"
   request_changes_workflow: false
@@ -8,12 +11,14 @@ reviews:
   poem: false
   review_status: true
   collapse_walkthrough: false
+  sequence_diagrams: true
   auto_review:
     enabled: true
     drafts: false
     base_branches:
       - "main"
       - "master"
+      - "redesign-v2"
   tools:
     ast-grep:
       enabled: true
@@ -21,10 +26,13 @@ reviews:
       enabled: true
     markdownlint:
       enabled: true
+    github-checks:
+      enabled: true
   path_filters:
     - "!**/build/**"
     - "!**/.dart_tool/**"
     - "!**/ios/Pods/**"
     - "!**/android/.gradle/**"
+
 chat:
   auto_reply: true
