@@ -74,8 +74,14 @@ object GpxExporter {
         writer.write("    <type>${escapeXml(activityType)}</type>\n")
         writer.write("    <trkseg>\n")
 
+        var wroteFirstPoint = false
         for (p in points) {
             if (!isValidCoord(p.latitude, p.longitude)) continue
+            if (p.newSegment && wroteFirstPoint) {
+                writer.write("    </trkseg>\n")
+                writer.write("    <trkseg>\n")
+            }
+            wroteFirstPoint = true
             writer.write("      <trkpt lat=\"${formatDecimal(p.latitude)}\" lon=\"${formatDecimal(p.longitude)}\">\n")
             writer.write("        <ele>${formatDecimal(p.altitudeMeters)}</ele>\n")
             writer.write("        <time>${ISO_FORMATTER.format(p.timestamp)}</time>\n")
@@ -206,11 +212,11 @@ object GpxImporter {
         }
 
         val points = mutableListOf<TrackPoint>()
-        val trkptNodes = getElementsByLocalOrTagName(doc, "trkpt")
         var lastValidTime = Instant.EPOCH
+        var segmentBreakPending = false
 
-        for (i in 0 until trkptNodes.length) {
-            val el = trkptNodes.item(i) as? Element ?: continue
+        for ((el, startsSegment) in collectTrackPoints(doc)) {
+            if (startsSegment) segmentBreakPending = true
             val lat = el.getAttribute("lat").toDoubleOrNull()
             val lon = el.getAttribute("lon").toDoubleOrNull()
             if (lat == null || lon == null || !isValidCoord(lat, lon)) continue
@@ -264,11 +270,42 @@ object GpxImporter {
                     altitudeMeters = ele,
                     speedMps = speed,
                     timestamp = time,
+                    // The first point of the whole track is never a "new" segment, only later segment starts.
+                    newSegment = segmentBreakPending && points.isNotEmpty(),
                 ),
             )
+            segmentBreakPending = false
         }
 
         return ParsedGpx(trackName, points, waypoints)
+    }
+
+    /**
+     * Track points in document order, each flagged `true` when it is the first element of its `trkseg`.
+     * Falls back to a flat scan for malformed files that have `trkpt` outside any `trkseg`.
+     */
+    private fun collectTrackPoints(doc: Document): List<Pair<Element, Boolean>> {
+        val result = mutableListOf<Pair<Element, Boolean>>()
+        val segments = getElementsByLocalOrTagName(doc, "trkseg")
+        for (s in 0 until segments.length) {
+            val segment = segments.item(s) as? Element ?: continue
+            var first = true
+            val children = segment.childNodes
+            for (c in 0 until children.length) {
+                val child = children.item(c)
+                if (child is Element && (child.localName == "trkpt" || child.tagName == "trkpt" || child.tagName.endsWith(":trkpt"))) {
+                    result.add(child to first)
+                    first = false
+                }
+            }
+        }
+        if (result.isEmpty()) {
+            val flat = getElementsByLocalOrTagName(doc, "trkpt")
+            for (i in 0 until flat.length) {
+                (flat.item(i) as? Element)?.let { result.add(it to false) }
+            }
+        }
+        return result
     }
 
     private fun isValidCoord(

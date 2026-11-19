@@ -24,6 +24,7 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import androidx.room.withTransaction
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -104,6 +105,7 @@ class TrackingService :
     private var breakStartTimeMs: Long = 0L
     private var totalBreakDurationMs: Long = 0L
     private var lastAlertedKm: Int = 0
+    private var pendingPoint: TrackPoint? = null
 
     // Recent speed smoothing window (last 5 fixes)
     private val speedHistory = ArrayDeque<Double>(5)
@@ -261,6 +263,7 @@ class TrackingService :
         this.breakStartTimeMs = 0L
         this.totalBreakDurationMs = 0L
         this.lastAlertedKm = 0
+        this.pendingPoint = null
         this.speedHistory.clear()
 
         _points.value = emptyList()
@@ -450,23 +453,30 @@ class TrackingService :
                 elevationLossMeters = finalStats.elevationLossM,
                 gpxFilePath = gpxFile.absolutePath,
             )
-        val trackId = db.trackDao().insertTrack(trackEntity)
-
-        val waypointEntities =
-            finalWaypoints.map { w ->
-                WaypointEntity(
-                    trackId = trackId,
-                    name = w.name,
-                    description = w.description,
-                    latitude = w.latitude,
-                    longitude = w.longitude,
-                    altitudeMeters = w.altitudeMeters,
-                    category = w.category.name,
-                    timestamp = w.timestamp.toEpochMilli(),
+        return try {
+            // One transaction: a failed attempt leaves no track row, so a retry can't create a duplicate.
+            db.withTransaction {
+                val trackId = db.trackDao().insertTrack(trackEntity)
+                db.waypointDao().insertWaypoints(
+                    finalWaypoints.map { w ->
+                        WaypointEntity(
+                            trackId = trackId,
+                            name = w.name,
+                            description = w.description,
+                            latitude = w.latitude,
+                            longitude = w.longitude,
+                            altitudeMeters = w.altitudeMeters,
+                            category = w.category.name,
+                            timestamp = w.timestamp.toEpochMilli(),
+                        )
+                    },
                 )
+                trackId
             }
-        db.waypointDao().insertWaypoints(waypointEntities)
-        return trackId
+        } catch (e: Exception) {
+            gpxFile.delete() // no orphaned export from a failed attempt
+            throw e
+        }
     }
 
     private fun stopTracking() {
@@ -559,8 +569,20 @@ class TrackingService :
                     point.latitude,
                     point.longitude,
                 )
-            if (moved < minDistanceM) return
+            if (moved < minDistanceM) {
+                // Remember the latest skipped fix. Stats attribute each interval to the *later* fix's speed, so when
+                // movement resumes we store this one first: the stationary stretch ends at a low-speed fix instead
+                // of being counted as moving time by the next stored point.
+                pendingPoint = point
+                return
+            }
         }
+
+        pendingPoint?.let { pending ->
+            wal?.appendPoint(pending)
+            _points.update { it + pending }
+        }
+        pendingPoint = null
 
         // Write immediately to WAL (crash safety)
         wal?.appendPoint(point)

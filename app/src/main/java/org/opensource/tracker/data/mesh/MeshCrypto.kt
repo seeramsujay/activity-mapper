@@ -23,6 +23,14 @@ object MeshCrypto {
     /** New 256-bit session key, URL-safe Base64. */
     fun generateKey(): String = Base64.getUrlEncoder().encodeToString(ByteArray(32).also { random.nextBytes(it) })
 
+    /** True only for URL-safe Base64 that decodes to exactly 32 bytes (a usable AES-256 key). */
+    fun isValidKey(base64Key: String): Boolean =
+        try {
+            Base64.getUrlDecoder().decode(base64Key).size == 32
+        } catch (_: IllegalArgumentException) {
+            false
+        }
+
     /** Random 128-bit hex identifier. */
     fun generateId(): String = ByteArray(16).also { random.nextBytes(it) }.joinToString("") { "%02x".format(it) }
 

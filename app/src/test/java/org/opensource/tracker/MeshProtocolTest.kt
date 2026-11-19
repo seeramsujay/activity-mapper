@@ -92,12 +92,30 @@ class MeshProtocolTest {
 
     @Test
     fun `legacy activitymapper scheme is accepted and foreign links are rejected`() {
-        assertNotNull(MeshSessionConfig.fromUri("activitymapper://mesh?id=a&key=b"))
-        assertNull(MeshSessionConfig.fromUri("https://example.com/mesh?id=a&key=b"))
-        assertNull(MeshSessionConfig.fromUri("turnback://other?id=a&key=b"))
+        val key = MeshCrypto.generateKey()
+        assertNotNull(MeshSessionConfig.fromUri("activitymapper://mesh?id=a&key=$key"))
+        assertNull(MeshSessionConfig.fromUri("https://example.com/mesh?id=a&key=$key"))
+        assertNull(MeshSessionConfig.fromUri("turnback://other?id=a&key=$key"))
         assertNull(MeshSessionConfig.fromUri("turnback://mesh?id=a"))
-        assertNull(MeshSessionConfig.fromUri("turnback://mesh?id=&key=b"))
+        assertNull(MeshSessionConfig.fromUri("turnback://mesh?id=&key=$key"))
         assertNull(MeshSessionConfig.fromUri("not a url at all"))
+    }
+
+    @Test
+    fun `invite with an unusable session key is rejected at parse time`() {
+        assertNull(MeshSessionConfig.fromUri("turnback://mesh?id=a&key=b"))
+        assertNull(MeshSessionConfig.fromUri("turnback://mesh?id=a&key=!!!notbase64"))
+        // valid Base64 but only 16 bytes: not an AES-256 key
+        val shortKey = Base64.getUrlEncoder().encodeToString(ByteArray(16))
+        assertNull(MeshSessionConfig.fromUri("turnback://mesh?id=a&key=$shortKey"))
+    }
+
+    @Test
+    fun `key validation accepts exactly 256-bit keys`() {
+        assertTrue(MeshCrypto.isValidKey(MeshCrypto.generateKey()))
+        assertFalse(MeshCrypto.isValidKey(""))
+        assertFalse(MeshCrypto.isValidKey("b"))
+        assertFalse(MeshCrypto.isValidKey(Base64.getUrlEncoder().encodeToString(ByteArray(33))))
     }
 
     @Test

@@ -117,7 +117,8 @@ object TurnBackEngine {
                 }
             }
 
-            if (i > 0) {
+            // A new segment starts a disconnected span: never count the gap from the previous segment's end.
+            if (i > 0 && !curr.newSegment) {
                 val prev = points[i - 1]
                 val d =
                     haversineDistanceMeters(
@@ -199,6 +200,7 @@ object TurnBackEngine {
         for (i in 1 until points.size) {
             val prev = points[i - 1]
             val curr = points[i]
+            if (curr.newSegment) continue // don't bridge disconnected GPX segments
 
             var segDist =
                 haversineDistanceMeters(

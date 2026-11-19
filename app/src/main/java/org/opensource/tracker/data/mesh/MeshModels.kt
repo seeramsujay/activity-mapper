@@ -43,7 +43,7 @@ data class MeshSessionConfig(
                             }
                     val id = params["id"]
                     val key = params["key"]
-                    if (id.isNullOrEmpty() || key.isNullOrEmpty()) {
+                    if (id.isNullOrEmpty() || key.isNullOrEmpty() || !MeshCrypto.isValidKey(key)) {
                         null
                     } else {
                         MeshSessionConfig(

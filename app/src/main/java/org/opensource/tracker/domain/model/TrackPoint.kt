@@ -12,6 +12,8 @@ import java.time.Instant
  * @property accuracyMeters Estimated 68% horizontal accuracy radius in meters
  * @property bearingDegrees Direction of movement in degrees [0.0, 360.0)
  * @property timestamp Capture timestamp
+ * @property newSegment True when this point starts a new, disconnected track segment (a GPX `trkseg` after the
+ *   first). Distance, moving time and splits never bridge the gap between a segment's last and the next point.
  */
 data class TrackPoint(
     val latitude: Double,
@@ -21,6 +23,7 @@ data class TrackPoint(
     val accuracyMeters: Double = 0.0,
     val bearingDegrees: Float = 0f,
     val timestamp: Instant = Instant.now(),
+    val newSegment: Boolean = false,
 ) {
     val speedKmh: Double get() = speedMps * 3.6
 }

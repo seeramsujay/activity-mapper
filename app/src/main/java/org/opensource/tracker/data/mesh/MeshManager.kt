@@ -3,6 +3,7 @@ package org.opensource.tracker.data.mesh
 import android.content.Context
 import android.net.wifi.WifiManager
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -26,6 +27,7 @@ import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
+import kotlin.math.abs
 
 /** Everything the UI needs to know about the current group session. */
 data class MeshUiState(
@@ -61,7 +63,9 @@ class MeshManager(
     context: Context,
 ) {
     private val appContext = context.applicationContext
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // Network input is untrusted: a bad packet or a socket error must never crash the app process.
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, _ -> })
     private val lock = Any()
 
     private val _state = MutableStateFlow(MeshUiState())
@@ -78,11 +82,19 @@ class MeshManager(
     private var socket: DatagramSocket? = null
     private var receiveJob: Job? = null
     private var timerJob: Job? = null
+    private var discoveryJob: Job? = null
     private var multicastLock: WifiManager.MulticastLock? = null
 
     private val teammates = mutableMapOf<String, Teammate>()
     private val sharedWaypoints = mutableMapOf<String, SharedWaypoint>()
     private val knownPeerEndpoints = mutableSetOf<String>() // "ip:port"
+
+    // Replay protection (all under [lock]). A captured datagram still authenticates under GCM, so freshness and
+    // ordering are enforced on top: telemetry must be newer than the last accepted from that peer, pings are
+    // de-duplicated by id, and deleted pins are remembered so a replayed `wpt_add` can't resurrect them.
+    private val lastTelemetryTs = mutableMapOf<String, Long>()
+    private val seenPingIds = LinkedHashSet<String>()
+    private val deletedPinIds = LinkedHashSet<String>()
 
     private var lastLat = 0.0
     private var lastLng = 0.0
@@ -125,6 +137,9 @@ class MeshManager(
         username: String,
         colorValue: Int,
     ) {
+        // Validate before touching the current session: a bad invite must not drop a working group, nor start a
+        // heartbeat that throws on every packet.
+        require(MeshCrypto.isValidKey(config.sessionKey)) { "This invite has an invalid session key" }
         leave()
         open(config, username, colorValue)
         val ip = config.publicIp
@@ -144,9 +159,7 @@ class MeshManager(
         val newSocket = bindSocket()
         synchronized(lock) {
             socket = newSocket
-            teammates.clear()
-            sharedWaypoints.clear()
-            knownPeerEndpoints.clear()
+            resetSessionState()
             _state.value =
                 MeshUiState(
                     active = true,
@@ -160,22 +173,34 @@ class MeshManager(
         acquireMulticastLock()
         receiveJob = scope.launch { receiveLoop(newSocket) }
         timerJob = scope.launch { heartbeatLoop() }
-        scope.launch { discoverPublicEndpoint() }
+        // Discovery is bound to this socket (= this session) and cancelled on leave.
+        discoveryJob = scope.launch { discoverPublicEndpoint(newSocket) }
+    }
+
+    private fun resetSessionState() {
+        teammates.clear()
+        sharedWaypoints.clear()
+        knownPeerEndpoints.clear()
+        lastTelemetryTs.clear()
+        seenPingIds.clear()
+        deletedPinIds.clear()
     }
 
     suspend fun leave() =
         withContext(Dispatchers.IO) {
             timerJob?.cancel()
             receiveJob?.cancel()
+            discoveryJob?.cancel()
             timerJob = null
             receiveJob = null
+            discoveryJob = null
             var old: DatagramSocket? = null
             synchronized(lock) {
                 old = socket
                 socket = null
-                teammates.clear()
-                sharedWaypoints.clear()
-                knownPeerEndpoints.clear()
+                resetSessionState()
+                stunDeferred = null
+                stunTransactionId = null
                 _state.value = MeshUiState(gapThresholdMeters = _state.value.gapThresholdMeters)
             }
             runCatching { old?.close() } // unblocks the blocking receive()
@@ -262,6 +287,7 @@ class MeshManager(
     fun removeSharedWaypoint(id: String) {
         val config = _state.value.config ?: return
         synchronized(lock) {
+            remember(deletedPinIds, id)
             sharedWaypoints.remove(id)
             publishWaypoints()
         }
@@ -330,29 +356,47 @@ class MeshManager(
         }
     }
 
-    private suspend fun discoverPublicEndpoint() {
+    /**
+     * Asks a STUN server for our public endpoint *through [sock]* (so the NAT mapping is the one the mesh uses).
+     * Everything is checked against [sock] under the lock: if the session was left or replaced meanwhile, the
+     * result is dropped and the new session's pending transaction is left untouched.
+     */
+    private suspend fun discoverPublicEndpoint(sock: DatagramSocket) {
         for (host in listOf(MeshStun.PRIMARY_SERVER, MeshStun.FALLBACK_SERVER)) {
-            val sock = socket ?: return
+            if (socket !== sock) return
+            val deferred = CompletableDeferred<StunEndpoint?>()
             try {
                 val address = InetAddress.getAllByName(host).filterIsInstance<Inet4Address>().firstOrNull() ?: continue
                 val request = MeshStun.buildBindingRequest()
-                val deferred = CompletableDeferred<StunEndpoint?>()
-                stunTransactionId = MeshStun.transactionId(request)
-                stunDeferred = deferred
+                synchronized(lock) {
+                    if (socket !== sock) return
+                    stunTransactionId = MeshStun.transactionId(request)
+                    stunDeferred = deferred
+                }
                 sock.send(DatagramPacket(request, request.size, address, MeshStun.DEFAULT_PORT))
                 val endpoint = withTimeoutOrNull(STUN_TIMEOUT_MS) { deferred.await() }
                 if (endpoint != null) {
-                    synchronized(lock) {
-                        publish { s -> s.copy(publicEndpoint = endpoint, config = s.config?.copy(publicIp = endpoint.ip, publicPort = endpoint.port)) }
-                    }
-                    broadcastTelemetry()
+                    val stillCurrent =
+                        synchronized(lock) {
+                            if (socket === sock) {
+                                publish { s -> s.copy(publicEndpoint = endpoint, config = s.config?.copy(publicIp = endpoint.ip, publicPort = endpoint.port)) }
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                    if (stillCurrent) broadcastTelemetry()
                     return
                 }
             } catch (_: Exception) {
                 // try the fallback server
             } finally {
-                stunDeferred = null
-                stunTransactionId = null
+                synchronized(lock) {
+                    if (stunDeferred === deferred) {
+                        stunDeferred = null
+                        stunTransactionId = null
+                    }
+                }
             }
         }
     }
@@ -393,14 +437,20 @@ class MeshManager(
             when (json.optString("t", "telem")) {
                 "ping" -> {
                     val ping = json.optJSONObject("ping")?.let { MeshPing.fromJson(it) } ?: return
-                    if (ping.senderId != _state.value.localPeerId) _pings.tryEmit(ping)
+                    val firstSighting = synchronized(lock) { remember(seenPingIds, ping.id) }
+                    if (firstSighting && isFresh(ping.timestamp) && ping.senderId != _state.value.localPeerId) {
+                        _pings.tryEmit(ping)
+                    }
                 }
 
                 "wpt_add" -> {
                     val waypoint = json.optJSONObject("wpt")?.let { SharedWaypoint.fromJson(it) } ?: return
                     synchronized(lock) {
-                        sharedWaypoints[waypoint.id] = waypoint
-                        publishWaypoints()
+                        // A deleted pin stays deleted even if an old `wpt_add` is replayed at us.
+                        if (waypoint.id !in deletedPinIds) {
+                            sharedWaypoints[waypoint.id] = waypoint
+                            publishWaypoints()
+                        }
                     }
                 }
 
@@ -408,6 +458,7 @@ class MeshManager(
                     val id = json.optString("wid", "")
                     if (id.isNotEmpty()) {
                         synchronized(lock) {
+                            remember(deletedPinIds, id)
                             sharedWaypoints.remove(id)
                             publishWaypoints()
                         }
@@ -429,8 +480,16 @@ class MeshManager(
         if (peerId.isEmpty() || peerId == _state.value.localPeerId) return
         val lat = json.optDouble("lat", 0.0)
         val lng = json.optDouble("lng", 0.0)
+        val timestamp = json.optLong("ts", 0L)
+        var newcomer = isNewPeer
         synchronized(lock) {
+            // Replay protection: a captured packet still authenticates, so require it to be recent AND newer than
+            // the last one accepted from this peer. Otherwise an observer could pin a teammate "online" forever.
+            if (!isFresh(timestamp) || timestamp <= (lastTelemetryTs[peerId] ?: Long.MIN_VALUE)) return
+            lastTelemetryTs[peerId] = timestamp
+
             val existing = teammates[peerId]
+            if (existing == null) newcomer = true
             var trail = existing?.trail ?: emptyList()
             if (lat != 0.0 || lng != 0.0) {
                 trail = (trail + TrailPoint(lat, lng)).takeLast(Teammate.MAX_TRAIL_POINTS)
@@ -450,8 +509,33 @@ class MeshManager(
                 )
             publishTeammates()
         }
-        // Acknowledge a new peer immediately so it sees us without waiting for the next heartbeat.
-        if (isNewPeer) scope.launch { broadcastTelemetry() }
+        // Acknowledge a newcomer immediately, and hand it the pins dropped before it joined (pins are otherwise
+        // only sent once, at creation).
+        if (newcomer) {
+            scope.launch {
+                broadcastTelemetry()
+                resendWaypoints()
+            }
+        }
+    }
+
+    private suspend fun resendWaypoints() {
+        val config = _state.value.config ?: return
+        val pins = synchronized(lock) { sharedWaypoints.values.toList() }
+        for (pin in pins) send(packet("wpt_add", config).put("wpt", pin.toJson()))
+    }
+
+    /** Within the allowed clock skew (phones are NTP-synced; this only rejects very old or far-future packets). */
+    private fun isFresh(timestampMs: Long): Boolean = abs(System.currentTimeMillis() - timestampMs) <= MAX_PACKET_SKEW_MS
+
+    /** Adds [id] to a bounded memory set; returns false if it was already there. */
+    private fun remember(
+        set: MutableSet<String>,
+        id: String,
+    ): Boolean {
+        val added = set.add(id)
+        if (set.size > MAX_REMEMBERED_IDS) set.remove(set.first())
+        return added
     }
 
     private suspend fun broadcastTelemetry() {
@@ -564,5 +648,7 @@ class MeshManager(
         const val DEFAULT_PORT = 42424
         private const val HEARTBEAT_MS = 3_000L
         private const val STUN_TIMEOUT_MS = 4_000L
+        private const val MAX_PACKET_SKEW_MS = 5 * 60_000L
+        private const val MAX_REMEMBERED_IDS = 256
     }
 }

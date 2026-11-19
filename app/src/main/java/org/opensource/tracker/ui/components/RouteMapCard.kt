@@ -78,15 +78,23 @@ fun RouteMapCard(
                 if (points.isEmpty()) return@AndroidView
 
                 val geoPoints = points.map { GeoPoint(it.latitude, it.longitude) }
-                map.overlays.add(
-                    Polyline(map).apply {
-                        setPoints(geoPoints)
-                        outlinePaint.strokeWidth = 12f
-                        outlinePaint.color = Color.parseColor("#06B6D4")
-                        outlinePaint.strokeCap = Paint.Cap.ROUND
-                        outlinePaint.strokeJoin = Paint.Join.ROUND
-                    },
-                )
+                // One line per segment, so a pause/gap between segments is never drawn as a straight connector.
+                val segments = mutableListOf<MutableList<GeoPoint>>()
+                points.forEachIndexed { index, point ->
+                    if (index == 0 || point.newSegment) segments.add(mutableListOf())
+                    segments.last().add(GeoPoint(point.latitude, point.longitude))
+                }
+                segments.forEach { segment ->
+                    map.overlays.add(
+                        Polyline(map).apply {
+                            setPoints(segment)
+                            outlinePaint.strokeWidth = 12f
+                            outlinePaint.color = Color.parseColor("#06B6D4")
+                            outlinePaint.strokeCap = Paint.Cap.ROUND
+                            outlinePaint.strokeJoin = Paint.Join.ROUND
+                        },
+                    )
+                }
                 map.overlays.add(
                     Marker(map).apply {
                         position = geoPoints.first()

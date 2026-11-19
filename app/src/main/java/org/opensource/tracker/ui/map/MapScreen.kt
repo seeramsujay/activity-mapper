@@ -184,6 +184,11 @@ fun MapScreen(
     var incomingPing by remember { mutableStateOf<MeshPing?>(null) }
     var idleFix by remember { mutableStateOf<Location?>(null) }
 
+    // Our position comes from whichever producer is active: the recorder while recording, our own listener otherwise.
+    // (The service keeps its last fix after stopping, so it must not be used when idle.)
+    val ownLat = if (isTracking) currentPoint?.latitude else idleFix?.latitude
+    val ownLng = if (isTracking) currentPoint?.longitude else idleFix?.longitude
+
     // An invite link/QR opened the app: show the join prompt.
     LaunchedEffect(pendingInvite) {
         if (pendingInvite != null && !meshState.active) showGroupSheet = true
@@ -536,7 +541,9 @@ fun MapScreen(
                     }
 
                     // Follow the runner, but only while the user hasn't panned away, and only on a new fix.
-                    val latest = points.lastOrNull() ?: currentPoint
+                    // Live fix first: stored points lag behind it when the minimum-distance filter skips fixes, and the
+                    // service's retained fix is stale once recording has stopped.
+                    val latest = if (isTracking) currentPoint ?: points.lastOrNull() else null
                     if (followMode && latest != null && latest !== render.lastFollowed) {
                         mapView.controller.animateTo(GeoPoint(latest.latitude, latest.longitude))
                         render.lastFollowed = latest
@@ -548,7 +555,7 @@ fun MapScreen(
             )
 
             // Group banners: latest incoming message, and "rider dropped behind" alert.
-            val droppedRiders = meshState.droppedTeammates(hasOwnFix = currentPoint != null || idleFix != null)
+            val droppedRiders = meshState.droppedTeammates(hasOwnFix = ownLat != null && ownLng != null)
             val ping = incomingPing
             if (ping != null || droppedRiders.isNotEmpty()) {
                 Column(
@@ -683,7 +690,7 @@ fun MapScreen(
                 FloatingActionButton(
                     onClick = {
                         followMode = true
-                        val last = points.lastOrNull() ?: currentPoint
+                        val last = if (isTracking) currentPoint ?: points.lastOrNull() else null
                         if (last != null) {
                             mapViewRef?.controller?.animateTo(GeoPoint(last.latitude, last.longitude))
                         } else {
@@ -764,8 +771,8 @@ fun MapScreen(
             mesh = mesh,
             state = meshState,
             pendingInvite = pendingInvite,
-            ownLat = currentPoint?.latitude ?: idleFix?.latitude,
-            ownLng = currentPoint?.longitude ?: idleFix?.longitude,
+            ownLat = ownLat,
+            ownLng = ownLng,
             onDismiss = { showGroupSheet = false },
         )
     }
