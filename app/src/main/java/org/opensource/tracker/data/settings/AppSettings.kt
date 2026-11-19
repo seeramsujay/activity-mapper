@@ -114,6 +114,18 @@ class AppSettings private constructor(
         get() = prefs.getBoolean(KEY_AUTO_MARK_STOPS, true)
         set(v) = prefs.edit().putBoolean(KEY_AUTO_MARK_STOPS, v).apply()
 
+    var meshUsername: String
+        get() = prefs.getString(KEY_MESH_USERNAME, "") ?: ""
+        set(v) = prefs.edit().putString(KEY_MESH_USERNAME, v).apply()
+
+    var meshColor: Int
+        get() = prefs.getInt(KEY_MESH_COLOR, 0xFFFF5722.toInt())
+        set(v) = prefs.edit().putInt(KEY_MESH_COLOR, v).apply()
+
+    var keepScreenOn: Boolean
+        get() = prefs.getBoolean(KEY_KEEP_SCREEN_ON, false)
+        set(v) = prefs.edit().putBoolean(KEY_KEEP_SCREEN_ON, v).apply()
+
     var confirmStopRecording: Boolean
         get() = prefs.getBoolean(KEY_CONFIRM_STOP_RECORDING, true)
         set(v) = prefs.edit().putBoolean(KEY_CONFIRM_STOP_RECORDING, v).apply()
@@ -136,6 +148,9 @@ class AppSettings private constructor(
         private const val KEY_EXTRA_FILTERING = "KEY_EXTRA_FILTERING"
         private const val KEY_AUTO_MARK_STOPS = "KEY_AUTO_MARK_STOPS"
         private const val KEY_CONFIRM_STOP_RECORDING = "KEY_CONFIRM_STOP_RECORDING"
+        private const val KEY_MESH_USERNAME = "KEY_MESH_USERNAME"
+        private const val KEY_MESH_COLOR = "KEY_MESH_COLOR"
+        private const val KEY_KEEP_SCREEN_ON = "KEY_KEEP_SCREEN_ON"
 
         @Volatile
         private var instance: AppSettings? = null

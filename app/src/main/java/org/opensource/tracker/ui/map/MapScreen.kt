@@ -6,8 +6,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.DashPathEffect
+import android.graphics.drawable.BitmapDrawable
 import android.location.Location
+import android.location.LocationListener
 import android.location.LocationManager
+import android.os.Looper
 import android.provider.Settings
 import android.view.MotionEvent
 import android.widget.Toast
@@ -36,6 +39,7 @@ import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Hiking
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MyLocation
@@ -69,6 +73,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -77,6 +82,12 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import org.opensource.tracker.TurnBackApplication
+import org.opensource.tracker.data.mesh.MeshPing
+import org.opensource.tracker.data.mesh.TrailPoint
+import org.opensource.tracker.data.settings.AppSettings
 import org.opensource.tracker.domain.model.ActivityType
 import org.opensource.tracker.domain.model.TelemetryStats
 import org.opensource.tracker.domain.model.TrackPoint
@@ -88,7 +99,11 @@ import org.opensource.tracker.ui.components.MapTileSource
 import org.opensource.tracker.ui.components.OfflineMapsDialog
 import org.opensource.tracker.ui.components.TrackColorMode
 import org.opensource.tracker.ui.components.WaypointDialog
+import org.opensource.tracker.ui.mesh.GroupSheet
+import org.opensource.tracker.ui.mesh.teammateIcon
+import org.opensource.tracker.ui.mesh.vibrateForPing
 import org.opensource.tracker.ui.record.RecordingBottomSheetContent
+import org.opensource.tracker.ui.util.UnitFormat
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.tileprovider.tilesource.XYTileSource
 import org.osmdroid.util.GeoPoint
@@ -157,6 +172,63 @@ fun MapScreen(
     val referenceTrack = service?.referenceTrack?.collectAsState()?.value
     val gpsStatus = service?.gpsStatus?.collectAsState()?.value ?: GpsStatus.IDLE
     val lastAccuracy = service?.lastAccuracyMeters?.collectAsState()?.value
+
+    val settings = remember { AppSettings.getInstance(context) }
+    val imperial = remember { settings.useImperialUnits }
+
+    // ---- Group tracking (collaborative mesh) ----
+    val mesh = remember { (context.applicationContext as TurnBackApplication).mesh }
+    val meshState by mesh.state.collectAsState()
+    val pendingInvite by mesh.pendingInvite.collectAsState()
+    var showGroupSheet by remember { mutableStateOf(false) }
+    var incomingPing by remember { mutableStateOf<MeshPing?>(null) }
+    var idleFix by remember { mutableStateOf<Location?>(null) }
+
+    // An invite link/QR opened the app: show the join prompt.
+    LaunchedEffect(pendingInvite) {
+        if (pendingInvite != null && !meshState.active) showGroupSheet = true
+    }
+
+    // Incoming one-tap messages: banner for 8 s plus a buzz (if haptics are on).
+    LaunchedEffect(mesh) {
+        mesh.pings.collect { ping ->
+            incomingPing = ping
+            if (settings.hapticsEnabled) vibrateForPing(context, ping)
+            launch {
+                delay(8_000L)
+                if (incomingPing?.id == ping.id) incomingPing = null
+            }
+        }
+    }
+
+    // While in a group but not recording, the recorder isn't producing fixes: feed the mesh ourselves
+    // so teammates can still see us. Stops as soon as recording starts (the service takes over).
+    DisposableEffect(meshState.active, isTracking, hasLocationPermission) {
+        if (!meshState.active || isTracking || !hasLocationPermission) {
+            return@DisposableEffect onDispose { }
+        }
+        val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        val listener =
+            object : LocationListener {
+                override fun onLocationChanged(location: Location) {
+                    idleFix = location
+                    mesh.updateLocalPosition(location.latitude, location.longitude, location.speed * 3.6, location.altitude)
+                }
+            }
+        try {
+            manager?.requestLocationUpdates(LocationManager.GPS_PROVIDER, 3_000L, 0f, listener, Looper.getMainLooper())
+        } catch (_: SecurityException) {
+            // permission revoked mid-session: the GPS banner / permission flow covers it
+        }
+        onDispose { manager?.removeUpdates(listener) }
+    }
+
+    // Optional: keep the screen awake while recording (Settings → Keep screen on).
+    val hostView = LocalView.current
+    DisposableEffect(isTracking) {
+        hostView.keepScreenOn = isTracking && settings.keepScreenOn
+        onDispose { hostView.keepScreenOn = false }
+    }
 
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
 
@@ -410,6 +482,59 @@ fun MapScreen(
                         render.markersRendered = waypoints.size
                     }
 
+                    // Group: teammate markers + breadcrumb trails, updated in place (never rebuilt wholesale).
+                    val liveTeammates = meshState.teammates.filter { it.hasFix }
+                    val liveIds = liveTeammates.map { it.peerId }.toSet()
+                    (render.teammateMarkers.keys - liveIds).forEach { id ->
+                        render.teammateMarkers.remove(id)?.let { mapView.overlays.remove(it) }
+                        render.teammateTrails.remove(id)?.let { mapView.overlays.remove(it) }
+                        render.trailLast.remove(id)
+                    }
+                    for (t in liveTeammates) {
+                        val marker =
+                            render.teammateMarkers.getOrPut(t.peerId) {
+                                Marker(mapView).apply { setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER) }.also {
+                                    mapView.overlays.add(it)
+                                }
+                            }
+                        marker.position = GeoPoint(t.lat, t.lng)
+                        marker.title = t.username
+                        marker.snippet = UnitFormat.speed(t.speedKmh, imperial)
+                        marker.alpha = if (t.isActive()) 1f else 0.4f
+                        marker.icon = render.iconFor(mapView.context, t.colorValue, t.username)
+
+                        val trail =
+                            render.teammateTrails.getOrPut(t.peerId) {
+                                Polyline(mapView)
+                                    .apply {
+                                        outlinePaint.strokeWidth = 8f
+                                        outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+                                    }.also { mapView.overlays.add(0, it) }
+                            }
+                        if (render.trailLast[t.peerId] !== t.trail.lastOrNull()) {
+                            trail.outlinePaint.color = t.colorValue
+                            trail.setPoints(t.trail.map { GeoPoint(it.lat, it.lng) })
+                            render.trailLast[t.peerId] = t.trail.lastOrNull()
+                        }
+                    }
+
+                    // Group: shared pins dropped by anyone
+                    val pinIds = meshState.sharedWaypoints.map { it.id }.toSet()
+                    (render.sharedPins.keys - pinIds).forEach { id ->
+                        render.sharedPins.remove(id)?.let { mapView.overlays.remove(it) }
+                    }
+                    for (pin in meshState.sharedWaypoints) {
+                        render.sharedPins.getOrPut(pin.id) {
+                            Marker(mapView)
+                                .apply {
+                                    position = GeoPoint(pin.lat, pin.lng)
+                                    title = pin.name
+                                    snippet = "Shared by ${pin.creatorName}"
+                                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                }.also { mapView.overlays.add(it) }
+                        }
+                    }
+
                     // Follow the runner, but only while the user hasn't panned away, and only on a new fix.
                     val latest = points.lastOrNull() ?: currentPoint
                     if (followMode && latest != null && latest !== render.lastFollowed) {
@@ -421,6 +546,52 @@ fun MapScreen(
                     mapView.invalidate()
                 },
             )
+
+            // Group banners: latest incoming message, and "rider dropped behind" alert.
+            val droppedRiders = meshState.droppedTeammates(hasOwnFix = currentPoint != null || idleFix != null)
+            val ping = incomingPing
+            if (ping != null || droppedRiders.isNotEmpty()) {
+                Column(
+                    modifier =
+                        Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 72.dp, start = 16.dp, end = 88.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (ping != null) {
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(ping.type.colorArgb)),
+                        ) {
+                            Text(
+                                text = "${ping.type.emoji} ${ping.senderName}: ${ping.type.title}",
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                    if (droppedRiders.isNotEmpty()) {
+                        val farthest = droppedRiders.maxByOrNull { it.distanceToUserMeters }!!
+                        Card(
+                            shape = RoundedCornerShape(12.dp),
+                            colors =
+                                CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                                ),
+                        ) {
+                            Text(
+                                text =
+                                    "${farthest.username} is ${UnitFormat.distance(farthest.distanceToUserMeters / 1000.0, imperial)} away" +
+                                        if (droppedRiders.size > 1) " (+${droppedRiders.size - 1} more)" else "",
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                }
+            }
 
             // GPS health banner: recording must never fail silently.
             val gpsMessage =
@@ -548,6 +719,19 @@ fun MapScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
+                // Group tracking: host / join / see teammates
+                FloatingActionButton(
+                    onClick = { showGroupSheet = true },
+                    modifier = Modifier.size(56.dp),
+                    shape = CircleShape,
+                    containerColor =
+                        if (meshState.active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                ) {
+                    Icon(Icons.Default.Groups, contentDescription = "Group tracking")
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
                 // Map Layers Modal Switcher
                 FloatingActionButton(
                     onClick = { showLayersDialog = true },
@@ -573,6 +757,17 @@ fun MapScreen(
                 }
             }
         }
+    }
+
+    if (showGroupSheet) {
+        GroupSheet(
+            mesh = mesh,
+            state = meshState,
+            pendingInvite = pendingInvite,
+            ownLat = currentPoint?.latitude ?: idleFix?.latitude,
+            ownLng = currentPoint?.longitude ?: idleFix?.longitude,
+            onDismiss = { showGroupSheet = false },
+        )
     }
 
     if (showLayersDialog) {
@@ -624,6 +819,19 @@ private class MapRenderState {
 
     val markers = mutableListOf<Marker>()
     var markersRendered = -1
+
+    // Group tracking overlays, keyed by peer / pin id
+    val teammateMarkers = mutableMapOf<String, Marker>()
+    val teammateTrails = mutableMapOf<String, Polyline>()
+    val trailLast = mutableMapOf<String, TrailPoint?>()
+    val sharedPins = mutableMapOf<String, Marker>()
+    private val icons = mutableMapOf<String, BitmapDrawable>()
+
+    fun iconFor(
+        context: Context,
+        colorArgb: Int,
+        name: String,
+    ) = icons.getOrPut("$colorArgb:${name.trim().take(1).uppercase()}") { teammateIcon(context, colorArgb, name) }
 
     /** Keeps the "my location" dot on top of tracks and pins. */
     fun insertIndex(mapView: MapView): Int {
@@ -683,11 +891,12 @@ private fun StartActivityLaunchpad(onStartWorkout: (targetMinutes: Int, activity
     var selectedDurationMinutes by remember { mutableIntStateOf(60) }
 
     val isCar = selectedActivity == ActivityType.CAR
+    val launchSettings = AppSettings.getInstance(LocalContext.current)
     val outboundLimit =
         TurnBackEngine.computeOutboundLimit(
             targetDuration = Duration.ofMinutes(selectedDurationMinutes.toLong()),
-            beta = if (isCar) 0.0 else 0.12,
-            safetyBufferPercent = if (isCar) 0.0 else 15.0,
+            beta = if (isCar) 0.0 else launchSettings.beta.toDouble(),
+            safetyBufferPercent = if (isCar) 0.0 else launchSettings.safetyBuffer.toDouble(),
         )
 
     Column(

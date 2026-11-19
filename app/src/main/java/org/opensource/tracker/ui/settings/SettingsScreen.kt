@@ -103,6 +103,7 @@ fun SettingsScreen(
     var safetyBuffer by remember { mutableFloatStateOf(settings.safetyBuffer) }
     var hapticsEnabled by remember { mutableStateOf(settings.hapticsEnabled) }
     var audioAlarmsEnabled by remember { mutableStateOf(settings.audioAlarmsEnabled) }
+    var keepScreenOn by remember { mutableStateOf(settings.keepScreenOn) }
     var autoPauseMusic by remember { mutableStateOf(settings.autoPauseMusic) }
 
     Scaffold(
@@ -379,6 +380,26 @@ fun SettingsScreen(
                             onCheckedChange = {
                                 audioAlarmsEnabled = it
                                 settings.audioAlarmsEnabled = it
+                            },
+                        )
+                    }
+
+                    Divider(modifier = Modifier.padding(vertical = 12.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Keep Screen On", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(
+                                "Stop the display sleeping while recording (uses more battery)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = keepScreenOn,
+                            onCheckedChange = {
+                                keepScreenOn = it
+                                settings.keepScreenOn = it
                             },
                         )
                     }

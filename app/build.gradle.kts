@@ -105,8 +105,14 @@ dependencies {
     // osmdroid
     implementation(libs.osmdroid.android)
 
+    // Group tracking: QR display (zxing core) and offline QR scanning (no Google Play services needed)
+    implementation("com.google.zxing:core:3.5.3")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+
     // Testing
     testImplementation(libs.junit)
+    // Real org.json for JVM unit tests (the android.jar stub throws / returns defaults)
+    testImplementation("org.json:json:20240303")
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.espresso.core)

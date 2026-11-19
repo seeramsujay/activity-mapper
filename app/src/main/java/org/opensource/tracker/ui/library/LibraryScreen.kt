@@ -3,6 +3,8 @@ package org.opensource.tracker.ui.library
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -25,6 +27,7 @@ import androidx.compose.material.icons.filled.DirectionsBike
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Hiking
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Share
@@ -53,6 +56,9 @@ import androidx.core.content.FileProvider
 import kotlinx.coroutines.launch
 import org.opensource.tracker.data.db.AppDatabase
 import org.opensource.tracker.data.db.TrackEntity
+import org.opensource.tracker.data.gpx.GpxTrackImporter
+import org.opensource.tracker.data.settings.AppSettings
+import org.opensource.tracker.ui.util.UnitFormat
 import java.io.File
 import java.text.SimpleDateFormat
 import java.time.Duration
@@ -67,10 +73,27 @@ fun LibraryScreen(onTrackClick: (Long) -> Unit) {
     val db = AppDatabase.getInstance(context)
     val tracks by db.trackDao().getAllTracks().collectAsState(initial = emptyList())
 
+    val importLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) {
+                scope.launch {
+                    GpxTrackImporter
+                        .import(context, uri)
+                        .onSuccess { Toast.makeText(context, "Imported to your library", Toast.LENGTH_SHORT).show() }
+                        .onFailure { Toast.makeText(context, it.message ?: "Import failed", Toast.LENGTH_LONG).show() }
+                }
+            }
+        }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Track Library", fontWeight = FontWeight.Black) },
+                actions = {
+                    IconButton(onClick = { importLauncher.launch(arrayOf("*/*")) }) {
+                        Icon(Icons.Default.FileOpen, contentDescription = "Import GPX")
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
             )
         },
@@ -221,9 +244,10 @@ private fun TrackItemCard(
 
                 Spacer(modifier = Modifier.height(6.dp))
 
+                val imperial = AppSettings.getInstance(LocalContext.current).useImperialUnits
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = String.format(Locale.US, "%.2f km", track.distanceKm),
+                        text = UnitFormat.distance(track.distanceKm, imperial),
                         fontWeight = FontWeight.Black,
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.primary,
@@ -237,7 +261,7 @@ private fun TrackItemCard(
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = String.format(Locale.US, "+%.0fm", track.elevationGainMeters),
+                        text = UnitFormat.elevation(track.elevationGainMeters, imperial),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF10B981),

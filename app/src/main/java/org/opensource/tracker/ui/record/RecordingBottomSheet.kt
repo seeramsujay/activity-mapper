@@ -41,12 +41,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.opensource.tracker.data.settings.AppSettings
 import org.opensource.tracker.domain.model.TelemetryStats
 import org.opensource.tracker.domain.model.TrackPoint
 import org.opensource.tracker.ui.components.InteractiveProfileChart
+import org.opensource.tracker.ui.util.UnitFormat
 import java.time.Duration
 import java.util.Locale
 
@@ -69,6 +72,8 @@ fun RecordingBottomSheetContent(
 ) {
     val scrollState = rememberScrollState()
     var showFinishConfirmDialog by remember { mutableStateOf(false) }
+    val appSettings = AppSettings.getInstance(LocalContext.current)
+    val imperial = appSettings.useImperialUnits
 
     Column(
         modifier =
@@ -238,11 +243,15 @@ fun RecordingBottomSheetContent(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = String.format(Locale.US, "%.2f", stats.distanceKm),
+                        text = String.format(Locale.US, "%.2f", UnitFormat.distanceValue(stats.distanceKm, imperial)),
                         fontSize = 28.sp,
                         fontWeight = FontWeight.Black,
                     )
-                    Text("km", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        UnitFormat.distanceUnit(imperial),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
 
@@ -260,12 +269,16 @@ fun RecordingBottomSheetContent(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = String.format(Locale.US, "%.1f", smoothedSpeedKmh),
+                        text = String.format(Locale.US, "%.1f", UnitFormat.speedValue(smoothedSpeedKmh, imperial)),
                         fontSize = 28.sp,
                         fontWeight = FontWeight.Black,
                         color = Color(0xFF06B6D4),
                     )
-                    Text("km/h", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        UnitFormat.speedUnit(imperial),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
 
@@ -319,7 +332,11 @@ fun RecordingBottomSheetContent(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Text("${stats.avgPaceMinKm} /km", fontSize = 14.sp, fontWeight = FontWeight.Black)
+                        Text(
+                            "${UnitFormat.pace(stats.avgPaceMinKm, imperial)} ${UnitFormat.paceUnit(imperial)}",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Black,
+                        )
                     }
                 }
             }
@@ -345,7 +362,7 @@ fun RecordingBottomSheetContent(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Text(
-                            String.format(Locale.US, "+%.0fm", stats.elevationGainM),
+                            UnitFormat.elevation(stats.elevationGainM, imperial),
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Black,
                             color = Color(0xFF10B981),
@@ -435,7 +452,9 @@ fun RecordingBottomSheetContent(
             }
 
             Button(
-                onClick = { showFinishConfirmDialog = true },
+                onClick = {
+                    if (appSettings.confirmStopRecording) showFinishConfirmDialog = true else onFinish()
+                },
                 modifier = Modifier.weight(1f).height(54.dp),
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),

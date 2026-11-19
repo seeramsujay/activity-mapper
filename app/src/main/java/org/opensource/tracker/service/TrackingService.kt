@@ -13,6 +13,8 @@ import android.content.pm.ServiceInfo
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
@@ -37,10 +39,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.opensource.tracker.MainActivity
 import org.opensource.tracker.R
+import org.opensource.tracker.TurnBackApplication
 import org.opensource.tracker.data.db.AppDatabase
 import org.opensource.tracker.data.db.TrackEntity
 import org.opensource.tracker.data.db.WaypointEntity
 import org.opensource.tracker.data.gpx.GpxExporter
+import org.opensource.tracker.data.mesh.MeshManager
+import org.opensource.tracker.data.settings.AppSettings
 import org.opensource.tracker.data.wal.RecordingWal
 import org.opensource.tracker.domain.model.ActivityType
 import org.opensource.tracker.domain.model.TelemetryStats
@@ -78,6 +83,8 @@ class TrackingService :
 
     private lateinit var locationManager: LocationManager
     private lateinit var notificationManager: NotificationManager
+    private lateinit var settings: AppSettings
+    private var mesh: MeshManager? = null
     private var vibrator: Vibrator? = null
 
     private var wal: RecordingWal? = null
@@ -152,6 +159,8 @@ class TrackingService :
         super.onCreate()
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        settings = AppSettings.getInstance(this)
+        mesh = (application as TurnBackApplication).mesh
 
         vibrator =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -238,8 +247,9 @@ class TrackingService :
         this.activityType = activityType
 
         // Car mode has 0 return fatigue and symmetric 50% split
-        val effectiveBeta = if (activityType == ActivityType.CAR) 0.0 else beta
-        val effectiveSafetyBuffer = if (activityType == ActivityType.CAR) 0.0 else safetyBufferPercent
+        // Fatigue factor and safety margin come from Settings (the intent extra is only a fallback default).
+        val effectiveBeta = if (activityType == ActivityType.CAR) 0.0 else settings.beta.toDouble().takeIf { it > 0.0 } ?: beta
+        val effectiveSafetyBuffer = if (activityType == ActivityType.CAR) 0.0 else settings.safetyBuffer.toDouble()
         this.fatigueBeta = effectiveBeta
         this.safetyBufferPercent = effectiveSafetyBuffer
         this.outboundLimitDuration =
@@ -275,19 +285,7 @@ class TrackingService :
         if (walFile.exists()) walFile.delete()
         wal = RecordingWal.create(walFile)
 
-        // Request GPS updates on the main looper (explicit, so callbacks never depend on the caller thread)
-        try {
-            locationManager.requestLocationUpdates(
-                LocationManager.GPS_PROVIDER,
-                1000L,
-                1.0f,
-                this,
-                mainLooper,
-            )
-        } catch (_: SecurityException) {
-            _gpsStatus.value = GpsStatus.NO_PERMISSION
-        }
-
+        requestGpsUpdates()
         startTicker()
     }
 
@@ -318,19 +316,28 @@ class TrackingService :
 
         // Re-enable GPS hardware listener upon resuming
         _gpsStatus.value = GpsStatus.WAITING_FOR_FIX
+        requestGpsUpdates()
+
+        updateNotification()
+    }
+
+    /**
+     * Registers for GPS fixes at the Settings sampling interval. The distance threshold is left at 0 on
+     * purpose: the minimum-distance setting only decides which fixes are *stored*, while every fix still
+     * refreshes live speed, position and the "my location" state.
+     */
+    private fun requestGpsUpdates() {
         try {
             locationManager.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER,
-                1000L,
-                1.0f,
+                settings.gpsSamplingRateMs.coerceIn(1000L, 60_000L),
+                0f,
                 this,
                 mainLooper,
             )
         } catch (_: SecurityException) {
             _gpsStatus.value = GpsStatus.NO_PERMISSION
         }
-
-        updateNotification()
     }
 
     fun addWaypoint(
@@ -482,17 +489,19 @@ class TrackingService :
     override fun onLocationChanged(location: Location) {
         if (!_isTracking.value || _isPaused.value) return
 
-        // 1. Accuracy Filter: discard fixes with poor horizontal accuracy (> 25m under heavy canopy)
+        // 1. Accuracy Filter: discard fixes worse than the Settings tolerance (record profile / GPS filters)
         if (location.hasAccuracy()) _lastAccuracyMeters.value = location.accuracy
-        if (location.hasAccuracy() && location.accuracy > 25.0f) {
+        if (location.hasAccuracy() && location.accuracy > settings.maxAccuracyFilterM) {
             _gpsStatus.value = GpsStatus.WEAK_SIGNAL
             return
         }
         _gpsStatus.value = GpsStatus.ACTIVE
 
+        val extraFiltering = settings.extraFiltering
+
         // 2. Speed Sanity Filter: CAR allows up to 70 m/s (~250 km/h), foot activities capped at 14 m/s (~50 km/h)
         val maxSpeedMps = if (activityType == ActivityType.CAR) 70.0f else 14.0f
-        if (location.hasSpeed() && location.speed > maxSpeedMps) {
+        if (extraFiltering && location.hasSpeed() && location.speed > maxSpeedMps) {
             return
         }
 
@@ -501,7 +510,7 @@ class TrackingService :
 
         // 3. Teleportation / Multipath Jump Filter: discard jumps > 60m (250m for CAR) within 2 seconds
         val maxJumpMeters = if (activityType == ActivityType.CAR) 250.0 else 60.0
-        if (lastPoint != null && now - lastPoint.timestamp.toEpochMilli() <= 2000L) {
+        if (extraFiltering && lastPoint != null && now - lastPoint.timestamp.toEpochMilli() <= 2000L) {
             val dist =
                 TurnBackEngine.haversineDistanceMeters(
                     lastPoint.latitude,
@@ -530,19 +539,32 @@ class TrackingService :
         if (speedHistory.size >= 5) speedHistory.removeFirst()
         speedHistory.addLast(point.speedKmh)
         _smoothedSpeedKmh.value = speedHistory.average()
-
-        // Write immediately to WAL (crash safety)
-        wal?.appendPoint(point)
-
-        // Update state
         _currentPoint.value = point
-        _points.update { it + point }
+        mesh?.updateLocalPosition(point.latitude, point.longitude, point.speedKmh, point.altitudeMeters)
 
         // Stationary Jitter Filter: only accumulate moving time if speed >= 0.4 m/s
         if (lastFixTimeMs > 0 && point.speedMps >= 0.4) {
             movingTimeMs += (now - lastFixTimeMs).coerceAtLeast(0)
         }
         lastFixTimeMs = now
+
+        // Minimum-distance filter: a fix that barely moved still refreshed live speed/position above, but
+        // is not stored, which keeps tracks (and the WAL) small and removes standing-still jitter.
+        val minDistanceM = settings.minDistanceFilterM.toDouble()
+        if (lastPoint != null && minDistanceM > 0.0) {
+            val moved =
+                TurnBackEngine.haversineDistanceMeters(
+                    lastPoint.latitude,
+                    lastPoint.longitude,
+                    point.latitude,
+                    point.longitude,
+                )
+            if (moved < minDistanceM) return
+        }
+
+        // Write immediately to WAL (crash safety)
+        wal?.appendPoint(point)
+        _points.update { it + point }
 
         val activeElapsed =
             Duration.ofMillis(((now - startTime.toEpochMilli()) - totalBreakDurationMs).coerceAtLeast(0L))
@@ -593,6 +615,21 @@ class TrackingService :
     }
 
     private fun triggerTurnBackAlert() {
+        // Audible alarm (skipped for walks/hikes, where a loud tone is unwelcome), if enabled in Settings.
+        if (settings.audioAlarmsEnabled && activityType != ActivityType.WALK && activityType != ActivityType.HIKE) {
+            try {
+                val tone = ToneGenerator(AudioManager.STREAM_ALARM, 90)
+                tone.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 1500)
+                serviceScope.launch {
+                    delay(2000L)
+                    tone.release()
+                }
+            } catch (_: RuntimeException) {
+                // No audio route available; the haptic pulse below still fires.
+            }
+        }
+        if (!settings.hapticsEnabled) return
+
         // Haptic pulse alert (SOS pattern: 3 long pulses)
         val pattern = longArrayOf(0, 400, 200, 400, 200, 400)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -604,6 +641,8 @@ class TrackingService :
     }
 
     private fun triggerSplitAlert() {
+        if (!settings.hapticsEnabled) return
+
         // Double pulse for kilometer split
         val pattern = longArrayOf(0, 150, 100, 150)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
