@@ -18,7 +18,7 @@ Execute the onboarding script from the root workspace directory:
    ```bash
    export PATH="$PATH:$HOME/development/flutter/bin"
    ```
-4. **Android Build Alignment**: Detects your Android SDK directory (scanning standard paths like `~/Android/Sdk`) and generates [android/local.properties](file:///home/suzaykid/Projects/activity-mapper/android/local.properties) defining both `sdk.dir` and `flutter.sdk` parameters required by gradle.
+4. **Android Build Alignment**: Detects your Android SDK directory (scanning standard paths like `~/Android/Sdk`) and generates `android/local.properties` (git-ignored, machine-specific) defining both `sdk.dir` and `flutter.sdk` parameters required by gradle.
 5. **Package Lock**: Resolves all Dart dependencies mapped in `pubspec.yaml` (such as `sqflite`, `path_provider`, and `archive`).
 6. **System Diagnostic**: Runs `flutter doctor -v` to output a checklist of development assets.
 
@@ -87,14 +87,14 @@ Edited developer_onboarding.md
 
 I have created the automated onboarding shell script and written an extensive unit test suite.
 
-I documented the detailed developer environment walkthrough in [developer_onboarding.md](file:///home/suzaykid/.gemini/antigravity/brain/76a271a4-bbc6-4d09-9a23-b854fd57955e/developer_onboarding.md).
+I documented the detailed developer environment walkthrough in [developer_onboarding.md](developer_onboarding.md).
 
 ### Summary of Completed Activities:
 1. **Automated Onboarding Script (`scripts/setup_development.sh`)**:
    * Checks and installs required compilation packages (`clang`, `cmake`, `ninja-build`, etc.) on Linux Mint.
    * Auto-installs/clones the Flutter SDK (`stable` branch) into `~/development/flutter` if missing.
    * Configures environmental variables in `~/.bashrc` and `~/.zshrc`.
-   * Automatically localizes your Android SDK directory and outputs [android/local.properties](file:///home/suzaykid/Projects/activity-mapper/android/local.properties).
+   * Automatically localizes your Android SDK directory and outputs `android/local.properties`.
    * Runs dependency fetching to synchronize all required packages.
 2. **Extensive Test Suite (`test/turnback_math_test.dart`)**:
    * Evaluated the outbound safety math under standard, zero-buffer, and max-buffer scenarios.
