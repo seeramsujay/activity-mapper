@@ -30,6 +30,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.opensource.tracker.data.db.AppDatabase
 import org.opensource.tracker.data.db.TrackEntity
 import org.opensource.tracker.data.db.WaypointEntity
@@ -108,8 +109,18 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            if (RecordingWal.hasActiveRecording(walFile) && trackingService?.isTracking?.value != true) {
-                showRecoveryDialog = true
+            // Decide once the service is bound (never during composition): offering to "recover" the WAL of a
+            // recording that is still running, then deleting it, would destroy live data.
+            val boundService = serviceBoundState.value
+            LaunchedEffect(boundService) {
+                if (boundService == null || boundService.isTracking.value) return@LaunchedEffect
+                if (!RecordingWal.hasActiveRecording(walFile)) return@LaunchedEffect
+                val hasPoints = withContext(Dispatchers.IO) { RecordingWal.recover(walFile).points.isNotEmpty() }
+                if (hasPoints) {
+                    showRecoveryDialog = true
+                } else {
+                    withContext(Dispatchers.IO) { walFile.delete() }
+                }
             }
 
             TurnBackTheme(isOled = isOled) {
