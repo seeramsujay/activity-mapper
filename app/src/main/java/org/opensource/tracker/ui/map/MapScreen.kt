@@ -1,10 +1,16 @@
 package org.opensource.tracker.ui.map
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.DashPathEffect
+import android.location.Location
+import android.location.LocationManager
+import android.provider.Settings
+import android.view.MotionEvent
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -68,9 +74,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import org.opensource.tracker.domain.model.ActivityType
 import org.opensource.tracker.domain.model.TelemetryStats
+import org.opensource.tracker.domain.model.TrackPoint
 import org.opensource.tracker.domain.turnback.TurnBackEngine
+import org.opensource.tracker.service.GpsStatus
 import org.opensource.tracker.service.TrackingService
 import org.opensource.tracker.ui.components.MapLayersDialog
 import org.opensource.tracker.ui.components.MapTileSource
@@ -78,7 +89,6 @@ import org.opensource.tracker.ui.components.OfflineMapsDialog
 import org.opensource.tracker.ui.components.TrackColorMode
 import org.opensource.tracker.ui.components.WaypointDialog
 import org.opensource.tracker.ui.record.RecordingBottomSheetContent
-import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.tileprovider.tilesource.XYTileSource
 import org.osmdroid.util.GeoPoint
@@ -145,13 +155,41 @@ fun MapScreen(
     val turnBackTriggered = service?.turnBackTriggered?.collectAsState()?.value ?: false
     val outboundRemaining = service?.outboundRemainingSeconds?.collectAsState()?.value ?: 0L
     val referenceTrack = service?.referenceTrack?.collectAsState()?.value
+    val gpsStatus = service?.gpsStatus?.collectAsState()?.value ?: GpsStatus.IDLE
+    val lastAccuracy = service?.lastAccuracyMeters?.collectAsState()?.value
 
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
 
-    DisposableEffect(mapViewRef) {
-        mapViewRef?.onResume()
+    // Everything osmdroid-related that must survive recomposition lives here, so the 1 Hz stats tick
+    // can never trigger a tile-source reset or a full overlay rebuild.
+    val render = remember { MapRenderState() }
+    var followMode by remember { mutableStateOf(true) }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, mapViewRef) {
+        val mapView = mapViewRef
+        val observer =
+            LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_RESUME -> {
+                        mapView?.onResume()
+                        render.myLocation?.enableMyLocation()
+                    }
+
+                    Lifecycle.Event.ON_PAUSE -> {
+                        mapView?.onPause()
+                        render.myLocation?.disableMyLocation()
+                    }
+
+                    else -> Unit
+                }
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
-            mapViewRef?.onPause()
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            render.myLocation?.disableMyLocation()
+            mapView?.onPause()
+            mapView?.onDetach()
         }
     }
 
@@ -182,31 +220,47 @@ fun MapScreen(
                     onLogWaterBreak = { service?.logWaterBreakWaypoint() },
                     onToggleOled = onToggleOled,
                     onFinish = {
-                        service?.stopAndSave { savedId ->
-                            onNavigateToSummary(savedId)
-                        }
+                        service?.stopAndSave(
+                            onFailed = { message -> Toast.makeText(context, message, Toast.LENGTH_LONG).show() },
+                            onSaved = { savedId -> onNavigateToSummary(savedId) },
+                        )
                     },
                 )
             } else {
                 StartActivityLaunchpad(
                     onStartWorkout = { targetMinutes, activityType ->
-                        // Ensure foreground service is launched
-                        val serviceIntent =
-                            Intent(context, TrackingService::class.java).apply {
-                                action = TrackingService.ACTION_START
-                                putExtra(TrackingService.EXTRA_TARGET_DURATION_SEC, targetMinutes * 60L)
-                                putExtra(
-                                    TrackingService.EXTRA_BETA,
-                                    if (activityType == ActivityType.CAR) 0.0 else 0.12,
-                                )
-                                putExtra(TrackingService.EXTRA_ACTIVITY_TYPE, activityType.name)
-                            }
-                        ContextCompat.startForegroundService(context, serviceIntent)
-                        service?.startTracking(
-                            targetSec = targetMinutes * 60L,
-                            beta = if (activityType == ActivityType.CAR) 0.0 else 0.12,
-                            activityType = activityType,
-                        )
+                        val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+                        if (!hasLocationPermission) {
+                            // Starting a location foreground service without permission crashes on Android 14+.
+                            Toast
+                                .makeText(context, "Location permission is required to record.", Toast.LENGTH_LONG)
+                                .show()
+                            permissionLauncher.launch(
+                                arrayOf(
+                                    Manifest.permission.ACCESS_FINE_LOCATION,
+                                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                                ),
+                            )
+                        } else if (locationManager?.isProviderEnabled(LocationManager.GPS_PROVIDER) == false) {
+                            Toast
+                                .makeText(context, "Turn on GPS / Location to record.", Toast.LENGTH_LONG)
+                                .show()
+                            runCatching { context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)) }
+                        } else {
+                            // Single start path: the service promotes itself to foreground in onStartCommand.
+                            val serviceIntent =
+                                Intent(context, TrackingService::class.java).apply {
+                                    action = TrackingService.ACTION_START
+                                    putExtra(TrackingService.EXTRA_TARGET_DURATION_SEC, targetMinutes * 60L)
+                                    putExtra(
+                                        TrackingService.EXTRA_BETA,
+                                        if (activityType == ActivityType.CAR) 0.0 else 0.12,
+                                    )
+                                    putExtra(TrackingService.EXTRA_ACTIVITY_TYPE, activityType.name)
+                                }
+                            followMode = true
+                            ContextCompat.startForegroundService(context, serviceIntent)
+                        }
                     },
                 )
             }
@@ -222,111 +276,188 @@ fun MapScreen(
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { ctx ->
-                    Configuration.getInstance().userAgentValue = ctx.packageName
-                    Configuration.getInstance().load(ctx, ctx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
+                    // osmdroid configuration (cache path + user agent) is initialised once in TurnBackApplication.
                     MapView(ctx).apply {
                         setMultiTouchControls(true)
-                        controller.setZoom(16.5)
+                        controller.setZoom(17.0)
                         isTilesScaledToDpi = true
 
-                        // Real-time GPS Location overlay with heading indicator
-                        val myLocationOverlay =
-                            MyLocationNewOverlay(GpsMyLocationProvider(ctx), this).apply {
-                                enableMyLocation()
-                                enableFollowLocation()
-                            }
-                        overlays.add(myLocationOverlay)
+                        // Start on the user, not on (0,0) in the ocean: use the last known fix if we have one.
+                        lastKnownLocation(ctx)?.let {
+                            controller.setCenter(GeoPoint(it.latitude, it.longitude))
+                            render.centeredOnce = true
+                        }
+
+                        // A drag means the user wants to look around: stop auto-following until Recenter.
+                        setOnTouchListener { _, event ->
+                            if (event.action == MotionEvent.ACTION_MOVE) followMode = false
+                            false
+                        }
 
                         mapViewRef = this
                     }
                 },
                 update = { mapView ->
-                    mapView.setTileSource(
-                        when (selectedTileSource) {
-                            MapTileSource.OSM -> TileSourceFactory.MAPNIK
-                            MapTileSource.TOPO -> TileSourceFactory.OpenTopo
-                            MapTileSource.DARK ->
-                                XYTileSource(
-                                    "CartoDB_Dark",
-                                    0,
-                                    20,
-                                    256,
-                                    ".png",
-                                    arrayOf("https://a.basemaps.cartocdn.com/dark_all/"),
-                                )
+                    // This block re-runs on every recomposition (the service ticks stats at 1 Hz), so every
+                    // step below must be a cheap no-op unless its input actually changed.
 
-                            MapTileSource.HOT ->
-                                XYTileSource(
-                                    "OSM_HOT",
-                                    0,
-                                    20,
-                                    256,
-                                    ".png",
-                                    arrayOf("https://a.tile.openstreetmap.fr/hot/"),
-                                )
-                        },
-                    )
+                    // "My location" dot: (re)create once permission exists. Creating it in the factory meant it
+                    // silently never worked when permission was granted after the map was first composed.
+                    if (hasLocationPermission && render.myLocation == null) {
+                        val overlay = MyLocationNewOverlay(GpsMyLocationProvider(mapView.context), mapView)
+                        overlay.enableMyLocation()
+                        overlay.runOnFirstFix {
+                            mapView.post {
+                                val fix = overlay.myLocation
+                                if (fix != null && !render.centeredOnce) {
+                                    render.centeredOnce = true
+                                    mapView.controller.animateTo(fix)
+                                }
+                            }
+                        }
+                        mapView.overlays.add(overlay)
+                        render.myLocation = overlay
+                    }
+
+                    // Tile source: only swap when the user picks a different layer (a swap flushes the tile cache).
+                    if (render.tileSource != selectedTileSource) {
+                        mapView.setTileSource(tileSourceFor(selectedTileSource))
+                        render.tileSource = selectedTileSource
+                    }
 
                     // Dynamic Course-Up vs North-Up orientation for trail navigation
-                    if (isCourseUpMode && currentPoint != null && currentPoint.bearingDegrees > 0f) {
-                        mapView.setMapOrientation(-currentPoint.bearingDegrees, false)
-                    } else {
-                        mapView.setMapOrientation(0f, false)
+                    val targetOrientation =
+                        if (isCourseUpMode && currentPoint != null && currentPoint.bearingDegrees > 0f) {
+                            -currentPoint.bearingDegrees
+                        } else {
+                            0f
+                        }
+                    if (render.orientation != targetOrientation) {
+                        mapView.setMapOrientation(targetOrientation, false)
+                        render.orientation = targetOrientation
                     }
 
-                    mapView.overlays.removeAll { it is Polyline || (it is Marker && it !is MyLocationNewOverlay) }
-
-                    // Render Ghost / Reference Track (Past Trail Run)
-                    if (referenceTrack != null && referenceTrack.points.isNotEmpty()) {
-                        val ghostGeoPoints = referenceTrack.points.map { GeoPoint(it.latitude, it.longitude) }
-                        val ghostPolyline =
-                            Polyline(mapView).apply {
-                                setPoints(ghostGeoPoints)
-                                outlinePaint.strokeWidth = 11f
-                                outlinePaint.color = android.graphics.Color.parseColor("#8B5CF6")
-                                outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
-                                outlinePaint.pathEffect = DashPathEffect(floatArrayOf(24f, 16f), 0f)
-                            }
-                        mapView.overlays.add(ghostPolyline)
+                    // Ghost / reference track: rebuilt only when the reference changes.
+                    val ghostId = referenceTrack?.trackId
+                    if (render.ghostTrackId != ghostId) {
+                        render.ghostOverlay?.let { mapView.overlays.remove(it) }
+                        render.ghostOverlay = null
+                        if (referenceTrack != null && referenceTrack.points.isNotEmpty()) {
+                            val ghost =
+                                Polyline(mapView).apply {
+                                    setPoints(referenceTrack.points.map { GeoPoint(it.latitude, it.longitude) })
+                                    outlinePaint.strokeWidth = 11f
+                                    outlinePaint.color = android.graphics.Color.parseColor("#8B5CF6")
+                                    outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+                                    outlinePaint.pathEffect = DashPathEffect(floatArrayOf(24f, 16f), 0f)
+                                }
+                            mapView.overlays.add(render.insertIndex(mapView), ghost)
+                            render.ghostOverlay = ghost
+                        }
+                        render.ghostTrackId = ghostId
                     }
 
-                    // Render Active Recording Polyline
+                    // Active recording polyline: append only the new fixes instead of rebuilding N points per tick.
+                    if (points.size < render.trackRendered) {
+                        // A new session started.
+                        render.trackOverlay?.let { mapView.overlays.remove(it) }
+                        render.trackOverlay = null
+                        render.trackRendered = 0
+                    }
                     if (points.isNotEmpty()) {
-                        val geoPoints = points.map { GeoPoint(it.latitude, it.longitude) }
-                        val polyline =
-                            Polyline(mapView).apply {
-                                setPoints(geoPoints)
-                                outlinePaint.strokeWidth = 14f
-                                outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
-                                outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
-                                outlinePaint.color =
-                                    when (trackColorMode) {
-                                        TrackColorMode.SPEED -> android.graphics.Color.parseColor("#06B6D4")
-                                        TrackColorMode.ELEVATION -> android.graphics.Color.parseColor("#EAB308")
-                                        TrackColorMode.SOLID -> android.graphics.Color.parseColor("#10B981")
-                                    }
-                            }
-                        mapView.overlays.add(polyline)
-
-                        val latest = points.last()
-                        mapView.controller.animateTo(GeoPoint(latest.latitude, latest.longitude))
+                        var track = render.trackOverlay
+                        if (track == null) {
+                            track =
+                                Polyline(mapView).apply {
+                                    outlinePaint.strokeWidth = 14f
+                                    outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+                                    outlinePaint.strokeJoin = android.graphics.Paint.Join.ROUND
+                                }
+                            mapView.overlays.add(render.insertIndex(mapView), track)
+                            render.trackOverlay = track
+                            render.trackColorMode = null // force colour to be applied to the new overlay
+                        }
+                        if (render.trackColorMode != trackColorMode) {
+                            track.outlinePaint.color =
+                                when (trackColorMode) {
+                                    TrackColorMode.SPEED -> android.graphics.Color.parseColor("#06B6D4")
+                                    TrackColorMode.ELEVATION -> android.graphics.Color.parseColor("#EAB308")
+                                    TrackColorMode.SOLID -> android.graphics.Color.parseColor("#10B981")
+                                }
+                            render.trackColorMode = trackColorMode
+                        }
+                        for (i in render.trackRendered until points.size) {
+                            track.addPoint(GeoPoint(points[i].latitude, points[i].longitude))
+                        }
+                        render.trackRendered = points.size
                     }
 
-                    // Render Waypoint Pins
-                    for (w in waypoints) {
-                        val marker =
-                            Marker(mapView).apply {
-                                position = GeoPoint(w.latitude, w.longitude)
-                                title = w.name
-                                snippet = w.category.displayName
-                                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                            }
-                        mapView.overlays.add(marker)
+                    // Waypoint pins: rebuilt only when one is added/removed.
+                    if (render.markersRendered != waypoints.size) {
+                        render.markers.forEach { mapView.overlays.remove(it) }
+                        render.markers.clear()
+                        for (w in waypoints) {
+                            val marker =
+                                Marker(mapView).apply {
+                                    position = GeoPoint(w.latitude, w.longitude)
+                                    title = w.name
+                                    snippet = w.category.displayName
+                                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                }
+                            mapView.overlays.add(render.insertIndex(mapView), marker)
+                            render.markers.add(marker)
+                        }
+                        render.markersRendered = waypoints.size
+                    }
+
+                    // Follow the runner, but only while the user hasn't panned away, and only on a new fix.
+                    val latest = points.lastOrNull() ?: currentPoint
+                    if (followMode && latest != null && latest !== render.lastFollowed) {
+                        mapView.controller.animateTo(GeoPoint(latest.latitude, latest.longitude))
+                        render.lastFollowed = latest
+                        render.centeredOnce = true
                     }
 
                     mapView.invalidate()
                 },
             )
+
+            // GPS health banner: recording must never fail silently.
+            val gpsMessage =
+                if (!isTracking || isPaused) {
+                    null
+                } else {
+                    when (gpsStatus) {
+                        GpsStatus.NO_PERMISSION -> "Location permission missing. No track is being recorded."
+                        GpsStatus.GPS_DISABLED -> "GPS is turned off. Enable Location to record."
+                        GpsStatus.WAITING_FOR_FIX -> "Searching for GPS signal…"
+                        GpsStatus.WEAK_SIGNAL ->
+                            "Weak GPS signal" + (lastAccuracy?.let { " (±${it.toInt()} m)" } ?: "") + ", waiting for a better fix…"
+
+                        GpsStatus.ACTIVE, GpsStatus.IDLE -> null
+                    }
+                }
+            if (gpsMessage != null) {
+                Card(
+                    modifier =
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors =
+                        CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                        ),
+                ) {
+                    Text(
+                        text = gpsMessage,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
 
             // 2. Active Ghost Track Badge (if reference route overlaid)
             if (referenceTrack != null) {
@@ -380,6 +511,7 @@ fun MapScreen(
                 // Recenter
                 FloatingActionButton(
                     onClick = {
+                        followMode = true
                         val last = points.lastOrNull() ?: currentPoint
                         if (last != null) {
                             mapViewRef?.controller?.animateTo(GeoPoint(last.latitude, last.longitude))
@@ -470,6 +602,75 @@ fun MapScreen(
             },
         )
     }
+}
+
+/**
+ * Mutable bookkeeping for what is already drawn on the MapView. Deliberately NOT Compose state: it must
+ * not trigger recomposition, it only lets the `update` block do incremental work.
+ */
+private class MapRenderState {
+    var myLocation: MyLocationNewOverlay? = null
+    var tileSource: MapTileSource? = null
+    var orientation: Float = Float.NaN
+    var centeredOnce = false
+    var lastFollowed: TrackPoint? = null
+
+    var ghostOverlay: Polyline? = null
+    var ghostTrackId: Long? = null
+
+    var trackOverlay: Polyline? = null
+    var trackRendered = 0
+    var trackColorMode: TrackColorMode? = null
+
+    val markers = mutableListOf<Marker>()
+    var markersRendered = -1
+
+    /** Keeps the "my location" dot on top of tracks and pins. */
+    fun insertIndex(mapView: MapView): Int {
+        val dot = myLocation ?: return mapView.overlays.size
+        val index = mapView.overlays.indexOf(dot)
+        return if (index >= 0) index else mapView.overlays.size
+    }
+}
+
+private fun tileSourceFor(source: MapTileSource) =
+    when (source) {
+        MapTileSource.OSM -> TileSourceFactory.MAPNIK
+        MapTileSource.TOPO -> TileSourceFactory.OpenTopo
+        MapTileSource.DARK ->
+            XYTileSource(
+                "CartoDB_Dark",
+                0,
+                20,
+                256,
+                ".png",
+                arrayOf("https://a.basemaps.cartocdn.com/dark_all/"),
+            )
+
+        MapTileSource.HOT ->
+            XYTileSource(
+                "OSM_HOT",
+                0,
+                20,
+                256,
+                ".png",
+                arrayOf("https://a.tile.openstreetmap.fr/hot/"),
+            )
+    }
+
+/** Freshest cached fix from any provider, so the map opens on the user instead of at (0, 0). */
+@SuppressLint("MissingPermission")
+private fun lastKnownLocation(context: Context): Location? {
+    val granted =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+    if (!granted) return null
+    val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
+    return listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+        .mapNotNull { provider -> runCatching { manager.getLastKnownLocation(provider) }.getOrNull() }
+        .maxByOrNull { it.time }
 }
 
 /**

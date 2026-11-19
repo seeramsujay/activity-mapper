@@ -44,3 +44,14 @@ jobs:
 
       - name: Run Unit Tests
         run: ./gradlew testDebugUnitTest --continue
+
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: turnback-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
