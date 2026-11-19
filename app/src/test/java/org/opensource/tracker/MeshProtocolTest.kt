@@ -1,12 +1,12 @@
 package org.opensource.tracker
 
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.json.JSONObject
 import org.junit.Test
 import org.opensource.tracker.data.mesh.MeshCrypto
 import org.opensource.tracker.data.mesh.MeshPing
