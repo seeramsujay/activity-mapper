@@ -227,7 +227,7 @@ class MeshManager(
                 customText = customText,
             )
         scope.launch {
-            send(JSONObject().put("v", 1).put("t", "ping").put("sid", config.sessionId).put("ping", ping.toJson()))
+            send(packet("ping", config).put("ping", ping.toJson()))
         }
     }
 
@@ -255,7 +255,7 @@ class MeshManager(
             publishWaypoints()
         }
         scope.launch {
-            send(JSONObject().put("v", 1).put("t", "wpt_add").put("sid", config.sessionId).put("wpt", waypoint.toJson()))
+            send(packet("wpt_add", config).put("wpt", waypoint.toJson()))
         }
     }
 
@@ -266,11 +266,23 @@ class MeshManager(
             publishWaypoints()
         }
         scope.launch {
-            send(JSONObject().put("v", 1).put("t", "wpt_del").put("sid", config.sessionId).put("wid", id))
+            send(packet("wpt_del", config).put("wid", id))
         }
     }
 
     // ---------------------------------------------------------------- networking
+
+    /** Base envelope shared by every packet type. */
+    private fun packet(
+        type: String,
+        config: MeshSessionConfig,
+    ): JSONObject {
+        val json = JSONObject()
+        json.put("v", 1)
+        json.put("t", type)
+        json.put("sid", config.sessionId)
+        return json
+    }
 
     private fun bindSocket(): DatagramSocket {
         fun bind(port: Int) =

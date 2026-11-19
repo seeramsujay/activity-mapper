@@ -6,6 +6,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.json.JSONObject
 import org.junit.Test
 import org.opensource.tracker.data.mesh.MeshCrypto
 import org.opensource.tracker.data.mesh.MeshPing
@@ -119,7 +120,9 @@ class MeshProtocolTest {
 
     @Test
     fun `unknown ping type falls back to regroup`() {
-        val json = org.json.JSONObject().put("type", "teleport").put("id", "x")
+        val json = JSONObject()
+        json.put("type", "teleport")
+        json.put("id", "x")
         assertEquals(PingType.REGROUP, MeshPing.fromJson(json).type)
     }
 

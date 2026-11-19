@@ -36,7 +36,8 @@ fun teammateIcon(
     paint.textSize = 16 * density
     paint.isFakeBoldText = true
     val baseline = center - (paint.descent() + paint.ascent()) / 2f
-    canvas.drawText(name.trim().take(1).uppercase().ifEmpty { "?" }, center, baseline, paint)
+    val firstChar = name.trim().take(1)
+    canvas.drawText(firstChar.uppercase().ifEmpty { "?" }, center, baseline, paint)
     return BitmapDrawable(context.resources, bitmap)
 }
 
