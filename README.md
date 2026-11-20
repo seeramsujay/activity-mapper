@@ -1,3 +1,20 @@
+<p align="center">
+  <img src="assets/logo.svg" alt="activity-mapper Logo" width="120" height="120" />
+</p>
+
+<h1 align="center">activity-mapper</h1>
+
+<p align="center">
+  <em>Offline-First Tactical Activity Mapping</em>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Status-Maintained-success?style=flat-square" alt="Status" />
+  <img src="https://img.shields.io/badge/License-Protected-blue?style=flat-square" alt="License" />
+</p>
+
+---
+
 # TurnBack: Local-First Endurance Tracker & Activity Mapper
 
 An ultra-lightweight, 100% serverless, battery-optimized GPS activity tracking mobile application designed for runners, cyclists, and hikers. Features fatigue-asymmetric turn-back navigation, low-memory 2GB RAM device optimization, post-run trajectory adjustments (Crop & Merge), and comprehensive multi-format `.zip` export capabilities.
