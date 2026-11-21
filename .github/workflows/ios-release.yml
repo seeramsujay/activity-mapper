@@ -4,9 +4,16 @@ name: iOS release build
 on:
   release:
     types: [published]
-  # Manual runs take no inputs (build output must not depend on user parameters): pick the release tag itself as the
-  # ref in "Use workflow from" (e.g. v1.4.0) and the build/upload target is that tag.
   workflow_dispatch:
+    # checkov:skip=CKV_GHA_7: Intentional. Old release tags (e.g. v1.4.0) predate this workflow file, so a manual run
+    # must be dispatched from a ref that has it (the default branch) and be told which existing release to build
+    # and upload to. The input is validated against real releases before anything is checked out or built, and it
+    # only ever flows through an environment variable (never interpolated into a script).
+    inputs:
+      tag:
+        description: Existing release tag to build and upload to (e.g. v1.4.0)
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -15,9 +22,13 @@ jobs:
   ipa:
     runs-on: macos-latest
     env:
-      TAG: ${{ github.event.release.tag_name || github.ref_name }}
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
+      # Fail fast, before any checkout/build/upload, unless the tag names an existing release.
+      - name: Verify the tag names an existing release
+        run: gh release view "$TAG" -R "$GITHUB_REPOSITORY" > /dev/null
+
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ env.TAG }}
