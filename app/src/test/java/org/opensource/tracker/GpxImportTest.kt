@@ -49,6 +49,38 @@ class GpxImportTest {
     }
 
     @Test
+    fun `partially timed tracks are rejected, fully timed and wholly untimed are fine`() {
+        val epoch = Instant.EPOCH
+        val timed = listOf(point(0.0, 0.0, 0), point(0.0, 0.001, 10))
+        assertFalse(GpxTrackImporter.hasPartialTimestamps(timed))
+
+        val untimed = listOf(TrackPoint(0.0, 0.0, timestamp = epoch), TrackPoint(0.0, 0.001, timestamp = epoch))
+        assertFalse(GpxTrackImporter.hasPartialTimestamps(untimed))
+
+        // first point has no <time>, the rest are in 2026: would otherwise mean a ~56-year duration
+        val partial = listOf(TrackPoint(0.0, 0.0, timestamp = epoch), point(0.0, 0.001, 10))
+        assertTrue(GpxTrackImporter.hasPartialTimestamps(partial))
+    }
+
+    @Test
+    fun `elevation is re-baselined at a segment boundary instead of counted as a climb`() {
+        val twoFlatSegments =
+            listOf(
+                TrackPoint(0.0, 0.0, altitudeMeters = 100.0, speedMps = 3.0, timestamp = t0),
+                TrackPoint(0.0, 0.001, altitudeMeters = 100.0, speedMps = 3.0, timestamp = t0.plusSeconds(10)),
+                TrackPoint(0.0, 0.002, altitudeMeters = 1000.0, speedMps = 3.0, timestamp = t0.plusSeconds(20), newSegment = true),
+                TrackPoint(0.0, 0.003, altitudeMeters = 1000.0, speedMps = 3.0, timestamp = t0.plusSeconds(30)),
+            )
+        val stats = TurnBackEngine.computeStats(twoFlatSegments)
+        assertEquals(0.0, stats.elevationGainM, 0.0)
+        assertEquals(0.0, stats.elevationLossM, 0.0)
+
+        // the same jump inside ONE segment is a genuine 900 m climb
+        val connected = twoFlatSegments.map { it.copy(newSegment = false) }
+        assertEquals(900.0, TurnBackEngine.computeStats(connected).elevationGainM, 0.001)
+    }
+
+    @Test
     fun `speeds are derived from distance over time when the file has none`() {
         // ~111 m north every 10 s => ~11 m/s
         val bare = listOf(point(0.000, 0.0, 0), point(0.001, 0.0, 10), point(0.002, 0.0, 20))

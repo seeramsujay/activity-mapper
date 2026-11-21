@@ -104,7 +104,9 @@ object TurnBackEngine {
             if (alt > maxAlt) maxAlt = alt
             if (curr.speedMps > maxSpeedMps) maxSpeedMps = curr.speedMps
 
-            if (referenceAlt.isNaN()) {
+            // A new segment re-baselines elevation: otherwise the jump between two unconnected segments (say 100 m
+            // then 1000 m) would be counted as climbing.
+            if (referenceAlt.isNaN() || curr.newSegment) {
                 referenceAlt = alt
             } else {
                 val deltaAlt = alt - referenceAlt

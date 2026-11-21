@@ -12,6 +12,8 @@ import org.opensource.tracker.domain.model.TrackPoint
 import org.opensource.tracker.domain.turnback.TurnBackEngine
 import java.io.File
 import java.time.Duration
+import java.time.Instant
+import java.util.UUID
 
 /** Brings a `.gpx` file (from a file picker or an "open with" intent) into the track library. */
 object GpxTrackImporter {
@@ -26,6 +28,16 @@ object GpxTrackImporter {
             }
         }
         return null
+    }
+
+    /**
+     * The parser stamps points that have no `<time>` with the epoch. A file where only *some* points are timed would
+     * produce a decades-long duration and a 1970 start date, so it is rejected; fully timed and wholly untimed
+     * files are both fine.
+     */
+    internal fun hasPartialTimestamps(points: List<TrackPoint>): Boolean {
+        val untimed = points.count { it.timestamp == Instant.EPOCH }
+        return untimed in 1 until points.size
     }
 
     /**
@@ -69,16 +81,23 @@ object GpxTrackImporter {
                     context.contentResolver.openInputStream(uri)?.use { GpxImporter.parse(it) }
                         ?: error("Couldn't open that file")
                 require(parsed.points.size >= 2) { "No track found in this GPX file" }
+                require(!hasPartialTimestamps(parsed.points)) {
+                    "Some points in this GPX file have no time, so its duration can't be calculated."
+                }
                 validateTimestamps(parsed.points)?.let { error(it) }
 
                 // Use the normalized points for statistics AND export so the detail screen shows the same numbers.
                 val points = normalizeSpeeds(parsed.points)
-                val first = points.first().timestamp
-                val last = points.last().timestamp
+                // A wholly untimed route has no real dates: date it at import time with zero duration.
+                val untimed = points.first().timestamp == Instant.EPOCH
+                val importedAt = Instant.now()
+                val first = if (untimed) importedAt else points.first().timestamp
+                val last = if (untimed) importedAt else points.last().timestamp
                 val stats = TurnBackEngine.computeStats(points, Duration.between(first, last))
                 val title = parsed.name.ifBlank { "Imported activity" }
 
-                val gpxFile = File(context.filesDir, "tracks/imported_${System.currentTimeMillis()}.gpx")
+                // Unique per import (the clock alone can collide, and a failed import deletes "its" file).
+                val gpxFile = File(context.filesDir, "tracks/imported_${System.currentTimeMillis()}_${UUID.randomUUID()}.gpx")
                 GpxExporter.exportToFile(
                     file = gpxFile,
                     trackName = title,

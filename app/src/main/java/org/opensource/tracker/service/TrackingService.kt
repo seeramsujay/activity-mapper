@@ -58,6 +58,7 @@ import java.io.File
 import java.time.Duration
 import java.time.Instant
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.floor
 
 data class ReferenceTrack(
@@ -106,6 +107,10 @@ class TrackingService :
     private var totalBreakDurationMs: Long = 0L
     private var lastAlertedKm: Int = 0
     private var pendingPoint: TrackPoint? = null
+    private var lastAcceptedPoint: TrackPoint? = null
+
+    /** True while a finish/save is running: ingestion is frozen and further FINISH taps are ignored. */
+    private val finishInProgress = AtomicBoolean(false)
 
     // Recent speed smoothing window (last 5 fixes)
     private val speedHistory = ArrayDeque<Double>(5)
@@ -250,7 +255,8 @@ class TrackingService :
 
         // Car mode has 0 return fatigue and symmetric 50% split
         // Fatigue factor and safety margin come from Settings (the intent extra is only a fallback default).
-        val effectiveBeta = if (activityType == ActivityType.CAR) 0.0 else settings.beta.toDouble().takeIf { it > 0.0 } ?: beta
+        // A stored 0.00 is a valid choice (symmetric 50% split), so it must not be replaced by the fallback.
+        val effectiveBeta = if (activityType == ActivityType.CAR) 0.0 else settings.beta.toDouble().takeIf { it.isFinite() } ?: beta
         val effectiveSafetyBuffer = if (activityType == ActivityType.CAR) 0.0 else settings.safetyBuffer.toDouble()
         this.fatigueBeta = effectiveBeta
         this.safetyBufferPercent = effectiveSafetyBuffer
@@ -264,6 +270,8 @@ class TrackingService :
         this.totalBreakDurationMs = 0L
         this.lastAlertedKm = 0
         this.pendingPoint = null
+        this.lastAcceptedPoint = null
+        this.finishInProgress.set(false)
         this.speedHistory.clear()
 
         _points.value = emptyList()
@@ -378,15 +386,20 @@ class TrackingService :
         onSaved: ((Long) -> Unit)? = null,
     ) {
         if (!_isTracking.value) return
-        serviceScope.launch(Dispatchers.IO) {
-            val finalPoints = _points.value
-            val finalWaypoints = _waypoints.value
+        // One save at a time: a second tap on FINISH while the first is writing would insert a duplicate activity.
+        // The same flag also freezes recording (see onLocationChanged), so the snapshot below is the complete
+        // session and no fix can slip into the WAL after it, only to be deleted with it.
+        if (!finishInProgress.compareAndSet(false, true)) return
+        val finalPoints = _points.value
+        val finalWaypoints = _waypoints.value
 
+        serviceScope.launch(Dispatchers.IO) {
             if (finalPoints.isEmpty()) {
                 // Nothing to save: don't write an empty track, just end the session cleanly.
                 File(filesDir, "active_recording.wal").delete()
                 withContext(Dispatchers.Main) {
                     stopTracking()
+                    finishInProgress.set(false)
                     onFailed?.invoke("No GPS points were recorded, so nothing was saved.")
                 }
                 return@launch
@@ -396,7 +409,8 @@ class TrackingService :
                 try {
                     saveSession(title, finalPoints, finalWaypoints)
                 } catch (e: Exception) {
-                    // Keep tracking state and the WAL intact so no data is lost; the user can retry.
+                    // Keep tracking state and the WAL intact so no data is lost; resume recording and let the user retry.
+                    finishInProgress.set(false)
                     withContext(Dispatchers.Main) {
                         onFailed?.invoke("Couldn't save activity (${e.message ?: "unknown error"}). Your data is safe, try again.")
                     }
@@ -407,6 +421,7 @@ class TrackingService :
             withContext(Dispatchers.Main) {
                 stopTracking() // closes the WAL; only then is it safe to delete it
                 File(filesDir, "active_recording.wal").delete()
+                finishInProgress.set(false)
                 onSaved?.invoke(trackId)
             }
         }
@@ -497,7 +512,7 @@ class TrackingService :
     }
 
     override fun onLocationChanged(location: Location) {
-        if (!_isTracking.value || _isPaused.value) return
+        if (!_isTracking.value || _isPaused.value || finishInProgress.get()) return
 
         // 1. Accuracy Filter: discard fixes worse than the Settings tolerance (record profile / GPS filters)
         if (location.hasAccuracy()) _lastAccuracyMeters.value = location.accuracy
@@ -515,16 +530,19 @@ class TrackingService :
             return
         }
 
-        val lastPoint = _points.value.lastOrNull()
+        val lastPoint = _points.value.lastOrNull() // last *stored* point (drives the min-distance storage filter)
+        val lastAccepted = lastAcceptedPoint // last fix that passed the filters, stored or not
         val now = System.currentTimeMillis()
 
-        // 3. Teleportation / Multipath Jump Filter: discard jumps > 60m (250m for CAR) within 2 seconds
+        // 3. Teleportation / Multipath Jump Filter: discard jumps > 60m (250m for CAR) within 2 seconds.
+        // Validated against the last *accepted* fix: the stored route lags behind it whenever the minimum-distance
+        // filter skips stationary fixes, which would otherwise let a 100 m jump slip past this check.
         val maxJumpMeters = if (activityType == ActivityType.CAR) 250.0 else 60.0
-        if (extraFiltering && lastPoint != null && now - lastPoint.timestamp.toEpochMilli() <= 2000L) {
+        if (extraFiltering && lastAccepted != null && now - lastAccepted.timestamp.toEpochMilli() <= 2000L) {
             val dist =
                 TurnBackEngine.haversineDistanceMeters(
-                    lastPoint.latitude,
-                    lastPoint.longitude,
+                    lastAccepted.latitude,
+                    lastAccepted.longitude,
                     location.latitude,
                     location.longitude,
                 )
@@ -544,6 +562,8 @@ class TrackingService :
                 bearingDegrees = if (location.hasBearing()) location.bearing else 0f,
                 timestamp = Instant.ofEpochMilli(location.time),
             )
+
+        lastAcceptedPoint = point
 
         // Smooth speed via rolling window (last 5 fixes)
         if (speedHistory.size >= 5) speedHistory.removeFirst()

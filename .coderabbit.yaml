@@ -1,5 +1,6 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
-version: "2"
+# NOTE: the v2 schema has no top-level `version` key. An unknown key makes the file invalid, and CodeRabbit then
+# silently falls back to defaults (only the default branch is reviewed), so PRs into other branches were skipped.
 language: "en-US"
 tone_instructions: "You are an expert reviewer for open-source Android applications written in Kotlin and Jetpack Compose under the GNU AGPL v3.0 license. Prioritize memory leaks, lifecycle issues, Coroutine/Flow concurrency bugs, crash-proof WAL reliability, GPS battery consumption, and Material 3 design accessibility."
 early_access: false

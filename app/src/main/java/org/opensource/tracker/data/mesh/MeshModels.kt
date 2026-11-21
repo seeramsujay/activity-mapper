@@ -46,12 +46,17 @@ data class MeshSessionConfig(
                     if (id.isNullOrEmpty() || key.isNullOrEmpty() || !MeshCrypto.isValidKey(key)) {
                         null
                     } else {
+                        // An unusable endpoint is dropped rather than failing the whole invite: the group is still
+                        // joinable over the LAN, and we never report "linked" for an address we can't reach.
+                        val ip = params["ip"]
+                        val port = params["port"]?.toIntOrNull()
+                        val hasEndpoint = ip != null && port != null && MeshManager.isUsableEndpoint(ip, port)
                         MeshSessionConfig(
                             sessionId = id,
                             sessionKey = key,
                             sessionName = params["name"] ?: "Group Ride",
-                            publicIp = params["ip"],
-                            publicPort = params["port"]?.toIntOrNull(),
+                            publicIp = if (hasEndpoint) ip else null,
+                            publicPort = if (hasEndpoint) port else null,
                         )
                     }
                 }
@@ -133,12 +138,28 @@ data class SharedWaypoint(
             .put("ts", timestamp)
 
     companion object {
-        fun fromJson(json: JSONObject): SharedWaypoint =
+        /**
+         * Returns null unless the pin has an id and real, in-range coordinates. A missing `lat`/`lng` must not
+         * silently become (0, 0), but a pin that explicitly sits at (0, 0) is valid.
+         */
+        fun fromJson(json: JSONObject): SharedWaypoint? {
+            if (json.optString("id", "").isEmpty() || !json.has("lat") || !json.has("lng")) return null
+            val lat = json.optDouble("lat", Double.NaN)
+            val lng = json.optDouble("lng", Double.NaN)
+            if (!lat.isFinite() || !lng.isFinite() || lat !in -90.0..90.0 || lng !in -180.0..180.0) return null
+            return parse(json, lat, lng)
+        }
+
+        private fun parse(
+            json: JSONObject,
+            lat: Double,
+            lng: Double,
+        ): SharedWaypoint =
             SharedWaypoint(
                 id = json.optString("id", ""),
                 name = json.optString("name", "Pin"),
-                lat = json.optDouble("lat", 0.0),
-                lng = json.optDouble("lng", 0.0),
+                lat = lat,
+                lng = lng,
                 creatorId = json.optString("cid", ""),
                 creatorName = json.optString("cname", "Rider"),
                 colorValue = json.optLong("col", 0xFFFF5722L).toInt(),
