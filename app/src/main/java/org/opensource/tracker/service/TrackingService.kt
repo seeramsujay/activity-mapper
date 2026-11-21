@@ -1,5 +1,6 @@
 package org.opensource.tracker.service
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,17 +8,23 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import androidx.room.withTransaction
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -30,12 +37,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.opensource.tracker.MainActivity
 import org.opensource.tracker.R
+import org.opensource.tracker.TurnBackApplication
 import org.opensource.tracker.data.db.AppDatabase
 import org.opensource.tracker.data.db.TrackEntity
 import org.opensource.tracker.data.db.WaypointEntity
 import org.opensource.tracker.data.gpx.GpxExporter
+import org.opensource.tracker.data.mesh.MeshManager
+import org.opensource.tracker.data.settings.AppSettings
 import org.opensource.tracker.data.wal.RecordingWal
 import org.opensource.tracker.domain.model.ActivityType
 import org.opensource.tracker.domain.model.TelemetryStats
@@ -47,6 +58,7 @@ import java.io.File
 import java.time.Duration
 import java.time.Instant
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.floor
 
 data class ReferenceTrack(
@@ -54,6 +66,16 @@ data class ReferenceTrack(
     val title: String,
     val points: List<TrackPoint>,
 )
+
+/** Live health of the GPS pipeline, surfaced in the UI so a silent failure is never invisible. */
+enum class GpsStatus {
+    IDLE,
+    NO_PERMISSION,
+    GPS_DISABLED,
+    WAITING_FOR_FIX,
+    WEAK_SIGNAL,
+    ACTIVE,
+}
 
 class TrackingService :
     Service(),
@@ -63,10 +85,13 @@ class TrackingService :
 
     private lateinit var locationManager: LocationManager
     private lateinit var notificationManager: NotificationManager
+    private lateinit var settings: AppSettings
+    private var mesh: MeshManager? = null
     private var vibrator: Vibrator? = null
 
     private var wal: RecordingWal? = null
     private var tickerJob: Job? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     // Tracking configuration
     private var targetDuration = Duration.ofHours(1)
@@ -81,6 +106,11 @@ class TrackingService :
     private var breakStartTimeMs: Long = 0L
     private var totalBreakDurationMs: Long = 0L
     private var lastAlertedKm: Int = 0
+    private var pendingPoint: TrackPoint? = null
+    private var lastAcceptedPoint: TrackPoint? = null
+
+    /** True while a finish/save is running: ingestion is frozen and further FINISH taps are ignored. */
+    private val finishInProgress = AtomicBoolean(false)
 
     // Recent speed smoothing window (last 5 fixes)
     private val speedHistory = ArrayDeque<Double>(5)
@@ -91,6 +121,12 @@ class TrackingService :
 
     private val _isPaused = MutableStateFlow(false)
     val isPaused: StateFlow<Boolean> = _isPaused.asStateFlow()
+
+    private val _gpsStatus = MutableStateFlow(GpsStatus.IDLE)
+    val gpsStatus: StateFlow<GpsStatus> = _gpsStatus.asStateFlow()
+
+    private val _lastAccuracyMeters = MutableStateFlow<Float?>(null)
+    val lastAccuracyMeters: StateFlow<Float?> = _lastAccuracyMeters.asStateFlow()
 
     private val _breakDurationSeconds = MutableStateFlow(0L)
     val breakDurationSeconds: StateFlow<Long> = _breakDurationSeconds.asStateFlow()
@@ -130,6 +166,8 @@ class TrackingService :
         super.onCreate()
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        settings = AppSettings.getInstance(this)
+        mesh = (application as TurnBackApplication).mesh
 
         vibrator =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -191,12 +229,35 @@ class TrackingService :
     ) {
         if (_isTracking.value) return
 
+        // Foreground-service type "location" throws on Android 14+ without the runtime permission.
+        if (!hasLocationPermission()) {
+            _gpsStatus.value = GpsStatus.NO_PERMISSION
+            stopSelf()
+            return
+        }
+
+        // Must be promoted to foreground promptly after startForegroundService().
+        val notification = buildNotification("Recording started...", "Waiting for GPS fix")
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (_: SecurityException) {
+            _gpsStatus.value = GpsStatus.NO_PERMISSION
+            stopSelf()
+            return
+        }
+
         this.targetDuration = Duration.ofSeconds(targetSec)
         this.activityType = activityType
 
         // Car mode has 0 return fatigue and symmetric 50% split
-        val effectiveBeta = if (activityType == ActivityType.CAR) 0.0 else beta
-        val effectiveSafetyBuffer = if (activityType == ActivityType.CAR) 0.0 else safetyBufferPercent
+        // Fatigue factor and safety margin come from Settings (the intent extra is only a fallback default).
+        // A stored 0.00 is a valid choice (symmetric 50% split), so it must not be replaced by the fallback.
+        val effectiveBeta = if (activityType == ActivityType.CAR) 0.0 else settings.beta.toDouble().takeIf { it.isFinite() } ?: beta
+        val effectiveSafetyBuffer = if (activityType == ActivityType.CAR) 0.0 else settings.safetyBuffer.toDouble()
         this.fatigueBeta = effectiveBeta
         this.safetyBufferPercent = effectiveSafetyBuffer
         this.outboundLimitDuration =
@@ -208,6 +269,9 @@ class TrackingService :
         this.breakStartTimeMs = 0L
         this.totalBreakDurationMs = 0L
         this.lastAlertedKm = 0
+        this.pendingPoint = null
+        this.lastAcceptedPoint = null
+        this.finishInProgress.set(false)
         this.speedHistory.clear()
 
         _points.value = emptyList()
@@ -218,31 +282,21 @@ class TrackingService :
         _isPaused.value = false
         _breakDurationSeconds.value = 0L
         _smoothedSpeedKmh.value = 0.0
+        _lastAccuracyMeters.value = null
+        _gpsStatus.value =
+            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                GpsStatus.WAITING_FOR_FIX
+            } else {
+                GpsStatus.GPS_DISABLED
+            }
+        acquireWakeLock()
 
         // Initialize crash-proof WAL
         val walFile = File(filesDir, "active_recording.wal")
         if (walFile.exists()) walFile.delete()
         wal = RecordingWal.create(walFile)
 
-        // Request GPS updates directly
-        try {
-            locationManager.requestLocationUpdates(
-                LocationManager.GPS_PROVIDER,
-                1000L,
-                1.0f,
-                this,
-            )
-        } catch (_: SecurityException) {
-        }
-
-        // Launch Foreground Service Notification
-        val notification = buildNotification("Recording started...", "Calculating out-and-back threshold")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
-
+        requestGpsUpdates()
         startTicker()
     }
 
@@ -272,25 +326,43 @@ class TrackingService :
         lastFixTimeMs = System.currentTimeMillis()
 
         // Re-enable GPS hardware listener upon resuming
-        try {
-            locationManager.requestLocationUpdates(
-                LocationManager.GPS_PROVIDER,
-                1000L,
-                1.0f,
-                this,
-            )
-        } catch (_: SecurityException) {
-        }
+        _gpsStatus.value = GpsStatus.WAITING_FOR_FIX
+        requestGpsUpdates()
 
         updateNotification()
     }
 
+    /**
+     * Registers for GPS fixes at the Settings sampling interval. The distance threshold is left at 0 on
+     * purpose: the minimum-distance setting only decides which fixes are *stored*, while every fix still
+     * refreshes live speed, position and the "my location" state.
+     */
+    private fun requestGpsUpdates() {
+        try {
+            locationManager.requestLocationUpdates(
+                LocationManager.GPS_PROVIDER,
+                settings.gpsSamplingRateMs.coerceIn(1000L, 60_000L),
+                0f,
+                this,
+                mainLooper,
+            )
+        } catch (_: SecurityException) {
+            _gpsStatus.value = GpsStatus.NO_PERMISSION
+        }
+    }
+
+    /**
+     * Records a waypoint at the current position. Returns false (and records nothing) if there is no fix yet or the
+     * activity is already being saved: the saved snapshot is complete by then, so a late waypoint would be lost
+     * with the WAL. Callers must tell the user, never fail silently.
+     */
     fun addWaypoint(
         name: String,
         description: String = "",
         category: WaypointCategory = WaypointCategory.NOTE,
-    ) {
-        val cur = _currentPoint.value ?: return
+    ): Boolean {
+        if (finishInProgress.get()) return false
+        val cur = _currentPoint.value ?: return false
         val waypoint =
             Waypoint(
                 sessionId = 0L,
@@ -304,91 +376,135 @@ class TrackingService :
             )
         wal?.appendWaypoint(waypoint)
         _waypoints.update { it + waypoint }
+        return true
     }
 
-    fun logWaterBreakWaypoint() {
+    fun logWaterBreakWaypoint(): Boolean =
         addWaypoint(
             name = "Water Stop",
             description = "Hydration break on trail",
             category = WaypointCategory.WATER,
         )
-    }
 
     fun stopAndSave(
         title: String? = null,
+        onFailed: ((String) -> Unit)? = null,
         onSaved: ((Long) -> Unit)? = null,
     ) {
         if (!_isTracking.value) return
+        // One save at a time: a second tap on FINISH while the first is writing would insert a duplicate activity.
+        // The same flag also freezes recording (see onLocationChanged), so the snapshot below is the complete
+        // session and no fix can slip into the WAL after it, only to be deleted with it.
+        if (!finishInProgress.compareAndSet(false, true)) return
+        val finalPoints = _points.value
+        val finalWaypoints = _waypoints.value
+
         serviceScope.launch(Dispatchers.IO) {
-            val finalPoints = _points.value
-            val finalWaypoints = _waypoints.value
-            val nowMs = System.currentTimeMillis()
-            val totalElapsed =
-                Duration.ofMillis(((nowMs - startTime.toEpochMilli()) - totalBreakDurationMs).coerceAtLeast(0L))
-            val finalStats = TurnBackEngine.computeStats(finalPoints, totalElapsed)
-            val sessionTitle = title?.ifBlank { null } ?: "${activityType.displayName} ${System.currentTimeMillis()}"
-
-            // 1. Export GPX file
-            val gpxFile = File(filesDir, "tracks/track_${System.currentTimeMillis()}.gpx")
-            GpxExporter.exportToFile(
-                file = gpxFile,
-                trackName = sessionTitle,
-                activityType = activityType.name,
-                points = finalPoints,
-                waypoints = finalWaypoints,
-            )
-
-            // 2. Persist in Room Database
-            val db = AppDatabase.getInstance(applicationContext)
-            val trackEntity =
-                TrackEntity(
-                    title = sessionTitle,
-                    activityType = activityType.name,
-                    startTime = startTime.toEpochMilli(),
-                    endTime = System.currentTimeMillis(),
-                    targetDurationSeconds = targetDuration.seconds,
-                    safetyBufferPercent = safetyBufferPercent,
-                    turnBackTriggeredAt = if (_turnBackTriggered.value) System.currentTimeMillis() else null,
-                    distanceKm = finalStats.distanceKm,
-                    movingDurationSeconds = finalStats.movingDuration.seconds,
-                    totalDurationSeconds = finalStats.totalDuration.seconds,
-                    avgSpeedKmh = finalStats.avgSpeedKmh,
-                    maxSpeedKmh = finalStats.maxSpeedKmh,
-                    elevationGainMeters = finalStats.elevationGainM,
-                    elevationLossMeters = finalStats.elevationLossM,
-                    gpxFilePath = gpxFile.absolutePath,
-                )
-            val trackId = db.trackDao().insertTrack(trackEntity)
-
-            val waypointEntities =
-                finalWaypoints.map { w ->
-                    WaypointEntity(
-                        trackId = trackId,
-                        name = w.name,
-                        description = w.description,
-                        latitude = w.latitude,
-                        longitude = w.longitude,
-                        altitudeMeters = w.altitudeMeters,
-                        category = w.category.name,
-                        timestamp = w.timestamp.toEpochMilli(),
-                    )
+            if (finalPoints.isEmpty()) {
+                // Nothing to save: don't write an empty track, just end the session cleanly.
+                File(filesDir, "active_recording.wal").delete()
+                withContext(Dispatchers.Main) {
+                    stopTracking()
+                    finishInProgress.set(false)
+                    onFailed?.invoke("No GPS points were recorded, so nothing was saved.")
                 }
-            db.waypointDao().insertWaypoints(waypointEntities)
+                return@launch
+            }
 
-            // 3. Clean up active WAL
-            wal?.close()
-            wal = null
-            val walFile = File(filesDir, "active_recording.wal")
-            if (walFile.exists()) walFile.delete()
+            val trackId =
+                try {
+                    saveSession(title, finalPoints, finalWaypoints)
+                } catch (e: Exception) {
+                    // Keep tracking state and the WAL intact so no data is lost; resume recording and let the user retry.
+                    finishInProgress.set(false)
+                    withContext(Dispatchers.Main) {
+                        onFailed?.invoke("Couldn't save activity (${e.message ?: "unknown error"}). Your data is safe, try again.")
+                    }
+                    return@launch
+                }
 
-            stopTracking()
-            onSaved?.invoke(trackId)
+            // Callbacks drive navigation/UI, so they must run on the main thread.
+            withContext(Dispatchers.Main) {
+                stopTracking() // closes the WAL; only then is it safe to delete it
+                File(filesDir, "active_recording.wal").delete()
+                finishInProgress.set(false)
+                onSaved?.invoke(trackId)
+            }
+        }
+    }
+
+    private suspend fun saveSession(
+        title: String?,
+        finalPoints: List<TrackPoint>,
+        finalWaypoints: List<Waypoint>,
+    ): Long {
+        val nowMs = System.currentTimeMillis()
+        val totalElapsed =
+            Duration.ofMillis(((nowMs - startTime.toEpochMilli()) - totalBreakDurationMs).coerceAtLeast(0L))
+        val finalStats = TurnBackEngine.computeStats(finalPoints, totalElapsed)
+        val sessionTitle = title?.ifBlank { null } ?: "${activityType.displayName} ${System.currentTimeMillis()}"
+
+        // 1. Export GPX file
+        val gpxFile = File(filesDir, "tracks/track_${System.currentTimeMillis()}.gpx")
+        GpxExporter.exportToFile(
+            file = gpxFile,
+            trackName = sessionTitle,
+            activityType = activityType.name,
+            points = finalPoints,
+            waypoints = finalWaypoints,
+        )
+
+        // 2. Persist in Room Database
+        val db = AppDatabase.getInstance(applicationContext)
+        val trackEntity =
+            TrackEntity(
+                title = sessionTitle,
+                activityType = activityType.name,
+                startTime = startTime.toEpochMilli(),
+                endTime = System.currentTimeMillis(),
+                targetDurationSeconds = targetDuration.seconds,
+                safetyBufferPercent = safetyBufferPercent,
+                turnBackTriggeredAt = if (_turnBackTriggered.value) System.currentTimeMillis() else null,
+                distanceKm = finalStats.distanceKm,
+                movingDurationSeconds = finalStats.movingDuration.seconds,
+                totalDurationSeconds = finalStats.totalDuration.seconds,
+                avgSpeedKmh = finalStats.avgSpeedKmh,
+                maxSpeedKmh = finalStats.maxSpeedKmh,
+                elevationGainMeters = finalStats.elevationGainM,
+                elevationLossMeters = finalStats.elevationLossM,
+                gpxFilePath = gpxFile.absolutePath,
+            )
+        return try {
+            // One transaction: a failed attempt leaves no track row, so a retry can't create a duplicate.
+            db.withTransaction {
+                val trackId = db.trackDao().insertTrack(trackEntity)
+                db.waypointDao().insertWaypoints(
+                    finalWaypoints.map { w ->
+                        WaypointEntity(
+                            trackId = trackId,
+                            name = w.name,
+                            description = w.description,
+                            latitude = w.latitude,
+                            longitude = w.longitude,
+                            altitudeMeters = w.altitudeMeters,
+                            category = w.category.name,
+                            timestamp = w.timestamp.toEpochMilli(),
+                        )
+                    },
+                )
+                trackId
+            }
+        } catch (e: Exception) {
+            gpxFile.delete() // no orphaned export from a failed attempt
+            throw e
         }
     }
 
     private fun stopTracking() {
         tickerJob?.cancel()
         tickerJob = null
+        releaseWakeLock()
+        _gpsStatus.value = GpsStatus.IDLE
         try {
             locationManager.removeUpdates(this)
         } catch (_: Exception) {
@@ -402,29 +518,37 @@ class TrackingService :
     }
 
     override fun onLocationChanged(location: Location) {
-        if (!_isTracking.value || _isPaused.value) return
+        if (!_isTracking.value || _isPaused.value || finishInProgress.get()) return
 
-        // 1. Accuracy Filter: discard fixes with poor horizontal accuracy (> 25m under heavy canopy)
-        if (location.hasAccuracy() && location.accuracy > 25.0f) {
+        // 1. Accuracy Filter: discard fixes worse than the Settings tolerance (record profile / GPS filters)
+        if (location.hasAccuracy()) _lastAccuracyMeters.value = location.accuracy
+        if (location.hasAccuracy() && location.accuracy > settings.maxAccuracyFilterM) {
+            _gpsStatus.value = GpsStatus.WEAK_SIGNAL
             return
         }
+        _gpsStatus.value = GpsStatus.ACTIVE
+
+        val extraFiltering = settings.extraFiltering
 
         // 2. Speed Sanity Filter: CAR allows up to 70 m/s (~250 km/h), foot activities capped at 14 m/s (~50 km/h)
         val maxSpeedMps = if (activityType == ActivityType.CAR) 70.0f else 14.0f
-        if (location.hasSpeed() && location.speed > maxSpeedMps) {
+        if (extraFiltering && location.hasSpeed() && location.speed > maxSpeedMps) {
             return
         }
 
-        val lastPoint = _points.value.lastOrNull()
+        val lastPoint = _points.value.lastOrNull() // last *stored* point (drives the min-distance storage filter)
+        val lastAccepted = lastAcceptedPoint // last fix that passed the filters, stored or not
         val now = System.currentTimeMillis()
 
-        // 3. Teleportation / Multipath Jump Filter: discard jumps > 60m (250m for CAR) within 2 seconds
+        // 3. Teleportation / Multipath Jump Filter: discard jumps > 60m (250m for CAR) within 2 seconds.
+        // Validated against the last *accepted* fix: the stored route lags behind it whenever the minimum-distance
+        // filter skips stationary fixes, which would otherwise let a 100 m jump slip past this check.
         val maxJumpMeters = if (activityType == ActivityType.CAR) 250.0 else 60.0
-        if (lastPoint != null && now - lastPoint.timestamp.toEpochMilli() <= 2000L) {
+        if (extraFiltering && lastAccepted != null && now - lastAccepted.timestamp.toEpochMilli() <= 2000L) {
             val dist =
                 TurnBackEngine.haversineDistanceMeters(
-                    lastPoint.latitude,
-                    lastPoint.longitude,
+                    lastAccepted.latitude,
+                    lastAccepted.longitude,
                     location.latitude,
                     location.longitude,
                 )
@@ -445,23 +569,50 @@ class TrackingService :
                 timestamp = Instant.ofEpochMilli(location.time),
             )
 
+        lastAcceptedPoint = point
+
         // Smooth speed via rolling window (last 5 fixes)
         if (speedHistory.size >= 5) speedHistory.removeFirst()
         speedHistory.addLast(point.speedKmh)
         _smoothedSpeedKmh.value = speedHistory.average()
-
-        // Write immediately to WAL (crash safety)
-        wal?.appendPoint(point)
-
-        // Update state
         _currentPoint.value = point
-        _points.update { it + point }
+        mesh?.updateLocalPosition(point.latitude, point.longitude, point.speedKmh, point.altitudeMeters)
 
         // Stationary Jitter Filter: only accumulate moving time if speed >= 0.4 m/s
         if (lastFixTimeMs > 0 && point.speedMps >= 0.4) {
             movingTimeMs += (now - lastFixTimeMs).coerceAtLeast(0)
         }
         lastFixTimeMs = now
+
+        // Minimum-distance filter: a fix that barely moved still refreshed live speed/position above, but
+        // is not stored, which keeps tracks (and the WAL) small and removes standing-still jitter.
+        val minDistanceM = settings.minDistanceFilterM.toDouble()
+        if (lastPoint != null && minDistanceM > 0.0) {
+            val moved =
+                TurnBackEngine.haversineDistanceMeters(
+                    lastPoint.latitude,
+                    lastPoint.longitude,
+                    point.latitude,
+                    point.longitude,
+                )
+            if (moved < minDistanceM) {
+                // Remember the latest skipped fix. Stats attribute each interval to the *later* fix's speed, so when
+                // movement resumes we store this one first: the stationary stretch ends at a low-speed fix instead
+                // of being counted as moving time by the next stored point.
+                pendingPoint = point
+                return
+            }
+        }
+
+        pendingPoint?.let { pending ->
+            wal?.appendPoint(pending)
+            _points.update { it + pending }
+        }
+        pendingPoint = null
+
+        // Write immediately to WAL (crash safety)
+        wal?.appendPoint(point)
+        _points.update { it + point }
 
         val activeElapsed =
             Duration.ofMillis(((now - startTime.toEpochMilli()) - totalBreakDurationMs).coerceAtLeast(0L))
@@ -512,6 +663,21 @@ class TrackingService :
     }
 
     private fun triggerTurnBackAlert() {
+        // Audible alarm (skipped for walks/hikes, where a loud tone is unwelcome), if enabled in Settings.
+        if (settings.audioAlarmsEnabled && activityType != ActivityType.WALK && activityType != ActivityType.HIKE) {
+            try {
+                val tone = ToneGenerator(AudioManager.STREAM_ALARM, 90)
+                tone.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 1500)
+                serviceScope.launch {
+                    delay(2000L)
+                    tone.release()
+                }
+            } catch (_: RuntimeException) {
+                // No audio route available; the haptic pulse below still fires.
+            }
+        }
+        if (!settings.hapticsEnabled) return
+
         // Haptic pulse alert (SOS pattern: 3 long pulses)
         val pattern = longArrayOf(0, 400, 200, 400, 200, 400)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -523,6 +689,8 @@ class TrackingService :
     }
 
     private fun triggerSplitAlert() {
+        if (!settings.hapticsEnabled) return
+
         // Double pulse for kilometer split
         val pattern = longArrayOf(0, 150, 100, 150)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -531,6 +699,40 @@ class TrackingService :
             @Suppress("DEPRECATION")
             vibrator?.vibrate(pattern, -1)
         }
+    }
+
+    override fun onProviderEnabled(provider: String) {
+        if (provider == LocationManager.GPS_PROVIDER && _isTracking.value && !_isPaused.value) {
+            _gpsStatus.value = GpsStatus.WAITING_FOR_FIX
+        }
+    }
+
+    override fun onProviderDisabled(provider: String) {
+        if (provider == LocationManager.GPS_PROVIDER && _isTracking.value) {
+            _gpsStatus.value = GpsStatus.GPS_DISABLED
+        }
+    }
+
+    private fun hasLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+
+    private fun acquireWakeLock() {
+        if (wakeLock?.isHeld == true) return
+        val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
+        wakeLock =
+            pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "turnback:tracking").apply {
+                setReferenceCounted(false)
+                acquire(WAKE_LOCK_TIMEOUT_MS)
+            }
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            if (wakeLock?.isHeld == true) wakeLock?.release()
+        } catch (_: Exception) {
+        }
+        wakeLock = null
     }
 
     private fun updateNotification() {
@@ -631,12 +833,14 @@ class TrackingService :
     }
 
     override fun onDestroy() {
+        releaseWakeLock()
         serviceScope.cancel()
         wal?.close()
         super.onDestroy()
     }
 
     companion object {
+        const val WAKE_LOCK_TIMEOUT_MS = 12L * 60 * 60 * 1000
         const val NOTIFICATION_ID = 4201
         const val CHANNEL_ID = "turnback_tracking_channel"
 

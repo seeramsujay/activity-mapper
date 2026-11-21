@@ -5,10 +5,15 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    # checkov:skip=CKV_GHA_7: Intentional. Old release tags (e.g. v1.4.0) predate this workflow file, so a manual run
+    # must be dispatched from a ref that has it (the default branch) and be told which existing release to build
+    # and upload to. The input is validated against real releases before anything is checked out or built, and it
+    # only ever flows through an environment variable (never interpolated into a script).
     inputs:
       tag:
-        description: Release tag to build and upload to (e.g. v1.4.0)
+        description: Existing release tag to build and upload to (e.g. v1.4.0)
         required: true
+        type: string
 
 permissions:
   contents: write
@@ -20,11 +25,16 @@ jobs:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.TAG }}
+      # Fail fast, before any checkout/build/upload, unless the tag names an existing release.
+      - name: Verify the tag names an existing release
+        run: gh release view "$TAG" -R "$GITHUB_REPOSITORY" > /dev/null
 
-      - uses: subosito/flutter-action@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Fully qualified: a branch that shares the tag's name must never win over the release tag.
+          ref: refs/tags/${{ env.TAG }}
+
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
           flutter-version: 3.47.7

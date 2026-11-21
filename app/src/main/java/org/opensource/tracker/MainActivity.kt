@@ -6,6 +6,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -13,14 +14,17 @@ import android.os.Bundle
 import android.os.IBinder
 import android.os.PowerManager
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,10 +34,15 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.opensource.tracker.data.db.AppDatabase
 import org.opensource.tracker.data.db.TrackEntity
 import org.opensource.tracker.data.db.WaypointEntity
 import org.opensource.tracker.data.gpx.GpxExporter
+import org.opensource.tracker.data.gpx.GpxTrackImporter
+import org.opensource.tracker.data.mesh.MeshSessionConfig
+import org.opensource.tracker.data.settings.AppSettings
+import org.opensource.tracker.data.settings.AppThemeMode
 import org.opensource.tracker.data.wal.RecordingWal
 import org.opensource.tracker.domain.turnback.TurnBackEngine
 import org.opensource.tracker.service.TrackingService
@@ -73,9 +82,30 @@ class MainActivity : ComponentActivity() {
         // Bind to tracking service
         val intent = Intent(this, TrackingService::class.java)
         bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        handleIncomingIntent(getIntent())
 
         setContent {
-            var isOled by remember { mutableStateOf(false) }
+            val settings = remember { AppSettings.getInstance(this@MainActivity) }
+            var isOled by remember { mutableStateOf(settings.isOled) }
+            var themeMode by remember { mutableStateOf(settings.themeMode) }
+
+            // Settings screen writes preferences; reflect theme changes live.
+            DisposableEffect(Unit) {
+                val prefs = getSharedPreferences(SETTINGS_PREFS_NAME, Context.MODE_PRIVATE)
+                val listener =
+                    SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+                        themeMode = settings.themeMode
+                        isOled = settings.isOled
+                    }
+                prefs.registerOnSharedPreferenceChangeListener(listener)
+                onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+            }
+            val darkTheme =
+                when (themeMode) {
+                    AppThemeMode.LIGHT -> false
+                    AppThemeMode.DARK -> true
+                    AppThemeMode.SYSTEM -> isSystemInDarkTheme()
+                }
             var showRecoveryDialog by remember { mutableStateOf(false) }
             var showBatteryOptimizationDialog by remember { mutableStateOf(false) }
             val walFile = File(filesDir, "active_recording.wal")
@@ -108,15 +138,28 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            if (RecordingWal.hasActiveRecording(walFile) && trackingService?.isTracking?.value != true) {
-                showRecoveryDialog = true
+            // Decide once the service is bound (never during composition): offering to "recover" the WAL of a
+            // recording that is still running, then deleting it, would destroy live data.
+            val boundService = serviceBoundState.value
+            LaunchedEffect(boundService) {
+                if (boundService == null || boundService.isTracking.value) return@LaunchedEffect
+                if (!RecordingWal.hasActiveRecording(walFile)) return@LaunchedEffect
+                val hasPoints = withContext(Dispatchers.IO) { RecordingWal.recover(walFile).points.isNotEmpty() }
+                if (hasPoints) {
+                    showRecoveryDialog = true
+                } else {
+                    withContext(Dispatchers.IO) { walFile.delete() }
+                }
             }
 
-            TurnBackTheme(isOled = isOled) {
+            TurnBackTheme(darkTheme = darkTheme, isOled = isOled) {
                 TurnBackNavGraph(
                     service = serviceBoundState.value,
                     isOled = isOled,
-                    onToggleOled = { isOled = !isOled },
+                    onToggleOled = {
+                        isOled = !isOled
+                        settings.isOled = isOled
+                    },
                 )
 
                 if (showBatteryOptimizationDialog) {
@@ -247,6 +290,35 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingIntent(intent)
+    }
+
+    /** Group invite links (turnback://mesh?...) and "open with" for .gpx files. */
+    private fun handleIncomingIntent(intent: Intent?) {
+        if (intent == null) return
+        val data = intent.data ?: return
+        if (intent.action != Intent.ACTION_VIEW) return
+
+        if (data.scheme == "turnback" || data.scheme == "activitymapper") {
+            MeshSessionConfig.fromUri(data.toString())?.let { (application as TurnBackApplication).mesh.offerInvite(it) }
+            return
+        }
+
+        if (data.scheme == "content" || data.scheme == "file") {
+            lifecycleScope.launch {
+                GpxTrackImporter
+                    .import(applicationContext, data)
+                    .onSuccess { Toast.makeText(this@MainActivity, "Imported to your library", Toast.LENGTH_SHORT).show() }
+                    .onFailure { Toast.makeText(this@MainActivity, it.message ?: "Import failed", Toast.LENGTH_LONG).show() }
+            }
+        }
+        // Consume so a configuration change / relaunch doesn't re-import the same file.
+        intent.data = null
+    }
+
     private fun checkBatteryOptimization(onNeedsPrompt: () -> Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
@@ -262,5 +334,9 @@ class MainActivity : ComponentActivity() {
             isServiceBound = false
         }
         super.onDestroy()
+    }
+
+    private companion object {
+        const val SETTINGS_PREFS_NAME = "turnback_app_settings"
     }
 }

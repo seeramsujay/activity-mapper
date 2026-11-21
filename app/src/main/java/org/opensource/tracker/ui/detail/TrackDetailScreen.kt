@@ -50,14 +50,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.opensource.tracker.data.db.AppDatabase
 import org.opensource.tracker.data.db.TrackEntity
 import org.opensource.tracker.data.db.WaypointEntity
 import org.opensource.tracker.data.gpx.GpxImporter
+import org.opensource.tracker.data.settings.AppSettings
 import org.opensource.tracker.domain.model.TrackPoint
 import org.opensource.tracker.domain.turnback.TurnBackEngine
 import org.opensource.tracker.service.TrackingService
 import org.opensource.tracker.ui.components.InteractiveProfileChart
+import org.opensource.tracker.ui.components.RouteMapCard
+import org.opensource.tracker.ui.util.UnitFormat
 import java.io.File
 import java.io.FileInputStream
 import java.text.SimpleDateFormat
@@ -74,6 +79,7 @@ fun TrackDetailScreen(
     onOverlayOnMap: () -> Unit = {},
 ) {
     val context = LocalContext.current
+    val imperial = remember { AppSettings.getInstance(context).useImperialUnits }
     var track by remember { mutableStateOf<TrackEntity?>(null) }
     var waypoints by remember { mutableStateOf<List<WaypointEntity>>(emptyList()) }
     var points by remember { mutableStateOf<List<TrackPoint>>(emptyList()) }
@@ -87,8 +93,12 @@ fun TrackDetailScreen(
         t?.gpxFilePath?.let { path ->
             val file = File(path)
             if (file.exists()) {
-                val parsed = GpxImporter.parse(FileInputStream(file))
-                points = parsed.points
+                // Parse off the main thread; a long or corrupt GPX must not freeze or crash the screen.
+                points =
+                    withContext(Dispatchers.IO) {
+                        runCatching { FileInputStream(file).use { GpxImporter.parse(it).points } }
+                            .getOrDefault(emptyList())
+                    }
             }
         }
     }
@@ -182,6 +192,11 @@ fun TrackDetailScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+
+            if (points.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                RouteMapCard(points = points, waypoints = waypoints)
             }
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -294,7 +309,7 @@ fun TrackDetailScreen(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 MetricCard(
                     title = "DISTANCE",
-                    value = String.format(Locale.US, "%.2f km", currentTrack.distanceKm),
+                    value = UnitFormat.distance(currentTrack.distanceKm, imperial),
                     modifier = Modifier.weight(1f),
                 )
                 MetricCard(
@@ -309,12 +324,12 @@ fun TrackDetailScreen(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 MetricCard(
                     title = "AVG SPEED",
-                    value = String.format(Locale.US, "%.1f km/h", currentTrack.avgSpeedKmh),
+                    value = UnitFormat.speed(currentTrack.avgSpeedKmh, imperial),
                     modifier = Modifier.weight(1f),
                 )
                 MetricCard(
                     title = "ELEV GAIN",
-                    value = String.format(Locale.US, "+%.0f m", currentTrack.elevationGainMeters),
+                    value = UnitFormat.elevation(currentTrack.elevationGainMeters, imperial),
                     valueColor = Color(0xFF10B981),
                     modifier = Modifier.weight(1f),
                 )
@@ -373,10 +388,10 @@ fun TrackDetailScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    DetailRow("Average Speed", String.format(Locale.US, "%.1f km/h", currentTrack.avgSpeedKmh))
-                    DetailRow("Maximum Speed", String.format(Locale.US, "%.1f km/h", currentTrack.maxSpeedKmh))
-                    DetailRow("Average Pace", stats.avgPaceMinKm + " /km")
-                    DetailRow("Best Pace", stats.bestPaceMinKm + " /km")
+                    DetailRow("Average Speed", UnitFormat.speed(currentTrack.avgSpeedKmh, imperial))
+                    DetailRow("Maximum Speed", UnitFormat.speed(currentTrack.maxSpeedKmh, imperial))
+                    DetailRow("Average Pace", UnitFormat.pace(stats.avgPaceMinKm, imperial) + " " + UnitFormat.paceUnit(imperial))
+                    DetailRow("Best Pace", UnitFormat.pace(stats.bestPaceMinKm, imperial) + " " + UnitFormat.paceUnit(imperial))
 
                     stats.fastestSplit?.let { fast ->
                         DetailRow(
@@ -401,8 +416,8 @@ fun TrackDetailScreen(
 
                     Divider(modifier = Modifier.padding(vertical = 10.dp))
 
-                    DetailRow("Elevation Gain", String.format(Locale.US, "+%.0f m", currentTrack.elevationGainMeters))
-                    DetailRow("Elevation Loss", String.format(Locale.US, "-%.0f m", currentTrack.elevationLossMeters))
+                    DetailRow("Elevation Gain", UnitFormat.elevation(currentTrack.elevationGainMeters, imperial))
+                    DetailRow("Elevation Loss", "-" + UnitFormat.elevation(currentTrack.elevationLossMeters, imperial).removePrefix("+"))
                     DetailRow(
                         "Altitude Range",
                         String.format(Locale.US, "%.0fm – %.0fm", stats.minAltitudeM, stats.maxAltitudeM),
