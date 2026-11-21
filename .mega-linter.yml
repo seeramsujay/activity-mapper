@@ -8,7 +8,8 @@ VALIDATE_ALL_CODEBASE: true
 PRINT_ALPACA: false
 SHOW_ELAPSED_TIME: true
 FILEIO_REPORTER: false
-EXCLUDED_DIRECTORIES:
+# "ADDITIONAL_" extends MegaLinter's defaults (.git, node_modules, report dirs) instead of replacing them.
+ADDITIONAL_EXCLUDED_DIRECTORIES:
   - build
   - .dart_tool
   - ios/Pods
