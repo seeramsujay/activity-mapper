@@ -1,11 +1,32 @@
----
 # MegaLinter configuration
-APPLY_FIXES: none
-VALIDATE_ALL_CODEBASE: false
-ENABLE_LINTERS:
-  - BASH_BASH_EXEC
-  - REPOSITORY_GITLEAKS
-  - REPOSITORY_SECRETLINT
-  - REPOSITORY_TRIVY
-  - XML_XMLLINT
-  - YAML_PRETTIER
+#
+# Scope: repository-wide hygiene: secrets, vulnerable dependencies, workflow and config validity, links, shell, YAML.
+#
+# Kotlin style is enforced by .github/workflows/lint.yml (ktlint 1.5.0 with the project .editorconfig, plus unit
+# tests and an APK build). MegaLinter's own Kotlin linters would give contradictory verdicts, so they are off.
+VALIDATE_ALL_CODEBASE: true
+PRINT_ALPACA: false
+SHOW_ELAPSED_TIME: true
+FILEIO_REPORTER: false
+EXCLUDED_DIRECTORIES:
+  - build
+  - .dart_tool
+  - ios/Pods
+  - android/.gradle
+
+DISABLE_LINTERS:
+  # A different ktlint version without the project's rules (lint.yml is the real Kotlin gate).
+  - KOTLIN_KTLINT
+  # No detekt ruleset exists for this project; running it with defaults only produces noise.
+  - KOTLIN_DETEKT
+  # Identifier-heavy code (osmdroid, kotlinx, colab, ...): thousands of false positives, no signal.
+  - SPELL_CSPELL
+  # Only ever sees one Xcode-generated bridging header.
+  - C_CPPLINT
+  - CPP_CPPLINT
+  # Its vulnerability database download fails intermittently in CI (an infrastructure error, not a finding);
+  # Trivy already scans dependencies for known vulnerabilities.
+  - REPOSITORY_GRYPE
+
+# Generated or vendored files that nobody edits by hand.
+FILTER_REGEX_EXCLUDE: '(^|/)(gradlew|gradlew\.bat)$|ios/Flutter/ephemeral/|GeneratedPluginRegistrant|ios/Runner/Runner-Bridging-Header\.h$'

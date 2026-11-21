@@ -1,0 +1,15 @@
+---
+# yamllint settings for the repository (picked up by MegaLinter). GitHub Actions workflows legitimately use long
+# lines, the bare `on:` key, `[ "branch" ]` style flow lists and omit the `---` document marker.
+extends: relaxed
+
+rules:
+  line-length: disable
+  document-start: disable
+  truthy:
+    check-keys: false
+  brackets: disable
+  comments-indentation: disable
+  indentation:
+    spaces: consistent
+    indent-sequences: whatever

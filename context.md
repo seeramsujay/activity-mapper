@@ -21,7 +21,7 @@ This document provides a comprehensive technical log and architectural overview 
     * *5 km*: ~380 tiles (~9.5 MB)
     * *10 km*: ~1,500 tiles (~38.0 MB)
     * *20 km*: ~5,800 tiles (~145.0 MB)
-- **Map View Integration ([`OsmMapView`](lib/widgets/osm_map_view.dart))**:
+- **Map View Integration ([`VectorMapView`](lib/widgets/vector_map_view.dart))**:
   - Uses `_CachedTileImage` to load tiles directly from disk for 0 ms offline map rendering and zero cellular data usage.
 - **Google Maps-Style UI in Settings ([`SettingsScreen`](lib/screens/settings_screen.dart))**:
   - Bottom sheet dialog with custom **Area Name** input field, **Radius Slider** (2 km – 20 km), live storage footprint card, live progress bar, tile count / MB metrics, and 1-tap "Clear Cache" button.

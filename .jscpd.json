@@ -1,0 +1,15 @@
+{
+  "threshold": 5,
+  "minLines": 10,
+  "minTokens": 70,
+  "ignore": [
+    "**/build/**",
+    "**/.dart_tool/**",
+    "**/ios/Pods/**",
+    "**/*.g.dart",
+    "**/test/**",
+    "**/GeneratedPluginRegistrant.*",
+    "**/*.lock",
+    "**/*.md"
+  ]
+}
