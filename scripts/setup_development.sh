@@ -103,9 +103,11 @@ configure_shell() {
     if [ -f "$rc_file" ]; then
         if ! grep -q "development/flutter/bin" "$rc_file"; then
             log_info "Injecting Flutter path exports to $rc_file"
-            echo "" >> "$rc_file"
-            echo "# Flutter SDK path configuration" >> "$rc_file"
-            echo "$export_line" >> "$rc_file"
+            {
+                echo ""
+                echo "# Flutter SDK path configuration"
+                echo "$export_line"
+            } >> "$rc_file"
             log_success "Updated $rc_file. Please run 'source $rc_file' to load in current terminal."
         else
             log_success "Flutter path already configured in $rc_file"
