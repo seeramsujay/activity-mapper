@@ -351,12 +351,18 @@ class TrackingService :
         }
     }
 
+    /**
+     * Records a waypoint at the current position. Returns false (and records nothing) if there is no fix yet or the
+     * activity is already being saved: the saved snapshot is complete by then, so a late waypoint would be lost
+     * with the WAL. Callers must tell the user, never fail silently.
+     */
     fun addWaypoint(
         name: String,
         description: String = "",
         category: WaypointCategory = WaypointCategory.NOTE,
-    ) {
-        val cur = _currentPoint.value ?: return
+    ): Boolean {
+        if (finishInProgress.get()) return false
+        val cur = _currentPoint.value ?: return false
         val waypoint =
             Waypoint(
                 sessionId = 0L,
@@ -370,15 +376,15 @@ class TrackingService :
             )
         wal?.appendWaypoint(waypoint)
         _waypoints.update { it + waypoint }
+        return true
     }
 
-    fun logWaterBreakWaypoint() {
+    fun logWaterBreakWaypoint(): Boolean =
         addWaypoint(
             name = "Water Stop",
             description = "Hydration break on trail",
             category = WaypointCategory.WATER,
         )
-    }
 
     fun stopAndSave(
         title: String? = null,

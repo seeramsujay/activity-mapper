@@ -260,9 +260,8 @@ class MeshManager(
         type: PingType,
         customText: String? = null,
     ) {
-        val s = _state.value
+        val (session, s) = activeSession() ?: return
         val config = s.config ?: return
-        if (!s.active) return
         val ping =
             MeshPing(
                 id = MeshCrypto.generateId().substring(0, 8),
@@ -274,18 +273,28 @@ class MeshManager(
                 customText = customText,
             )
         scope.launch {
-            send(packet("ping", config).put("ping", ping.toJson()))
+            send(packet("ping", config).put("ping", ping.toJson()), session)
         }
     }
+
+    /**
+     * The live socket together with the state it belongs to, read atomically. Everything that sends captures this
+     * once and hands the socket to [send], which refuses to transmit if that session has since been replaced.
+     */
+    private fun activeSession(): Pair<DatagramSocket, MeshUiState>? =
+        synchronized(lock) {
+            val sock = socket
+            val state = _state.value
+            if (sock == null || !state.active || state.config == null) null else sock to state
+        }
 
     fun addSharedWaypoint(
         name: String,
         lat: Double,
         lng: Double,
     ) {
-        val s = _state.value
+        val (session, s) = activeSession() ?: return
         val config = s.config ?: return
-        if (!s.active) return
         val waypoint =
             SharedWaypoint(
                 id = MeshCrypto.generateId().substring(0, 8),
@@ -298,23 +307,26 @@ class MeshManager(
                 timestamp = System.currentTimeMillis(),
             )
         synchronized(lock) {
+            if (socket !== session) return // the group changed under us: don't put this pin into the new one
             sharedWaypoints[waypoint.id] = waypoint
             publishWaypoints()
         }
         scope.launch {
-            send(packet("wpt_add", config).put("wpt", waypoint.toJson()))
+            send(packet("wpt_add", config).put("wpt", waypoint.toJson()), session)
         }
     }
 
     fun removeSharedWaypoint(id: String) {
-        val config = _state.value.config ?: return
+        val (session, s) = activeSession() ?: return
+        val config = s.config ?: return
         synchronized(lock) {
+            if (socket !== session) return
             remember(deletedPinIds, id, MAX_TOMBSTONES)
             sharedWaypoints.remove(id)
             publishWaypoints()
         }
         scope.launch {
-            send(packet("wpt_del", config).put("wid", id))
+            send(packet("wpt_del", config).put("wid", id), session)
         }
     }
 
@@ -578,17 +590,22 @@ class MeshManager(
         if (newcomer || newEndpoint) {
             scope.launch {
                 broadcastTelemetry()
-                resendPinState()
+                resendPinState(sock)
             }
         }
     }
 
     /** Re-sends every live pin, and every remembered deletion, so a late joiner or returning peer converges. */
-    private suspend fun resendPinState() {
-        val config = _state.value.config ?: return
-        val (pins, deleted) = synchronized(lock) { sharedWaypoints.values.toList() to deletedPinIds.toList() }
-        for (pin in pins) send(packet("wpt_add", config).put("wpt", pin.toJson()))
-        for (id in deleted) send(packet("wpt_del", config).put("wid", id))
+    private suspend fun resendPinState(session: DatagramSocket) {
+        // Snapshot the pins together with the session they belong to; if the group changed meanwhile, drop the work
+        // instead of sending the old group's pins (encrypted for the new group) to the new group's members.
+        val snapshot =
+            synchronized(lock) {
+                if (socket === session) Triple(_state.value.config, sharedWaypoints.values.toList(), deletedPinIds.toList()) else null
+            } ?: return
+        val config = snapshot.first ?: return
+        for (pin in snapshot.second) send(packet("wpt_add", config).put("wpt", pin.toJson()), session)
+        for (id in snapshot.third) send(packet("wpt_del", config).put("wid", id), session)
     }
 
     /** Within the allowed clock skew (phones are NTP-synced; this only rejects very old or far-future packets). */
@@ -606,9 +623,8 @@ class MeshManager(
     }
 
     private suspend fun broadcastTelemetry() {
-        val s = _state.value
+        val (session, s) = activeSession() ?: return
         val config = s.config ?: return
-        if (!s.active) return
         // Only a fix obtained during this session and still recent goes out as "live". Otherwise we send 0,0 ("no
         // fix yet"), which peers already understand: an old private location must never be presented as current.
         val now = System.currentTimeMillis()
@@ -624,41 +640,52 @@ class MeshManager(
         packet.put("ts", now)
         packet.put("seq", telemetrySeq.incrementAndGet())
         s.publicEndpoint?.let { packet.put("pip", it.ip).put("pport", it.port) }
-        send(packet)
+        send(packet, session)
     }
 
-    /** Encrypts and sends to the subnet broadcast addresses and every known peer endpoint. */
-    private suspend fun send(packet: JSONObject) =
-        withContext(Dispatchers.IO) {
-            val sock = socket ?: return@withContext
-            val config = _state.value.config ?: return@withContext
-            val bytes = MeshCrypto.encrypt(packet.toString(), config.sessionKey).toByteArray(Charsets.UTF_8)
+    /**
+     * Encrypts and sends to the subnet broadcast addresses and every known peer endpoint of [session].
+     * The packet was built for [session]; if that session has been left or replaced since, it is dropped. Without
+     * this, a packet describing group A could be encrypted with group B's key and delivered to group B.
+     */
+    private suspend fun send(
+        packet: JSONObject,
+        session: DatagramSocket,
+    ) = withContext(Dispatchers.IO) {
+        // Socket, key and destinations are read together, atomically with the session check.
+        val snapshot =
+            synchronized(lock) {
+                if (socket === session) Triple(session, _state.value.config, knownPeerEndpoints.toList()) else null
+            } ?: return@withContext
+        val sock = snapshot.first
+        val config = snapshot.second ?: return@withContext
+        val peers = snapshot.third
+        val bytes = MeshCrypto.encrypt(packet.toString(), config.sessionKey).toByteArray(Charsets.UTF_8)
 
-            fun sendTo(
-                address: InetAddress,
-                port: Int,
-            ) {
-                try {
-                    sock.send(DatagramPacket(bytes, bytes.size, address, port))
-                } catch (_: Exception) {
-                    // unreachable network: ignore
-                }
-            }
-
-            sendTo(InetAddress.getByName("255.255.255.255"), DEFAULT_PORT)
-            runCatching {
-                NetworkInterface.getNetworkInterfaces()?.toList().orEmpty().filter { it.isUp && !it.isLoopback }.forEach { iface ->
-                    iface.interfaceAddresses.mapNotNull { it.broadcast }.forEach { sendTo(it, DEFAULT_PORT) }
-                }
-            }
-            val peers = synchronized(lock) { knownPeerEndpoints.toList() }
-            for (endpoint in peers) {
-                val parts = endpoint.split(":")
-                if (parts.size != 2) continue
-                val port = parts[1].toIntOrNull() ?: DEFAULT_PORT
-                runCatching { InetAddress.getByName(parts[0]) }.getOrNull()?.let { sendTo(it, port) }
+        fun sendTo(
+            address: InetAddress,
+            port: Int,
+        ) {
+            try {
+                sock.send(DatagramPacket(bytes, bytes.size, address, port))
+            } catch (_: Exception) {
+                // unreachable network: ignore
             }
         }
+
+        sendTo(InetAddress.getByName("255.255.255.255"), DEFAULT_PORT)
+        runCatching {
+            NetworkInterface.getNetworkInterfaces()?.toList().orEmpty().filter { it.isUp && !it.isLoopback }.forEach { iface ->
+                iface.interfaceAddresses.mapNotNull { it.broadcast }.forEach { sendTo(it, DEFAULT_PORT) }
+            }
+        }
+        for (endpoint in peers) {
+            val parts = endpoint.split(":")
+            if (parts.size != 2) continue
+            val port = parts[1].toIntOrNull() ?: DEFAULT_PORT
+            runCatching { InetAddress.getByName(parts[0]) }.getOrNull()?.let { sendTo(it, port) }
+        }
+    }
 
     // ---------------------------------------------------------------- state helpers (call under lock)
 

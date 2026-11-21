@@ -294,7 +294,11 @@ fun MapScreen(
                         if (isPaused) service?.resumeTracking() else service?.pauseTracking()
                     },
                     onAddWaypoint = { showWaypointDialog = true },
-                    onLogWaterBreak = { service?.logWaterBreakWaypoint() },
+                    onLogWaterBreak = {
+                        if (service?.logWaterBreakWaypoint() == false) {
+                            Toast.makeText(context, WAYPOINT_NOT_ADDED, Toast.LENGTH_SHORT).show()
+                        }
+                    },
                     onToggleOled = onToggleOled,
                     onFinish = {
                         service?.stopAndSave(
@@ -799,12 +803,16 @@ fun MapScreen(
         WaypointDialog(
             onDismiss = { showWaypointDialog = false },
             onSave = { name, description, category ->
-                service?.addWaypoint(name, description, category)
+                if (service?.addWaypoint(name, description, category) == false) {
+                    Toast.makeText(context, WAYPOINT_NOT_ADDED, Toast.LENGTH_SHORT).show()
+                }
                 showWaypointDialog = false
             },
         )
     }
 }
+
+private const val WAYPOINT_NOT_ADDED = "Waypoint not added: no GPS fix yet, or the activity is being saved."
 
 /**
  * Mutable bookkeeping for what is already drawn on the MapView. Deliberately NOT Compose state: it must

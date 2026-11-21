@@ -1,8 +1,9 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
-# NOTE: the v2 schema has no top-level `version` key. An unknown key makes the file invalid, and CodeRabbit then
-# silently falls back to defaults (only the default branch is reviewed), so PRs into other branches were skipped.
+# NOTE: this file must satisfy the schema above or CodeRabbit silently falls back to defaults (only the default
+# branch is reviewed, so PRs into other branches are skipped). Two things broke it before: a top-level `version`
+# key (not in the v2 schema) and a `tone_instructions` value over the 250-character limit.
 language: "en-US"
-tone_instructions: "You are an expert reviewer for open-source Android applications written in Kotlin and Jetpack Compose under the GNU AGPL v3.0 license. Prioritize memory leaks, lifecycle issues, Coroutine/Flow concurrency bugs, crash-proof WAL reliability, GPS battery consumption, and Material 3 design accessibility."
+tone_instructions: "Expert Kotlin/Jetpack Compose reviewer (AGPL-3.0 Android app). Prioritize memory leaks, lifecycle issues, coroutine/Flow concurrency bugs, WAL crash-safety, GPS battery use, and Material 3 accessibility."
 early_access: false
 
 reviews:
