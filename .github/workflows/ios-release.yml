@@ -4,11 +4,9 @@ name: iOS release build
 on:
   release:
     types: [published]
+  # Manual runs take no inputs (build output must not depend on user parameters): pick the release tag itself as the
+  # ref in "Use workflow from" (e.g. v1.4.0) and the build/upload target is that tag.
   workflow_dispatch:
-    inputs:
-      tag:
-        description: Release tag to build and upload to (e.g. v1.4.0)
-        required: true
 
 permissions:
   contents: write
@@ -17,14 +15,14 @@ jobs:
   ipa:
     runs-on: macos-latest
     env:
-      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      TAG: ${{ github.event.release.tag_name || github.ref_name }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ env.TAG }}
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
           flutter-version: 3.47.7
