@@ -31,7 +31,8 @@ jobs:
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ env.TAG }}
+          # Fully qualified: a branch that shares the tag's name must never win over the release tag.
+          ref: refs/tags/${{ env.TAG }}
 
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
