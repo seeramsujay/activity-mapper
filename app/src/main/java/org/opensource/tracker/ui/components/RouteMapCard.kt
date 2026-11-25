@@ -2,6 +2,7 @@ package org.opensource.tracker.ui.components
 
 import android.graphics.Color
 import android.graphics.Paint
+import android.view.View
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -113,14 +114,40 @@ fun RouteMapCard(
                     )
                 }
 
-                // Frame the route once the view has a size (post runs after layout).
-                map.post {
+                val frameRoute = {
                     if (geoPoints.size > 1) {
                         map.zoomToBoundingBox(BoundingBox.fromGeoPoints(geoPoints), false, 72)
                     } else {
                         map.controller.setZoom(16.0)
                         map.controller.setCenter(geoPoints.first())
                     }
+                    map.invalidate()
+                }
+                // Frame immediately when laid out; otherwise wait for the first layout pass
+                // so zoomToBoundingBox has non-zero bounds.
+                if (map.isLaidOut && map.width > 0 && map.height > 0) {
+                    frameRoute()
+                } else {
+                    map.addOnLayoutChangeListener(
+                        object : View.OnLayoutChangeListener {
+                            override fun onLayoutChange(
+                                v: View,
+                                left: Int,
+                                top: Int,
+                                right: Int,
+                                bottom: Int,
+                                oldLeft: Int,
+                                oldTop: Int,
+                                oldRight: Int,
+                                oldBottom: Int,
+                            ) {
+                                if (right - left > 0 && bottom - top > 0) {
+                                    v.removeOnLayoutChangeListener(this)
+                                    frameRoute()
+                                }
+                            }
+                        },
+                    )
                 }
                 map.invalidate()
             },

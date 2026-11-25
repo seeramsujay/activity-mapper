@@ -22,6 +22,8 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import androidx.room.withTransaction
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -104,6 +106,11 @@ class TrackingService :
     // StateFlows exposed to Jetpack Compose UI
     private val _isTracking = MutableStateFlow(false)
     val isTracking: StateFlow<Boolean> = _isTracking.asStateFlow()
+
+    private val isSaving = AtomicBoolean(false)
+
+    @Volatile
+    private var isRecordingFrozen = false
 
     private val _isPaused = MutableStateFlow(false)
     val isPaused: StateFlow<Boolean> = _isPaused.asStateFlow()
@@ -292,7 +299,7 @@ class TrackingService :
     }
 
     fun pauseTracking() {
-        if (!_isTracking.value || _isPaused.value) return
+        if (!_isTracking.value || _isPaused.value || isRecordingFrozen) return
         _isPaused.value = true
         breakStartTimeMs = System.currentTimeMillis()
         wal?.appendBreak()
@@ -307,7 +314,7 @@ class TrackingService :
     }
 
     fun resumeTracking() {
-        if (!_isTracking.value || !_isPaused.value) return
+        if (!_isTracking.value || !_isPaused.value || isRecordingFrozen) return
         _isPaused.value = false
         if (breakStartTimeMs > 0L) {
             totalBreakDurationMs += (System.currentTimeMillis() - breakStartTimeMs)
@@ -338,6 +345,7 @@ class TrackingService :
         description: String = "",
         category: WaypointCategory = WaypointCategory.NOTE,
     ) {
+        if (!_isTracking.value || isRecordingFrozen) return
         val cur = _currentPoint.value ?: return
         val waypoint =
             Waypoint(
@@ -367,16 +375,26 @@ class TrackingService :
         onFailed: ((String) -> Unit)? = null,
         onSaved: ((Long) -> Unit)? = null,
     ) {
-        if (!_isTracking.value) return
-        serviceScope.launch(Dispatchers.IO) {
-            val finalPoints = _points.value
-            val finalWaypoints = _waypoints.value
+        if (!_isTracking.value || !isSaving.compareAndSet(false, true)) return
+        // Freeze recording before taking the save snapshot so no new GPS points or waypoints
+        // arrive after finalPoints/finalWaypoints are captured and before the WAL is deleted.
+        isRecordingFrozen = true
+        tickerJob?.cancel()
+        tickerJob = null
+        try {
+            locationManager.removeUpdates(this)
+        } catch (_: Exception) {
+        }
+        val finalPoints = _points.value
+        val finalWaypoints = _waypoints.value
 
+        serviceScope.launch(Dispatchers.IO) {
             if (finalPoints.isEmpty()) {
                 // Nothing to save: don't write an empty track, just end the session cleanly.
                 File(filesDir, "active_recording.wal").delete()
                 withContext(Dispatchers.Main) {
                     stopTracking()
+                    isSaving.set(false)
                     onFailed?.invoke("No GPS points were recorded, so nothing was saved.")
                 }
                 return@launch
@@ -388,6 +406,7 @@ class TrackingService :
                 } catch (e: Exception) {
                     // Keep tracking state and the WAL intact so no data is lost; the user can retry.
                     withContext(Dispatchers.Main) {
+                        isSaving.set(false)
                         onFailed?.invoke("Couldn't save activity (${e.message ?: "unknown error"}). Your data is safe, try again.")
                     }
                     return@launch
@@ -397,6 +416,7 @@ class TrackingService :
             withContext(Dispatchers.Main) {
                 stopTracking() // closes the WAL; only then is it safe to delete it
                 File(filesDir, "active_recording.wal").delete()
+                isSaving.set(false)
                 onSaved?.invoke(trackId)
             }
         }
@@ -443,22 +463,30 @@ class TrackingService :
                 elevationLossMeters = finalStats.elevationLossM,
                 gpxFilePath = gpxFile.absolutePath,
             )
-        val trackId = db.trackDao().insertTrack(trackEntity)
-
-        val waypointEntities =
-            finalWaypoints.map { w ->
-                WaypointEntity(
-                    trackId = trackId,
-                    name = w.name,
-                    description = w.description,
-                    latitude = w.latitude,
-                    longitude = w.longitude,
-                    altitudeMeters = w.altitudeMeters,
-                    category = w.category.name,
-                    timestamp = w.timestamp.toEpochMilli(),
-                )
+        val trackId =
+            try {
+                db.withTransaction {
+                    val insertedTrackId = db.trackDao().insertTrack(trackEntity)
+                    val waypointEntities =
+                        finalWaypoints.map { w ->
+                            WaypointEntity(
+                                trackId = insertedTrackId,
+                                name = w.name,
+                                description = w.description,
+                                latitude = w.latitude,
+                                longitude = w.longitude,
+                                altitudeMeters = w.altitudeMeters,
+                                category = w.category.name,
+                                timestamp = w.timestamp.toEpochMilli(),
+                            )
+                        }
+                    db.waypointDao().insertWaypoints(waypointEntities)
+                    insertedTrackId
+                }
+            } catch (e: Exception) {
+                gpxFile.delete()
+                throw e
             }
-        db.waypointDao().insertWaypoints(waypointEntities)
         return trackId
     }
 
@@ -475,12 +503,14 @@ class TrackingService :
         wal = null
         _isTracking.value = false
         _isPaused.value = false
+        isRecordingFrozen = false
+        isSaving.set(false)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     override fun onLocationChanged(location: Location) {
-        if (!_isTracking.value || _isPaused.value) return
+        if (!_isTracking.value || _isPaused.value || isRecordingFrozen) return
 
         // 1. Accuracy Filter: discard fixes with poor horizontal accuracy (> 25m under heavy canopy)
         if (location.hasAccuracy()) _lastAccuracyMeters.value = location.accuracy

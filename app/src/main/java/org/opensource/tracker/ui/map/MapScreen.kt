@@ -163,7 +163,8 @@ fun MapScreen(
     // Everything osmdroid-related that must survive recomposition lives here, so the 1 Hz stats tick
     // can never trigger a tile-source reset or a full overlay rebuild.
     val render = remember { MapRenderState() }
-    var followMode by remember { mutableStateOf(true) }
+    val followModeState = remember { mutableStateOf(true) }
+    var followMode by followModeState
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, mapViewRef) {
@@ -309,7 +310,7 @@ fun MapScreen(
                         overlay.runOnFirstFix {
                             mapView.post {
                                 val fix = overlay.myLocation
-                                if (fix != null && !render.centeredOnce) {
+                                if (fix != null && !render.centeredOnce && followModeState.value) {
                                     render.centeredOnce = true
                                     mapView.controller.animateTo(fix)
                                 }

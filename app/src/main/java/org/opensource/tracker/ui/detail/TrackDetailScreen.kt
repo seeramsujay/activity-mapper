@@ -80,23 +80,29 @@ fun TrackDetailScreen(
     var track by remember { mutableStateOf<TrackEntity?>(null) }
     var waypoints by remember { mutableStateOf<List<WaypointEntity>>(emptyList()) }
     var points by remember { mutableStateOf<List<TrackPoint>>(emptyList()) }
+    var isLoadingPoints by remember(trackId) { mutableStateOf(true) }
 
     LaunchedEffect(trackId) {
-        val db = AppDatabase.getInstance(context)
-        val t = db.trackDao().getTrackById(trackId)
-        track = t
-        waypoints = db.waypointDao().getWaypointsList(trackId)
+        isLoadingPoints = true
+        try {
+            val db = AppDatabase.getInstance(context)
+            val t = db.trackDao().getTrackById(trackId)
+            track = t
+            waypoints = db.waypointDao().getWaypointsList(trackId)
 
-        t?.gpxFilePath?.let { path ->
-            val file = File(path)
-            if (file.exists()) {
-                // Parse off the main thread; a long or corrupt GPX must not freeze or crash the screen.
-                points =
-                    withContext(Dispatchers.IO) {
-                        runCatching { FileInputStream(file).use { GpxImporter.parse(it).points } }
-                            .getOrDefault(emptyList())
-                    }
+            t?.gpxFilePath?.let { path ->
+                val file = File(path)
+                if (file.exists()) {
+                    // Parse off the main thread; a long or corrupt GPX must not freeze or crash the screen.
+                    points =
+                        withContext(Dispatchers.IO) {
+                            runCatching { FileInputStream(file).use { GpxImporter.parse(it).points } }
+                                .getOrDefault(emptyList())
+                        }
+                }
             }
+        } finally {
+            isLoadingPoints = false
         }
     }
 
@@ -276,6 +282,7 @@ fun TrackDetailScreen(
                         )
                     }
                     Button(
+                        enabled = isCurrentlyOverlaid || (!isLoadingPoints && points.isNotEmpty()),
                         onClick = {
                             if (isCurrentlyOverlaid) {
                                 service?.clearReferenceTrack()
