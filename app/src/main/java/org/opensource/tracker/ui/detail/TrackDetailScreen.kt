@@ -50,6 +50,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.opensource.tracker.data.db.AppDatabase
 import org.opensource.tracker.data.db.TrackEntity
 import org.opensource.tracker.data.db.WaypointEntity
@@ -58,6 +60,7 @@ import org.opensource.tracker.domain.model.TrackPoint
 import org.opensource.tracker.domain.turnback.TurnBackEngine
 import org.opensource.tracker.service.TrackingService
 import org.opensource.tracker.ui.components.InteractiveProfileChart
+import org.opensource.tracker.ui.components.RouteMapCard
 import java.io.File
 import java.io.FileInputStream
 import java.text.SimpleDateFormat
@@ -77,19 +80,29 @@ fun TrackDetailScreen(
     var track by remember { mutableStateOf<TrackEntity?>(null) }
     var waypoints by remember { mutableStateOf<List<WaypointEntity>>(emptyList()) }
     var points by remember { mutableStateOf<List<TrackPoint>>(emptyList()) }
+    var isLoadingPoints by remember(trackId) { mutableStateOf(true) }
 
     LaunchedEffect(trackId) {
-        val db = AppDatabase.getInstance(context)
-        val t = db.trackDao().getTrackById(trackId)
-        track = t
-        waypoints = db.waypointDao().getWaypointsList(trackId)
+        isLoadingPoints = true
+        try {
+            val db = AppDatabase.getInstance(context)
+            val t = db.trackDao().getTrackById(trackId)
+            track = t
+            waypoints = db.waypointDao().getWaypointsList(trackId)
 
-        t?.gpxFilePath?.let { path ->
-            val file = File(path)
-            if (file.exists()) {
-                val parsed = GpxImporter.parse(FileInputStream(file))
-                points = parsed.points
+            t?.gpxFilePath?.let { path ->
+                val file = File(path)
+                if (file.exists()) {
+                    // Parse off the main thread; a long or corrupt GPX must not freeze or crash the screen.
+                    points =
+                        withContext(Dispatchers.IO) {
+                            runCatching { FileInputStream(file).use { GpxImporter.parse(it).points } }
+                                .getOrDefault(emptyList())
+                        }
+                }
             }
+        } finally {
+            isLoadingPoints = false
         }
     }
 
@@ -184,6 +197,11 @@ fun TrackDetailScreen(
                 }
             }
 
+            if (points.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                RouteMapCard(points = points, waypoints = waypoints)
+            }
+
             Spacer(modifier = Modifier.height(12.dp))
 
             // Export GPX Action Button
@@ -264,6 +282,7 @@ fun TrackDetailScreen(
                         )
                     }
                     Button(
+                        enabled = isCurrentlyOverlaid || (!isLoadingPoints && points.isNotEmpty()),
                         onClick = {
                             if (isCurrentlyOverlaid) {
                                 service?.clearReferenceTrack()
